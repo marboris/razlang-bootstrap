@@ -24,7 +24,7 @@ entry:
 endfunction
 ```
 
-عملیات فعلی شامل constant، local/load/store، arithmetic و comparison، unary، call، field/index، list، return و control-flow است.
+عملیات فعلی شامل constant، local/load/store، reference، arithmetic و comparison، unary، call، field/index، list، return و control-flow است. برای assignment روی هر lvalue، `store_ref` قرارداد عمومی است؛ بنابراین nested field/index به special-case backend نیاز ندارد.
 
 Stage-3 یک verifier نوشته‌شده با خود Raz دارد که invariantهای ساختاری RIR-1 را بررسی می‌کند. این verifier هنوز جای type checker یا optimizer را نمی‌گیرد؛ هدف آن این است که RIR به یک قرارداد قابل تست بین frontend و backend تبدیل شود.
 

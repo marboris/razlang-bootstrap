@@ -25,7 +25,7 @@ Raz source
 - **Stage-3** — `stage3/rir_verify.raz`: RIR-1 verifier written in Raz.
 - **Stage-4** — `stage4/host-driver.mjs`: temporary host bridge used while the native backend grows.
 
-The current release is bootstrap-stable, but the final goal is complete self-hosting of the compiler and removal of the JavaScript host from normal compiler development.
+The current release is bootstrap-stable, but the final goal is complete self-hosting of the compiler and removal of the JavaScript host from normal compiler development. The language syntax and current semantic surface are now represented in `raz.language.json`; bootstrap defaults remain only as seed fallback data.
 
 ## Tests
 
@@ -63,6 +63,7 @@ node razc-stage0.mjs compile tests/cases/arithmetic.raz \
 ## Documentation
 
 - `doc/ROADMAP.md` — English roadmap and complete project/file structure.
+- `doc/BOOTSTRAP-ARCHITECTURE.md` — bootstrap invariants, contracts, and B1–B5 milestones.
 - `doc/rir.md` — short RIR-1 contract.
 - `doc/README.fa.md` — short Persian project description.
 

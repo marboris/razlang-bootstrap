@@ -94,6 +94,16 @@ const DEFAULT_LANGUAGE = {
     List: { kind: 'sequence', arity: 1 },
     Ref: { kind: 'reference', arity: 1 }
   },
+  syntax: {
+    declarations: { function: 'function', struct: 'struct' },
+    statements: { let: 'let', return: 'return', if: 'if', else: 'else', while: 'while' },
+    expressions: { new: 'new', true: 'true', false: 'false' },
+    punctuation: {
+      openParen: '(', closeParen: ')', openBrace: '{', closeBrace: '}',
+      openBracket: '[', closeBracket: ']', openGeneric: '<', closeGeneric: '>',
+      comma: ',', colon: ':', semicolon: ';', assign: '=', arrow: '->', member: '.'
+    }
+  },
   builtins: {
     print: {
       params: ['string'], return: 'void', effect: 'io', intrinsic: 'print'
@@ -192,8 +202,27 @@ function readJson(file) {
   }
 }
 
+function normalizeLanguageSpec(language) {
+  const out = structuredClone(language);
+  const syntax = out.syntax ?? {};
+  const syntaxKeywords = [
+    ...Object.values(syntax.declarations ?? {}),
+    ...Object.values(syntax.statements ?? {}),
+    ...Object.values(syntax.expressions ?? {})
+  ];
+  const syntaxOperators = [
+    ...Object.values(syntax.punctuation ?? {}),
+    ...Object.keys(out.operators ?? {}),
+    ...Object.keys(out.unaryOperators ?? {})
+  ];
+  out.lexer ??= {};
+  out.lexer.keywords = [...new Set(syntaxKeywords)].filter(Boolean);
+  out.lexer.operators = [...new Set(syntaxOperators)].filter(Boolean);
+  return out;
+}
+
 function loadLanguage(file) {
-  return file ? mergeSpec(DEFAULT_LANGUAGE, readJson(file)) : structuredClone(DEFAULT_LANGUAGE);
+  return normalizeLanguageSpec(file ? mergeSpec(DEFAULT_LANGUAGE, readJson(file)) : DEFAULT_LANGUAGE);
 }
 
 function loadTarget(file) {
@@ -354,6 +383,40 @@ function createParser(language) {
   const binaryPrec = Object.fromEntries(
     Object.entries(language.operators ?? {}).map(([op, spec]) => [op, spec.precedence])
   );
+  const syntax = language.syntax ?? {};
+  const declarations = syntax.declarations ?? {};
+  const statements = syntax.statements ?? {};
+  const expressions = syntax.expressions ?? {};
+  const punctuation = syntax.punctuation ?? {};
+  const syntaxValue = (section, key, fallback) => section[key] ?? fallback;
+  const K = {
+    function: syntaxValue(declarations, 'function', 'function'),
+    struct: syntaxValue(declarations, 'struct', 'struct'),
+    let: syntaxValue(statements, 'let', 'let'),
+    return: syntaxValue(statements, 'return', 'return'),
+    if: syntaxValue(statements, 'if', 'if'),
+    else: syntaxValue(statements, 'else', 'else'),
+    while: syntaxValue(statements, 'while', 'while'),
+    new: syntaxValue(expressions, 'new', 'new'),
+    true: syntaxValue(expressions, 'true', 'true'),
+    false: syntaxValue(expressions, 'false', 'false')
+  };
+  const P = {
+    openParen: syntaxValue(punctuation, 'openParen', '('),
+    closeParen: syntaxValue(punctuation, 'closeParen', ')'),
+    openBrace: syntaxValue(punctuation, 'openBrace', '{'),
+    closeBrace: syntaxValue(punctuation, 'closeBrace', '}'),
+    openBracket: syntaxValue(punctuation, 'openBracket', '['),
+    closeBracket: syntaxValue(punctuation, 'closeBracket', ']'),
+    openGeneric: syntaxValue(punctuation, 'openGeneric', '<'),
+    closeGeneric: syntaxValue(punctuation, 'closeGeneric', '>'),
+    comma: syntaxValue(punctuation, 'comma', ','),
+    colon: syntaxValue(punctuation, 'colon', ':'),
+    semicolon: syntaxValue(punctuation, 'semicolon', ';'),
+    assign: syntaxValue(punctuation, 'assign', '='),
+    arrow: syntaxValue(punctuation, 'arrow', '->'),
+    member: syntaxValue(punctuation, 'member', '.')
+  };
 
   return function parse(tokens) {
     let i = 0;
@@ -370,37 +433,37 @@ function createParser(language) {
     function parseType() {
       const first = take('identifier');
       let type = { kind: 'NamedType', name: first.value, args: [] };
-      if (maybe('<')) {
+      if (maybe(P.openGeneric)) {
         type.args.push(parseType());
-        while (maybe(',')) type.args.push(parseType());
-        take('>');
+        while (maybe(P.comma)) type.args.push(parseType());
+        take(P.closeGeneric);
       }
       return type;
     }
 
     function parseBlock() {
-      const t = take('{');
+      const t = take(P.openBrace);
       const statements = [];
-      while (cur().kind !== '}' && cur().kind !== 'EOF') statements.push(parseStatement());
-      take('}');
+      while (cur().kind !== P.closeBrace && cur().kind !== 'EOF') statements.push(parseStatement());
+      take(P.closeBrace);
       return AST.block(loc(t), statements);
     }
 
     function parseControlledBody() {
-      if (cur().kind === '{') return parseBlock();
+      if (cur().kind === P.openBrace) return parseBlock();
       const statement = parseStatement();
       return AST.block(statement.loc, [statement]);
     }
 
     function parseIfStatement() {
-      const t = take('if');
-      take('(');
+      const t = take(K.if);
+      take(P.openParen);
       const test = parseExpression();
-      take(')');
+      take(P.closeParen);
       const thenBranch = parseControlledBody();
       let elseBranch = null;
-      if (maybe('else')) {
-        if (cur().kind === 'if') {
+      if (maybe(K.else)) {
+        if (cur().kind === K.if) {
           const nested = parseIfStatement();
           elseBranch = AST.block(nested.loc, [nested]);
         } else {
@@ -412,35 +475,35 @@ function createParser(language) {
 
     function parseStatement() {
       const t = cur();
-      if (maybe('let')) {
+      if (maybe(K.let)) {
         const name = take('identifier');
         let type = null;
-        if (maybe(':')) type = parseType();
-        take('=');
+        if (maybe(P.colon)) type = parseType();
+        take(P.assign);
         const init = parseExpression();
-        take(';');
+        take(P.semicolon);
         return AST.let(loc(t), name.value, type, init);
       }
-      if (maybe('return')) {
-        const value = cur().kind === ';' ? null : parseExpression();
-        take(';');
+      if (maybe(K.return)) {
+        const value = cur().kind === P.semicolon ? null : parseExpression();
+        take(P.semicolon);
         return AST.return(loc(t), value);
       }
-      if (cur().kind === 'if') return parseIfStatement();
-      if (maybe('while')) {
-        take('(');
+      if (cur().kind === K.if) return parseIfStatement();
+      if (maybe(K.while)) {
+        take(P.openParen);
         const test = parseExpression();
-        take(')');
+        take(P.closeParen);
         return AST.while(loc(t), test, parseControlledBody());
       }
 
       const expr = parseExpression();
-      if (maybe('=')) {
+      if (maybe(P.assign)) {
         const value = parseExpression();
-        take(';');
+        take(P.semicolon);
         return AST.assign(loc(t), expr, value);
       }
-      take(';');
+      take(P.semicolon);
       return AST.exprStmt(loc(t), expr);
     }
 
@@ -450,36 +513,36 @@ function createParser(language) {
       if (maybe('float')) return AST.literal(loc(t), 'float', Number.parseFloat(t.value));
       if (maybe('string')) return AST.literal(loc(t), 'string', t.value);
       if (maybe('char')) return AST.literal(loc(t), 'char', t.value.charCodeAt(0));
-      if (maybe('true')) return AST.literal(loc(t), 'bool', true);
-      if (maybe('false')) return AST.literal(loc(t), 'bool', false);
+      if (maybe(K.true)) return AST.literal(loc(t), 'bool', true);
+      if (maybe(K.false)) return AST.literal(loc(t), 'bool', false);
       if (maybe('identifier')) {
         let expr = AST.name(loc(t), t.value);
         if (cur().kind === '::') fail('qualified names are not in Stage-0 syntax yet', cur());
         return parsePostfix(expr);
       }
-      if (maybe('new')) {
+      if (maybe(K.new)) {
         const type = parseType();
-        take('(');
+        take(P.openParen);
         const args = [];
-        if (cur().kind !== ')') {
+        if (cur().kind !== P.closeParen) {
           args.push(parseExpression());
-          while (maybe(',')) args.push(parseExpression());
+          while (maybe(P.comma)) args.push(parseExpression());
         }
-        take(')');
+        take(P.closeParen);
         return parsePostfix(AST.new(loc(t), type, args));
       }
-      if (maybe('(')) {
+      if (maybe(P.openParen)) {
         const expr = parseExpression();
-        take(')');
+        take(P.closeParen);
         return parsePostfix(expr);
       }
-      if (maybe('[')) {
+      if (maybe(P.openBracket)) {
         const items = [];
-        if (cur().kind !== ']') {
+        if (cur().kind !== P.closeBracket) {
           items.push(parseExpression());
-          while (maybe(',')) items.push(parseExpression());
+          while (maybe(P.comma)) items.push(parseExpression());
         }
-        take(']');
+        take(P.closeBracket);
         return parsePostfix(AST.list(loc(t), items));
       }
       fail(`expected expression, got ${t.kind}`, t);
@@ -487,24 +550,24 @@ function createParser(language) {
 
     function parsePostfix(expr) {
       while (true) {
-        if (maybe('(')) {
+        if (maybe(P.openParen)) {
           const args = [];
-          if (cur().kind !== ')') {
+          if (cur().kind !== P.closeParen) {
             args.push(parseExpression());
-            while (maybe(',')) args.push(parseExpression());
+            while (maybe(P.comma)) args.push(parseExpression());
           }
-          take(')');
+          take(P.closeParen);
           expr = AST.call(expr.loc, expr, args);
           continue;
         }
-        if (maybe('.')) {
+        if (maybe(P.member)) {
           const member = take('identifier');
           expr = AST.member(expr.loc, expr, member.value);
           continue;
         }
-        if (maybe('[')) {
+        if (maybe(P.openBracket)) {
           const index = parseExpression();
-          take(']');
+          take(P.closeBracket);
           expr = AST.index(expr.loc, expr, index);
           continue;
         }
@@ -514,7 +577,7 @@ function createParser(language) {
 
     function parseUnary() {
       const t = cur();
-      if (['!', '-', '+'].includes(t.kind)) {
+      if (Object.prototype.hasOwnProperty.call(language.unaryOperators ?? {}, t.kind)) {
         i += 1;
         return AST.unary(loc(t), t.kind, parseUnary());
       }
@@ -533,36 +596,36 @@ function createParser(language) {
     }
 
     function parseFunction() {
-      const start = take('function');
+      const start = take(K.function);
       const name = take('identifier');
-      take('(');
+      take(P.openParen);
       const params = [];
-      if (cur().kind !== ')') {
+      if (cur().kind !== P.closeParen) {
         while (true) {
           const p = take('identifier');
-          take(':');
+          take(P.colon);
           params.push(AST.parameter(loc(p), p.value, parseType()));
-          if (!maybe(',')) break;
+          if (!maybe(P.comma)) break;
         }
       }
-      take(')');
+      take(P.closeParen);
       let returnType = { kind: 'NamedType', name: 'void', args: [] };
-      if (maybe('->')) returnType = parseType();
+      if (maybe(P.arrow)) returnType = parseType();
       return AST.function(loc(start), name.value, params, returnType, parseBlock());
     }
 
     function parseStruct() {
-      const start = take('struct');
+      const start = take(K.struct);
       const name = take('identifier');
-      take('{');
+      take(P.openBrace);
       const fields = [];
-      while (cur().kind !== '}') {
+      while (cur().kind !== P.closeBrace) {
         const f = take('identifier');
-        take(':');
+        take(P.colon);
         fields.push(AST.field(loc(f), f.value, parseType()));
-        take(';');
+        take(P.semicolon);
       }
-      take('}');
+      take(P.closeBrace);
       return AST.struct(loc(start), name.value, fields);
     }
 
@@ -570,8 +633,8 @@ function createParser(language) {
       const declarations = [];
       const start = cur();
       while (cur().kind !== 'EOF') {
-        if (cur().kind === 'function') declarations.push(parseFunction());
-        else if (cur().kind === 'struct') declarations.push(parseStruct());
+        if (cur().kind === K.function) declarations.push(parseFunction());
+        else if (cur().kind === K.struct) declarations.push(parseStruct());
         else fail(`expected top-level declaration, got ${cur().kind}`, cur());
       }
       return AST.program(loc(start), declarations);
@@ -819,8 +882,16 @@ function createAnalyzer(language) {
           validateType(t, expr.loc, false);
           const args = expr.args.map(x => inferExpr(x, scope));
           if (structs.has(baseType(t))) {
-            const fields = structs.get(baseType(t));
-            if (args.length !== 0 && args.length !== fields.size) fail(`new ${t} expects zero args or one argument per field`, expr.loc);
+            const fields = [...structs.get(baseType(t)).entries()];
+            if (args.length !== 0 && args.length !== fields.length) fail(`new ${t} expects zero args or one argument per field`, expr.loc);
+            if (args.length) {
+              for (let j = 0; j < args.length; j++) {
+                const expectedField = fields[j][1];
+                if (!assignable(expectedField, args[j].type)) {
+                  fail(`new ${t} field ${fields[j][0]} expects ${expectedField}, got ${args[j].type}`, expr.args[j].loc);
+                }
+              }
+            }
           } else if (baseType(t) === 'List') {
             if (args.length) fail('List construction takes no constructor arguments in Stage-0', expr.loc);
           }
@@ -1169,18 +1240,8 @@ function createIRBuilder(language) {
         emit('store_var', { name: target.value, value: src, type: target.type });
         return;
       }
-      if (target.kind === 'Member') {
-        if (target.base.kind !== 'Name') throw new Error('Stage-0 field assignment requires a direct variable base');
-        emit('field_set', { baseName: target.base.value, field: target.name, value: src, type: target.type });
-        return;
-      }
-      if (target.kind === 'Index') {
-        if (target.base.kind !== 'Name') throw new Error('Stage-0 index assignment requires a direct variable base');
-        const index = lowerExpr(target.index);
-        emit('index_set', { baseName: target.base.value, index, value: src, type: target.type });
-        return;
-      }
-      throw new Error(`internal: unsupported store target ${target.kind}`);
+      const ref = lowerPlace(target);
+      emit('store_ref', { ref, value: src, type: target.type });
     }
 
     function lowerBlock(block) {
@@ -1406,6 +1467,10 @@ function createCppBackend(target, language) {
         valueAliases.set(x.result, `${val(x.base)}[${val(x.index)}]`);
         return;
       }
+      case 'store_ref': {
+        emit(`    ${val(x.ref)} = ${val(x.value)};`);
+        return;
+      }
       case 'binary': {
         emit(`    ${val(x.result)} = ${intrinsicExpr(x.intrinsic, val(x.left), val(x.right))};`);
         return;
@@ -1531,6 +1596,7 @@ function createCppBackend(target, language) {
 // ---------------------------------------------------------------------------
 
 function compileSource({ sourceText, sourceName = '<source>', language = DEFAULT_LANGUAGE, target = DEFAULT_TARGET, dumpIr = false }) {
+  language = normalizeLanguageSpec(language);
   const lex = createLexer(language);
   const parse = createParser(language);
   const analyze = createAnalyzer(language);
@@ -1573,6 +1639,7 @@ function formatInstruction(x) {
     case 'ref_var': return `${x.result} = ref ${x.name} : ${x.type}`;
     case 'ref_field': return `${x.result} = ref_field ${x.base}.${x.field} : ${x.type}`;
     case 'ref_index': return `${x.result} = ref_index ${x.base}[${x.index}] : ${x.type}`;
+    case 'store_ref': return `store_ref ${x.ref}, ${x.value}`;
     case 'binary': return `${x.result} = ${x.intrinsic} ${x.left}, ${x.right} : ${x.type}`;
     case 'unary': return `${x.result} = ${x.intrinsic} ${x.operand} : ${x.type}`;
     case 'call_intrinsic': return `${x.result} = intrinsic ${x.intrinsic}(${x.args.join(', ')}) : ${x.type}`;

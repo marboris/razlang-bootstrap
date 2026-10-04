@@ -14,6 +14,49 @@
     }
   },
   "builtins": {
+    "print": {
+      "params": [
+        "string"
+      ],
+      "return": "void",
+      "effect": "io",
+      "intrinsic": "print"
+    },
+    "readFile": {
+      "params": [
+        "string"
+      ],
+      "return": "string",
+      "effect": "io",
+      "intrinsic": "read_file"
+    },
+    "writeFile": {
+      "params": [
+        "string",
+        "string"
+      ],
+      "return": "void",
+      "effect": "io",
+      "intrinsic": "write_file"
+    },
+    "length": {
+      "params": [
+        "string"
+      ],
+      "return": "i64",
+      "effect": "pure",
+      "intrinsic": "string_length"
+    },
+    "slice": {
+      "params": [
+        "string",
+        "i64",
+        "i64"
+      ],
+      "return": "string",
+      "effect": "pure",
+      "intrinsic": "string_slice"
+    },
     "append": {
       "params": [
         "List<$T>",
@@ -34,15 +77,14 @@
       "intrinsic": "list_push",
       "generic": true
     },
-    "slice": {
+    "listLength": {
       "params": [
-        "string",
-        "i64",
-        "i64"
+        "List<$T>"
       ],
-      "return": "string",
+      "return": "i64",
       "effect": "pure",
-      "intrinsic": "string_slice"
+      "intrinsic": "list_length",
+      "generic": true
     },
     "int_to_string": {
       "params": [
@@ -71,6 +113,136 @@
     },
     "string": {
       "kind": "string"
+    }
+  },
+  "syntax": {
+    "declarations": {
+      "function": "function",
+      "struct": "struct"
+    },
+    "statements": {
+      "let": "let",
+      "return": "return",
+      "if": "if",
+      "else": "else",
+      "while": "while"
+    },
+    "expressions": {
+      "new": "new",
+      "true": "true",
+      "false": "false"
+    },
+    "punctuation": {
+      "openParen": "(",
+      "closeParen": ")",
+      "openBrace": "{",
+      "closeBrace": "}",
+      "openBracket": "[",
+      "closeBracket": "]",
+      "openGeneric": "<",
+      "closeGeneric": ">",
+      "comma": ",",
+      "colon": ":",
+      "semicolon": ";",
+      "assign": "=",
+      "arrow": "->",
+      "member": "."
+    }
+  },
+  "operators": {
+    "||": {
+      "precedence": 10,
+      "family": "logical",
+      "result": "bool",
+      "intrinsic": "or",
+      "shortCircuit": true
+    },
+    "&&": {
+      "precedence": 20,
+      "family": "logical",
+      "result": "bool",
+      "intrinsic": "and",
+      "shortCircuit": true
+    },
+    "==": {
+      "precedence": 30,
+      "family": "compare",
+      "result": "bool",
+      "intrinsic": "eq"
+    },
+    "!=": {
+      "precedence": 30,
+      "family": "compare",
+      "result": "bool",
+      "intrinsic": "ne"
+    },
+    "<": {
+      "precedence": 40,
+      "family": "compare",
+      "result": "bool",
+      "intrinsic": "lt"
+    },
+    "<=": {
+      "precedence": 40,
+      "family": "compare",
+      "result": "bool",
+      "intrinsic": "le"
+    },
+    ">": {
+      "precedence": 40,
+      "family": "compare",
+      "result": "bool",
+      "intrinsic": "gt"
+    },
+    ">=": {
+      "precedence": 40,
+      "family": "compare",
+      "result": "bool",
+      "intrinsic": "ge"
+    },
+    "+": {
+      "precedence": 50,
+      "family": "arithmetic",
+      "intrinsic": "add",
+      "overloads": [
+        {
+          "left": "string",
+          "right": "string",
+          "result": "string",
+          "intrinsic": "string_concat"
+        }
+      ]
+    },
+    "-": {
+      "precedence": 50,
+      "family": "arithmetic",
+      "intrinsic": "sub"
+    },
+    "*": {
+      "precedence": 60,
+      "family": "arithmetic",
+      "intrinsic": "mul"
+    },
+    "/": {
+      "precedence": 60,
+      "family": "arithmetic",
+      "intrinsic": "div"
+    },
+    "%": {
+      "precedence": 60,
+      "family": "arithmetic",
+      "intrinsic": "mod"
+    }
+  },
+  "unaryOperators": {
+    "-": {
+      "intrinsic": "neg"
+    },
+    "!": {
+      "intrinsic": "not"
+    },
+    "+": {
+      "identity": true
     }
   }
 }

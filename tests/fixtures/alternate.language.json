@@ -1,0 +1,19 @@
+{
+  "syntax": {
+    "declarations": {
+      "function": "fn",
+      "struct": "record"
+    },
+    "statements": {
+      "let": "var",
+      "return": "yield"
+    },
+    "expressions": {
+      "new": "make"
+    },
+    "punctuation": {
+      "semicolon": "~",
+      "arrow": "=>"
+    }
+  }
+}

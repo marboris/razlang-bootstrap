@@ -27,6 +27,8 @@ RIR is the architectural boundary between the language/frontend and target-speci
 
 The current release is a stable bootstrap milestone. The regression suite and C++ target-profile smoke tests pass in the reference environment. Stage-1 can parse and lower its own compiler source to RIR, and two independently built native Stage-1 generations produce identical RIR.
 
+The first architecture-hardening pass now makes the frontend syntax explicitly configurable through `raz.language.json`: declaration and statement keywords, expression keywords, punctuation, and unary/binary operator sets are language-spec data rather than parser literals. Assignment lowering also uses the RIR `store_ref` contract so nested member/index lvalues share one lowering path.
+
 The full native self-hosting endpoint is intentionally still a roadmap item: Stage-2 currently covers the tested RIR subset, while Stage-4 contains a temporary Node.js host bridge for broader frontend/backend integration. This boundary is explicit so the project can replace the bridge with native Raz components without changing the language/frontend contract.
 
 
@@ -50,7 +52,30 @@ The full native self-hosting endpoint is intentionally still a roadmap item: Sta
 
 The bootstrap scripts rebuild native compiler components and compare generated RIR across generations. The important criterion is semantic reproducibility, not merely successful text generation.
 
-### Final self-hosting milestone
+#
+## Architecture invariants for the bootstrap
+
+The bootstrap is developed around a small set of invariants.
+
+1. **Language source of truth** — user-visible syntax and language semantics belong in the language specification, not in parser conditionals. Bootstrap defaults in `razc-stage0.mjs` exist only as recovery data for the initial seed.
+2. **RIR as the contract** — frontend and backend communicate through RIR; target backends must not depend on AST details.
+3. **Lvalues are references** — mutation of a name, field, or index is represented by reference formation plus `store_ref`, avoiding target-specific AST cases.
+4. **Semantic failures happen before code generation** — constructor arguments, assignments, calls, returns, and control-flow conditions must be rejected in the frontend rather than delegated to the generated C++ compiler.
+5. **Bootstrap proof is reproducibility plus independence** — equal output from two generations is necessary, while the final milestone additionally requires the generated Raz compiler to rebuild the compiler without the JavaScript implementation in the normal development path.
+
+### Next bootstrap milestones
+
+**B1 — complete frontend contract:** formalize lexical rules and diagnostics in the language specification, strengthen type checking and source locations, and make Stage-1 consume the same contract.
+
+**B2 — complete RIR contract:** define the typed instruction set, operand constraints, CFG/terminator rules, calls, references, and data layout semantics; upgrade Stage-3 from structural validation to full RIR verification.
+
+**B3 — native backend:** make Stage-2 consume the complete RIR contract and eliminate its string/heuristic type inference.
+
+**B4 — self-hosting closure:** build the Raz compiler, including its backend path, from Raz source and compare the resulting compiler generations.
+
+**B5 — language evolution layer:** only after B4 is stable, expand the language's type system, syntax, standard facilities, and diagnostics independently from the bootstrap mechanism.
+
+## Final self-hosting milestone
 
 The compiler should be maintained primarily as Raz source:
 

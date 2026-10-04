@@ -30,7 +30,8 @@ function compileCase(spec) {
   const base = path.join(TMP, spec.name);
   const cpp = `${base}.cpp`;
   fs.copyFileSync(path.join(ROOT, 'raz_runtime.hpp'), path.join(TMP, 'raz_runtime.hpp'));
-  const p = run(['compile', source, '-o', cpp, '--language', LANGUAGE, '--target', TARGET, '--emit-ir', '--run']);
+  const language = spec.language ? path.join(HERE, spec.language) : LANGUAGE;
+  const p = run(['compile', source, '-o', cpp, '--language', language, '--target', TARGET, '--emit-ir', '--run']);
   return { ...p, cpp, ir: `${p.stdout ?? ''}` };
 }
 

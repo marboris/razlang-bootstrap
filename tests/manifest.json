@@ -22,11 +22,19 @@
       ]
     },
     {
+      "name": "nested-lvalue",
+      "source": "cases/nested_lvalue.raz",
+      "exit": 9,
+      "ir": [
+        "store_ref"
+      ]
+    },
+    {
       "name": "struct",
       "source": "cases/struct.raz",
       "exit": 25,
       "ir": [
-        "field_set",
+        "store_ref",
         "field",
         "call"
       ]
@@ -70,8 +78,17 @@
       "exit": 41,
       "ir": [
         "ref box : Ref<Box>",
-        "field_set",
+        "store_ref",
         "call inc"
+      ]
+    },
+    {
+      "name": "configurable-syntax",
+      "source": "cases/configurable_syntax.raz",
+      "language": "fixtures/alternate.language.json",
+      "exit": 7,
+      "ir": [
+        "store_ref"
       ]
     }
   ],
@@ -80,6 +97,11 @@
       "name": "type-error",
       "source": "cases/type_error.raz",
       "contains": "cannot initialize"
+    },
+    {
+      "name": "constructor-type-error",
+      "source": "cases/constructor_type_error.raz",
+      "contains": "new Point field x expects i64, got string"
     }
   ],
   "stage1": {

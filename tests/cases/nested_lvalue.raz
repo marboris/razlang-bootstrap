@@ -1,0 +1,13 @@
+struct Inner {
+    value: i64;
+}
+
+struct Outer {
+    inner: Inner;
+}
+
+function main() -> i64 {
+    let o: Outer = new Outer();
+    o.inner.value = 9;
+    return o.inner.value;
+}
