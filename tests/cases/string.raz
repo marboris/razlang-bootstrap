@@ -1,0 +1,4 @@
+function main() -> i64 {
+    let s: string = "bootstrap";
+    return length(s);
+}

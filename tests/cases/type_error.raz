@@ -1,0 +1,4 @@
+function main() -> i64 {
+    let x: i64 = "not a number";
+    return x;
+}

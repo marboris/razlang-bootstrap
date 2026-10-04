@@ -1,0 +1,1360 @@
+// Stage-1 native frontend, written in Raz.
+//
+// Important implementation rule:
+// Compiler state is explicit and passed as Ref<T>. There is no JS/OOP state.
+// Mutable lists use push() so compiler state is updated without copying the full list.
+//
+// Pipeline implemented here:
+//   source -> lexer -> AST -> RIR
+//
+// RIR is intentionally target-independent and textual in this bootstrap stage.
+// Semantic/type checking and a native RIR backend are later stages.
+
+struct Token {
+    kind: i64;
+    text: string;
+    pos: i64;
+}
+
+struct Expr {
+    kind: i64;
+    op: string;
+    text: string;
+    left: i64;
+    right: i64;
+    valueText: string;
+    args: List<i64>;
+}
+
+struct Stmt {
+    kind: i64;
+    name: string;
+    type: string;
+    expr: i64;
+    left: i64;
+    right: i64;
+    thenStmts: List<i64>;
+    elseStmts: List<i64>;
+    body: List<i64>;
+}
+
+struct Param {
+    name: string;
+    type: string;
+}
+
+struct Field {
+    name: string;
+    type: string;
+}
+
+struct FunctionDef {
+    name: string;
+    params: List<Param>;
+    returnType: string;
+    body: List<i64>;
+}
+
+struct StructDef {
+    name: string;
+    fields: List<Field>;
+}
+
+struct Program {
+    exprs: List<Expr>;
+    stmts: List<Stmt>;
+    functions: List<FunctionDef>;
+    structs: List<StructDef>;
+}
+
+struct ParserState {
+    tokens: List<Token>;
+    pos: i64;
+    exprs: List<Expr>;
+    stmts: List<Stmt>;
+    functions: List<FunctionDef>;
+    structs: List<StructDef>;
+    lastTokenKind: i64;
+    lastTokenText: string;
+    lastExpr: i64;
+    lastStmt: i64;
+    lastList: List<i64>;
+    lastArgs: List<i64>;
+    lastType: string;
+    lastFunction: FunctionDef;
+    lastStruct: StructDef;
+}
+
+struct EmitState {
+    lines: List<string>;
+    temp: i64;
+    label: i64;
+    lastValue: string;
+}
+
+struct Binding {
+    name: string;
+    type: string;
+}
+
+struct SemanticState {
+    ok: bool;
+    message: string;
+}
+
+function tokenValue(kind: i64, text: string, pos: i64) -> Token {
+    let t: Token = new Token();
+    t.kind = kind;
+    t.text = text;
+    t.pos = pos;
+    return t;
+}
+
+function isSpace(c: i64) -> bool {
+    return c == 32 || c == 9 || c == 10 || c == 13;
+}
+
+function isDigit(c: i64) -> bool {
+    return c >= 48 && c <= 57;
+}
+
+function isAlpha(c: i64) -> bool {
+    return (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c == 95;
+}
+
+function isAlphaNum(c: i64) -> bool {
+    return isAlpha(c) || isDigit(c);
+}
+
+function keywordKind(word: string) -> i64 {
+    if (word == "function") return 10;
+    if (word == "struct") return 11;
+    if (word == "let") return 12;
+    if (word == "return") return 13;
+    if (word == "if") return 14;
+    if (word == "else") return 15;
+    if (word == "while") return 16;
+    if (word == "true") return 17;
+    if (word == "false") return 18;
+    if (word == "new") return 19;
+    return 1;
+}
+
+function operatorKind(text: string) -> i64 {
+    if (text == "(") return 20;
+    if (text == ")") return 21;
+    if (text == "{") return 22;
+    if (text == "}") return 23;
+    if (text == ";") return 24;
+    if (text == ":") return 25;
+    if (text == ",") return 26;
+    if (text == ".") return 27;
+    if (text == "[") return 28;
+    if (text == "]") return 29;
+    if (text == "=") return 30;
+    if (text == "+") return 31;
+    if (text == "-") return 32;
+    if (text == "*") return 33;
+    if (text == "/") return 34;
+    if (text == "%") return 35;
+    if (text == "!") return 36;
+    if (text == "==") return 37;
+    if (text == "!=") return 38;
+    if (text == "<") return 39;
+    if (text == "<=") return 40;
+    if (text == ">") return 41;
+    if (text == ">=") return 42;
+    if (text == "&&") return 43;
+    if (text == "||") return 44;
+    if (text == "->") return 45;
+    return 99;
+}
+
+function lex(source: string) -> List<Token> {
+    let out: List<Token> = [];
+    let i: i64 = 0;
+    let n: i64 = length(source);
+    while (i < n) {
+        let c: i64 = source[i];
+        if (isSpace(c)) {
+            i = i + 1;
+        } else if (c == 47 && i + 1 < n && source[i + 1] == 47) {
+            i = i + 2;
+            while (i < n && source[i] != 10) i = i + 1;
+        } else if (c == 47 && i + 1 < n && source[i + 1] == 42) {
+            i = i + 2;
+            while (i + 1 < n && !(source[i] == 42 && source[i + 1] == 47)) i = i + 1;
+            if (i + 1 < n) i = i + 2;
+        } else if (isDigit(c)) {
+            let start: i64 = i;
+            i = i + 1;
+            while (i < n && isDigit(source[i])) i = i + 1;
+            if (i < n && source[i] == 46 && i + 1 < n && isDigit(source[i + 1])) {
+                i = i + 1;
+                while (i < n && isDigit(source[i])) i = i + 1;
+            }
+            push(out, tokenValue(2, slice(source, start, i), start));
+        } else if (isAlpha(c)) {
+            let start: i64 = i;
+            i = i + 1;
+            while (i < n && isAlphaNum(source[i])) i = i + 1;
+            let word: string = slice(source, start, i);
+            push(out, tokenValue(keywordKind(word), word, start));
+        } else if (c == 34) {
+            let start: i64 = i;
+            i = i + 1;
+            let value: string = "";
+            while (i < n && source[i] != 34) {
+                if (source[i] == 92 && i + 1 < n) {
+                    i = i + 1;
+                    if (source[i] == 110) value = value + "\n";
+                    else if (source[i] == 116) value = value + "\t";
+                    else if (source[i] == 114) value = value + "\r";
+                    else value = value + slice(source, i, i + 1);
+                    i = i + 1;
+                } else {
+                    value = value + slice(source, i, i + 1);
+                    i = i + 1;
+                }
+            }
+            if (i < n) i = i + 1;
+            push(out, tokenValue(3, value, start));
+        } else if (c == 39) {
+            let start: i64 = i;
+            i = i + 1;
+            let code: i64 = 0;
+            if (i < n && source[i] == 92 && i + 1 < n) {
+                i = i + 1;
+                if (source[i] == 110) code = 10;
+                else if (source[i] == 116) code = 9;
+                else if (source[i] == 114) code = 13;
+                else code = source[i];
+                i = i + 1;
+            } else if (i < n) {
+                code = source[i];
+                i = i + 1;
+            }
+            if (i < n && source[i] == 39) i = i + 1;
+            push(out, tokenValue(4, int_to_string(code), start));
+        } else {
+            let two: string = "";
+            if (i + 1 < n) two = slice(source, i, i + 2);
+            if (two == "==" || two == "!=" || two == "<=" || two == ">=" || two == "&&" || two == "||" || two == "->") {
+                push(out, tokenValue(operatorKind(two), two, i));
+                i = i + 2;
+            } else {
+                let one: string = slice(source, i, i + 1);
+                push(out, tokenValue(operatorKind(one), one, i));
+                i = i + 1;
+            }
+        }
+    }
+    push(out, tokenValue(0, "", n));
+    return out;
+}
+
+function current(state: Ref<ParserState>) -> Token {
+    return state.tokens[state.pos];
+}
+
+function take(state: Ref<ParserState>, kind: i64) -> Token {
+    let t: Token = state.tokens[state.pos];
+    state.pos = state.pos + 1;
+    if (t.kind != kind) return t;
+    return t;
+}
+
+function maybe(state: Ref<ParserState>, kind: i64) -> bool {
+    let t: Token = state.tokens[state.pos];
+    if (t.kind == kind) {
+        state.pos = state.pos + 1;
+        return true;
+    }
+    return false;
+}
+
+function emptyExpr(kind: i64) -> Expr {
+    let e: Expr = new Expr();
+    e.kind = kind;
+    e.left = -1;
+    e.right = -1;
+    e.valueText = "";
+    e.args = [];
+    return e;
+}
+
+function emptyStmt(kind: i64) -> Stmt {
+    let s: Stmt = new Stmt();
+    s.kind = kind;
+    s.expr = -1;
+    s.left = -1;
+    s.right = -1;
+    s.thenStmts = [];
+    s.elseStmts = [];
+    s.body = [];
+    return s;
+}
+
+function addExpr(state: Ref<ParserState>, e: Expr) -> i64 {
+    let id: i64 = listLength(state.exprs);
+    push(state.exprs, e);
+    return id;
+}
+
+function addStmt(state: Ref<ParserState>, s: Stmt) -> i64 {
+    let id: i64 = listLength(state.stmts);
+    push(state.stmts, s);
+    return id;
+}
+
+function precedence(kind: i64) -> i64 {
+    if (kind == 44) return 10;
+    if (kind == 43) return 20;
+    if (kind == 37 || kind == 38) return 30;
+    if (kind == 39 || kind == 40 || kind == 41 || kind == 42) return 40;
+    if (kind == 31 || kind == 32) return 50;
+    if (kind == 33 || kind == 34 || kind == 35) return 60;
+    return -1;
+}
+
+function parseType(state: Ref<ParserState>) -> string {
+    let t: Token = take(state, 1);
+    let out: string = t.text;
+    if (current(state).kind == 39) {
+        take(state, 39);
+        let inner: string = parseType(state);
+        out = out + "<" + inner;
+        while (current(state).kind == 26) {
+            take(state, 26);
+            let arg: string = parseType(state);
+            out = out + "," + arg;
+        }
+        maybe(state, 41);
+        out = out + ">";
+    }
+    return out;
+}
+
+function parseExpression(state: Ref<ParserState>, minPrec: i64) -> i64 {
+    let left: i64 = parseUnary(state);
+    let p: i64 = precedence(current(state).kind);
+    while (p >= minPrec) {
+        let op: string = current(state).text;
+        take(state, current(state).kind);
+        let right: i64 = parseExpression(state, p + 1);
+        let e: Expr = emptyExpr(6);
+        e.op = op;
+        e.left = left;
+        e.right = right;
+        left = addExpr(state, e);
+        p = precedence(current(state).kind);
+    }
+    return left;
+}
+
+function parseCallArgs(state: Ref<ParserState>) -> List<i64> {
+    let args: List<i64> = [];
+    if (current(state).kind != 21) {
+        push(args, parseExpression(state, 0));
+        while (current(state).kind == 26) {
+            take(state, 26);
+            push(args, parseExpression(state, 0));
+        }
+    }
+    maybe(state, 21);
+    return args;
+}
+
+function parsePrimary(state: Ref<ParserState>) -> i64 {
+    let t: Token = current(state);
+    if (t.kind == 2) {
+        take(state, 2);
+        let e: Expr = emptyExpr(1);
+        e.text = t.text;
+        e.valueText = t.text;
+        return addExpr(state, e);
+    }
+    if (t.kind == 3) {
+        take(state, 3);
+        let e: Expr = emptyExpr(2);
+        e.text = t.text;
+        return addExpr(state, e);
+    }
+    if (t.kind == 4) {
+        take(state, 4);
+        let e: Expr = emptyExpr(3);
+        e.valueText = t.text;
+        return addExpr(state, e);
+    }
+    if (t.kind == 17 || t.kind == 18) {
+        take(state, t.kind);
+        let e: Expr = emptyExpr(4);
+        if (t.kind == 17) e.valueText = "true";
+        else e.valueText = "false";
+        return addExpr(state, e);
+    }
+    if (t.kind == 1) {
+        take(state, 1);
+        let e: Expr = emptyExpr(5);
+        e.text = t.text;
+        return addExpr(state, e);
+    }
+    if (t.kind == 19) {
+        take(state, 19);
+        let e: Expr = emptyExpr(11);
+        e.text = parseType(state);
+        maybe(state, 20);
+        e.args = parseCallArgs(state);
+        return addExpr(state, e);
+    }
+    if (t.kind == 28) {
+        take(state, 28);
+        let e: Expr = emptyExpr(12);
+        if (current(state).kind != 29) {
+            push(e.args, parseExpression(state, 0));
+            while (current(state).kind == 26) {
+                take(state, 26);
+                push(e.args, parseExpression(state, 0));
+            }
+        }
+        maybe(state, 29);
+        return addExpr(state, e);
+    }
+    if (t.kind == 20) {
+        take(state, 20);
+        let id: i64 = parseExpression(state, 0);
+        maybe(state, 21);
+        return id;
+    }
+    return -1;
+}
+
+function parsePostfix(state: Ref<ParserState>, id: i64) -> i64 {
+    let out: i64 = id;
+    let more: bool = true;
+    while (more) {
+        if (current(state).kind == 20) {
+            let args: List<i64> = [] ;
+            take(state, 20);
+            args = parseCallArgs(state);
+            let e: Expr = emptyExpr(8);
+            e.left = out;
+            e.args = args;
+            out = addExpr(state, e);
+        } else if (current(state).kind == 27) {
+            take(state, 27);
+            let member: Token = take(state, 1);
+            let e: Expr = emptyExpr(9);
+            e.left = out;
+            e.text = member.text;
+            out = addExpr(state, e);
+        } else if (current(state).kind == 28) {
+            take(state, 28);
+            let idx: i64 = parseExpression(state, 0);
+            maybe(state, 29);
+            let e: Expr = emptyExpr(10);
+            e.left = out;
+            e.right = idx;
+            out = addExpr(state, e);
+        } else {
+            more = false;
+        }
+    }
+    return out;
+}
+
+function parseUnary(state: Ref<ParserState>) -> i64 {
+    let k: i64 = current(state).kind;
+    if (k == 36 || k == 31 || k == 32) {
+        let op: string = current(state).text;
+        take(state, k);
+        let operand: i64 = parseUnary(state);
+        let e: Expr = emptyExpr(7);
+        e.op = op;
+        e.left = operand;
+        return addExpr(state, e);
+    }
+    let id: i64 = parsePrimary(state);
+    if (id < 0) return id;
+    return parsePostfix(state, id);
+}
+
+function parseBlock(state: Ref<ParserState>) -> List<i64> {
+    let body: List<i64> = [];
+    maybe(state, 22);
+    while (current(state).kind != 23 && current(state).kind != 0) {
+        let stmtId: i64 = parseStatement(state);
+        if (stmtId >= 0) push(body, stmtId);
+    }
+    maybe(state, 23);
+    return body;
+}
+
+function parseControlledBody(state: Ref<ParserState>) -> List<i64> {
+    let body: List<i64> = [];
+    if (current(state).kind == 22) return parseBlock(state);
+    push(body, parseStatement(state));
+    return body;
+}
+
+function parseStatement(state: Ref<ParserState>) -> i64 {
+    let k: i64 = current(state).kind;
+    if (k == 12) {
+        take(state, 12);
+        let s: Stmt = emptyStmt(1);
+        let name: Token = take(state, 1);
+        s.name = name.text;
+        if (current(state).kind == 25) {
+            take(state, 25);
+            s.type = parseType(state);
+        }
+        maybe(state, 30);
+        s.expr = parseExpression(state, 0);
+        maybe(state, 24);
+        return addStmt(state, s);
+    }
+    if (k == 13) {
+        take(state, 13);
+        let s: Stmt = emptyStmt(2);
+        if (current(state).kind != 24) s.expr = parseExpression(state, 0);
+        maybe(state, 24);
+        return addStmt(state, s);
+    }
+    if (k == 14) {
+        take(state, 14);
+        let s: Stmt = emptyStmt(5);
+        maybe(state, 20);
+        s.expr = parseExpression(state, 0);
+        maybe(state, 21);
+        s.thenStmts = parseControlledBody(state);
+        if (current(state).kind == 15) {
+            take(state, 15);
+            if (current(state).kind == 14) push(s.elseStmts, parseStatement(state));
+            else if (current(state).kind == 22) s.elseStmts = parseBlock(state);
+            else push(s.elseStmts, parseStatement(state));
+        }
+        return addStmt(state, s);
+    }
+    if (k == 16) {
+        take(state, 16);
+        let s: Stmt = emptyStmt(6);
+        maybe(state, 20);
+        s.expr = parseExpression(state, 0);
+        maybe(state, 21);
+        s.body = parseControlledBody(state);
+        return addStmt(state, s);
+    }
+
+    let first: i64 = parseExpression(state, 0);
+    if (first < 0) {
+        state.pos = state.pos + 1;
+        return -1;
+    }
+    if (current(state).kind == 30) {
+        take(state, 30);
+        let s: Stmt = emptyStmt(4);
+        s.left = first;
+        s.right = parseExpression(state, 0);
+        maybe(state, 24);
+        return addStmt(state, s);
+    }
+    let s: Stmt = emptyStmt(3);
+    s.expr = first;
+    maybe(state, 24);
+    return addStmt(state, s);
+}
+
+function parseFunction(state: Ref<ParserState>) -> FunctionDef {
+    take(state, 10);
+    let f: FunctionDef = new FunctionDef();
+    let name: Token = take(state, 1);
+    f.name = name.text;
+    f.params = [];
+    f.returnType = "void";
+    maybe(state, 20);
+    if (current(state).kind != 21) {
+        let more: bool = true;
+        while (more) {
+            let p: Param = new Param();
+            let pname: Token = take(state, 1);
+            p.name = pname.text;
+            maybe(state, 25);
+            p.type = parseType(state);
+            push(f.params, p);
+            if (!maybe(state, 26)) more = false;
+        }
+    }
+    maybe(state, 21);
+    if (current(state).kind == 45) {
+        take(state, 45);
+        f.returnType = parseType(state);
+    }
+    f.body = parseBlock(state);
+    return f;
+}
+
+function parseStruct(state: Ref<ParserState>) -> StructDef {
+    take(state, 11);
+    let s: StructDef = new StructDef();
+    let name: Token = take(state, 1);
+    s.name = name.text;
+    s.fields = [];
+    maybe(state, 22);
+    while (current(state).kind != 23 && current(state).kind != 0) {
+        let f: Field = new Field();
+        let fname: Token = take(state, 1);
+        f.name = fname.text;
+        maybe(state, 25);
+        f.type = parseType(state);
+        push(s.fields, f);
+        maybe(state, 24);
+    }
+    maybe(state, 23);
+    return s;
+}
+
+function parseProgram(source: string) -> Program {
+    let state: ParserState = new ParserState();
+    state.tokens = lex(source);
+    state.pos = 0;
+    state.exprs = [];
+    state.stmts = [];
+    state.functions = [];
+    state.structs = [];
+
+    while (current(state).kind != 0) {
+        if (current(state).kind == 10) push(state.functions, parseFunction(state));
+        else if (current(state).kind == 11) push(state.structs, parseStruct(state));
+        else state.pos = state.pos + 1;
+    }
+
+    let p: Program = new Program();
+    p.exprs = state.exprs;
+    p.stmts = state.stmts;
+    p.functions = state.functions;
+    p.structs = state.structs;
+    return p;
+}
+
+function startsWithType(type: string, prefix: string) -> bool {
+    if (length(type) < length(prefix)) return false;
+    return slice(type, 0, length(prefix)) == prefix;
+}
+
+function innerGeneric(type: string, prefix: string) -> string {
+    if (!startsWithType(type, prefix)) return "";
+    if (length(type) <= length(prefix)) return "";
+    if (type[length(type) - 1] != 62) return "";
+    return slice(type, length(prefix), length(type) - 1);
+}
+
+function structIndex(program: Ref<Program>, name: string) -> i64 {
+    let i: i64 = 0;
+    while (i < listLength(program.structs)) {
+        if (program.structs[i].name == name) return i;
+        i = i + 1;
+    }
+    return -1;
+}
+
+function functionIndex(program: Ref<Program>, name: string) -> i64 {
+    let i: i64 = 0;
+    while (i < listLength(program.functions)) {
+        if (program.functions[i].name == name) return i;
+        i = i + 1;
+    }
+    return -1;
+}
+
+function fieldIndex(s: StructDef, name: string) -> i64 {
+    let i: i64 = 0;
+    while (i < listLength(s.fields)) {
+        if (s.fields[i].name == name) return i;
+        i = i + 1;
+    }
+    return -1;
+}
+
+function bindingType(scope: Ref<List<Binding>>, name: string) -> string {
+    let i: i64 = 0;
+    while (i < listLength(scope)) {
+        if (scope[i].name == name) return scope[i].type;
+        i = i + 1;
+    }
+    return "";
+}
+
+function cloneBindings(scope: Ref<List<Binding>>) -> List<Binding> {
+    let out: List<Binding> = [];
+    let i: i64 = 0;
+    while (i < listLength(scope)) {
+        push(out, scope[i]);
+        i = i + 1;
+    }
+    return out;
+}
+
+function semanticFail(state: Ref<SemanticState>, message: string) -> string {
+    if (state.ok) {
+        state.ok = false;
+        state.message = message;
+        print("semantic-error: " + message);
+    }
+    return "";
+}
+
+function validateType(program: Ref<Program>, state: Ref<SemanticState>, type: string, allowVoid: bool) -> bool {
+    if (!state.ok) return false;
+    if (type == "void") {
+        if (allowVoid) return true;
+        semanticFail(state, "void is not valid here");
+        return false;
+    }
+    if (type == "i64" || type == "f64" || type == "bool" || type == "char" || type == "string") return true;
+    let listInner: string = innerGeneric(type, "List<");
+    if (listInner != "") return validateType(program, state, listInner, false);
+    let refInner: string = innerGeneric(type, "Ref<");
+    if (refInner != "") return validateType(program, state, refInner, false);
+    if (structIndex(program, type) >= 0) return true;
+    semanticFail(state, "unknown type " + type);
+    return false;
+}
+
+function valueTypeForParam(type: string) -> string {
+    let inner: string = innerGeneric(type, "Ref<");
+    if (inner != "") return inner;
+    return type;
+}
+
+function numericType(type: string) -> bool {
+    return type == "i64" || type == "f64" || type == "char";
+}
+
+function assignableType(expected: string, actual: string) -> bool {
+    if (expected == actual) return true;
+    if (expected == "f64" && numericType(actual)) return true;
+    if (expected == "i64" && actual == "char") return true;
+    return false;
+}
+
+function builtinReturnType(name: string, args: List<i64>, program: Ref<Program>, state: Ref<SemanticState>, scope: Ref<List<Binding>>) -> string {
+    if (name == "print") return "void";
+    if (name == "readFile") return "string";
+    if (name == "writeFile") return "void";
+    if (name == "length") return "i64";
+    if (name == "slice") return "string";
+    if (name == "int_to_string") return "string";
+    if (name == "listLength") return "i64";
+    if (name == "push") {
+        if (listLength(args) < 2) return semanticFail(state, "push requires a list and value");
+        if (!isLValue(program, args[0])) return semanticFail(state, "push first argument must be an lvalue");
+        let listType: string = checkExpr(program, state, scope, args[0]);
+        let inner: string = innerGeneric(listType, "List<");
+        if (inner == "") return semanticFail(state, "push first argument must be List<T>");
+        let valueType: string = checkExpr(program, state, scope, args[1]);
+        if (!assignableType(inner, valueType)) return semanticFail(state, "push value type mismatch");
+        return "void";
+    }
+    if (name == "append") {
+        if (listLength(args) == 0) return "";
+        let first: string = checkExpr(program, state, scope, args[0]);
+        let element: string = innerGeneric(first, "List<");
+        if (element == "") return semanticFail(state, "append requires a List value");
+        return first;
+    }
+    return "";
+}
+
+function checkExpr(program: Ref<Program>, state: Ref<SemanticState>, scope: Ref<List<Binding>>, id: i64) -> string {
+    if (!state.ok) return "";
+    if (id < 0 || id >= listLength(program.exprs)) return semanticFail(state, "invalid expression reference");
+    let x: Expr = program.exprs[id];
+    if (x.kind == 1) return "i64";
+    if (x.kind == 2) return "string";
+    if (x.kind == 3) return "char";
+    if (x.kind == 4) return "bool";
+    if (x.kind == 5) {
+        let t: string = bindingType(scope, x.text);
+        if (t == "") return semanticFail(state, "unknown name " + x.text);
+        return t;
+    }
+    if (x.kind == 7) {
+        let a: string = checkExpr(program, state, scope, x.left);
+        if (x.op == "!") {
+            if (a != "bool") return semanticFail(state, "! requires bool");
+            return "bool";
+        }
+        if (!numericType(a)) return semanticFail(state, "unary " + x.op + " requires numeric operand");
+        return a;
+    }
+    if (x.kind == 6) {
+        let a: string = checkExpr(program, state, scope, x.left);
+        let b: string = checkExpr(program, state, scope, x.right);
+        if (x.op == "&&" || x.op == "||") {
+            if (a != "bool" || b != "bool") return semanticFail(state, x.op + " requires bool operands");
+            return "bool";
+        }
+        if (x.op == "==" || x.op == "!=" || x.op == "<" || x.op == "<=" || x.op == ">" || x.op == ">=") {
+            if (!((a == b) || (numericType(a) && numericType(b)))) return semanticFail(state, "cannot compare " + a + " and " + b);
+            return "bool";
+        }
+        if (x.op == "+" && a == "string" && b == "string") return "string";
+        if (!numericType(a) || !numericType(b)) return semanticFail(state, "operator " + x.op + " requires numeric operands");
+        if (a == "f64" || b == "f64") return "f64";
+        return "i64";
+    }
+    if (x.kind == 8) {
+        let calleeExpr: Expr = program.exprs[x.left];
+        let name: string = calleeExpr.text;
+        let builtin: string = builtinReturnType(name, x.args, program, state, scope);
+        if (builtin != "") return builtin;
+        let fi: i64 = functionIndex(program, name);
+        if (fi < 0) return semanticFail(state, "unknown function " + name);
+        let fnDef: FunctionDef = program.functions[fi];
+        if (listLength(x.args) != listLength(fnDef.params)) return semanticFail(state, "wrong argument count for " + name);
+        let i: i64 = 0;
+        while (i < listLength(x.args)) {
+            let actual: string = checkExpr(program, state, scope, x.args[i]);
+            let rawExpected: string = fnDef.params[i].type;
+            if (isRefType(rawExpected) && !isLValue(program, x.args[i])) return semanticFail(state, "argument must be an lvalue in " + name);
+            let expected: string = valueTypeForParam(rawExpected);
+            if (!assignableType(expected, actual)) return semanticFail(state, "argument type mismatch in " + name);
+            i = i + 1;
+        }
+        return fnDef.returnType;
+    }
+    if (x.kind == 9) {
+        let base: string = checkExpr(program, state, scope, x.left);
+        let si: i64 = structIndex(program, base);
+        if (si < 0) return semanticFail(state, "type " + base + " has no fields");
+        let structDef: StructDef = program.structs[si];
+        let fi: i64 = fieldIndex(structDef, x.text);
+        if (fi < 0) return semanticFail(state, "unknown field " + base + "." + x.text);
+        return structDef.fields[fi].type;
+    }
+    if (x.kind == 10) {
+        let base: string = checkExpr(program, state, scope, x.left);
+        let idx: string = checkExpr(program, state, scope, x.right);
+        if (idx != "i64" && idx != "char") return semanticFail(state, "index must be i64");
+        let inner: string = innerGeneric(base, "List<");
+        if (inner != "") return inner;
+        if (base == "string") return "i64";
+        return semanticFail(state, "type " + base + " is not indexable");
+    }
+    if (x.kind == 11) {
+        if (!validateType(program, state, x.text, false)) return "";
+        return x.text;
+    }
+    if (x.kind == 12) {
+        if (listLength(x.args) == 0) return semanticFail(state, "empty list requires a type context");
+        let element: string = checkExpr(program, state, scope, x.args[0]);
+        let i: i64 = 1;
+        while (i < listLength(x.args)) {
+            let currentType: string = checkExpr(program, state, scope, x.args[i]);
+            if (!assignableType(element, currentType)) return semanticFail(state, "list elements have incompatible types");
+            i = i + 1;
+        }
+        return "List<" + element + ">";
+    }
+    return semanticFail(state, "unsupported expression kind");
+}
+
+function checkStatement(program: Ref<Program>, state: Ref<SemanticState>, scope: Ref<List<Binding>>, stmtId: i64, returnType: string) {
+    if (!state.ok) return;
+    if (stmtId < 0 || stmtId >= listLength(program.stmts)) {
+        semanticFail(state, "invalid statement reference");
+        return;
+    }
+    let s: Stmt = program.stmts[stmtId];
+    if (s.kind == 1) {
+        if (bindingType(scope, s.name) != "") {
+            semanticFail(state, "variable already defined: " + s.name);
+            return;
+        }
+        let actual: string = "";
+        let declared: string = s.type;
+        if (declared != "" && program.exprs[s.expr].kind == 12 && listLength(program.exprs[s.expr].args) == 0) actual = declared;
+        else actual = checkExpr(program, state, scope, s.expr);
+        if (declared == "") declared = actual;
+        else if (!validateType(program, state, declared, false)) return;
+        if (!assignableType(declared, actual)) semanticFail(state, "cannot initialize " + declared + " with " + actual);
+        let b: Binding = new Binding();
+        b.name = s.name;
+        b.type = declared;
+        push(scope, b);
+        return;
+    }
+    if (s.kind == 2) {
+        let actual: string = "void";
+        if (s.expr >= 0) actual = checkExpr(program, state, scope, s.expr);
+        if (!assignableType(returnType, actual)) semanticFail(state, "cannot return " + actual + " from " + returnType + " function");
+        return;
+    }
+    if (s.kind == 3) {
+        checkExpr(program, state, scope, s.expr);
+        return;
+    }
+    if (s.kind == 4) {
+        let lhs: string = checkExpr(program, state, scope, s.left);
+        let rhs: string = "";
+        if (program.exprs[s.right].kind == 12 && listLength(program.exprs[s.right].args) == 0) rhs = lhs;
+        else rhs = checkExpr(program, state, scope, s.right);
+        if (!assignableType(lhs, rhs)) semanticFail(state, "cannot assign " + rhs + " to " + lhs);
+        return;
+    }
+    if (s.kind == 5) {
+        let cond: string = checkExpr(program, state, scope, s.expr);
+        if (cond != "bool") {
+            semanticFail(state, "if condition must be bool");
+            return;
+        }
+        let thenScope: List<Binding> = cloneBindings(scope);
+        let i: i64 = 0;
+        while (i < listLength(s.thenStmts)) {
+            checkStatement(program, state, thenScope, s.thenStmts[i], returnType);
+            i = i + 1;
+        }
+        let elseScope: List<Binding> = cloneBindings(scope);
+        i = 0;
+        while (i < listLength(s.elseStmts)) {
+            checkStatement(program, state, elseScope, s.elseStmts[i], returnType);
+            i = i + 1;
+        }
+        return;
+    }
+    if (s.kind == 6) {
+        let cond: string = checkExpr(program, state, scope, s.expr);
+        if (cond != "bool") {
+            semanticFail(state, "while condition must be bool");
+            return;
+        }
+        let bodyScope: List<Binding> = cloneBindings(scope);
+        let i: i64 = 0;
+        while (i < listLength(s.body)) {
+            checkStatement(program, state, bodyScope, s.body[i], returnType);
+            i = i + 1;
+        }
+        return;
+    }
+    semanticFail(state, "unsupported statement kind");
+}
+
+function analyzeProgram(program: Ref<Program>) -> i64 {
+    let state: SemanticState = new SemanticState();
+    state.ok = true;
+    state.message = "";
+
+    let i: i64 = 0;
+    while (i < listLength(program.structs)) {
+        let s: StructDef = program.structs[i];
+        if (structIndex(program, s.name) != i) {
+            semanticFail(state, "duplicate struct " + s.name);
+            return 1;
+        }
+        let j: i64 = 0;
+        while (j < listLength(s.fields)) {
+            let field: Field = s.fields[j];
+            if (fieldIndex(s, field.name) != j) {
+                semanticFail(state, "duplicate field " + s.name + "." + field.name);
+                return 1;
+            }
+            if (!validateType(program, state, field.type, false)) return 1;
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+
+    i = 0;
+    while (i < listLength(program.functions)) {
+        let f: FunctionDef = program.functions[i];
+        if (functionIndex(program, f.name) != i) {
+            semanticFail(state, "duplicate function " + f.name);
+            return 1;
+        }
+        if (!validateType(program, state, f.returnType, true)) return 1;
+        let j: i64 = 0;
+        while (j < listLength(f.params)) {
+            let p: Param = f.params[j];
+            let k: i64 = 0;
+            while (k < j) {
+                if (f.params[k].name == p.name) {
+                    semanticFail(state, "duplicate parameter " + p.name);
+                    return 1;
+                }
+                k = k + 1;
+            }
+            if (!validateType(program, state, p.type, false)) return 1;
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+
+    if (functionIndex(program, "main") < 0) {
+        semanticFail(state, "entry function main is required");
+        return 1;
+    }
+    let mainIndex: i64 = functionIndex(program, "main");
+    if (program.functions[mainIndex].returnType != "i64") {
+        semanticFail(state, "main must return i64");
+        return 1;
+    }
+
+    i = 0;
+    while (i < listLength(program.functions)) {
+        let f: FunctionDef = program.functions[i];
+        let scope: List<Binding> = [];
+        let j: i64 = 0;
+        while (j < listLength(f.params)) {
+            let b: Binding = new Binding();
+            b.name = f.params[j].name;
+            b.type = valueTypeForParam(f.params[j].type);
+            push(scope, b);
+            j = j + 1;
+        }
+        j = 0;
+        while (j < listLength(f.body)) {
+            checkStatement(program, state, scope, f.body[j], f.returnType);
+            if (!state.ok) return 1;
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+function emitLine(state: Ref<EmitState>, line: string) {
+    push(state.lines, line);
+}
+
+function newTemp(state: Ref<EmitState>) -> string {
+    let t: string = "%t" + int_to_string(state.temp);
+    state.temp = state.temp + 1;
+    return t;
+}
+
+function newLabel(state: Ref<EmitState>, prefix: string) -> string {
+    let t: string = prefix + int_to_string(state.label);
+    state.label = state.label + 1;
+    return t;
+}
+
+function canonicalBinary(op: string) -> string {
+    if (op == "+") return "add";
+    if (op == "-") return "sub";
+    if (op == "*") return "mul";
+    if (op == "/") return "div";
+    if (op == "%") return "mod";
+    if (op == "==") return "eq";
+    if (op == "!=") return "ne";
+    if (op == "<") return "lt";
+    if (op == "<=") return "le";
+    if (op == ">") return "gt";
+    if (op == ">=") return "ge";
+    if (op == "&&") return "and";
+    if (op == "||") return "or";
+    return op;
+}
+
+function canonicalUnary(op: string) -> string {
+    if (op == "-") return "neg";
+    if (op == "!") return "not";
+    if (op == "+") return "pos";
+    return op;
+}
+
+function escapeString(value: string) -> string {
+    let out: string = "";
+    let i: i64 = 0;
+    while (i < length(value)) {
+        let c: i64 = value[i];
+        if (c == 92) out = out + "\\\\";
+        else if (c == 10) out = out + "\\n";
+        else if (c == 13) out = out + "\\r";
+        else if (c == 9) out = out + "\\t";
+        else if (c == 34) out = out + "\\\"";
+        else out = out + slice(value, i, i + 1);
+        i = i + 1;
+    }
+    return out;
+}
+
+function isRefType(type: string) -> bool {
+    return innerGeneric(type, "Ref<") != "";
+}
+
+function isLValue(program: Ref<Program>, id: i64) -> bool {
+    if (id < 0 || id >= listLength(program.exprs)) return false;
+    let x: Expr = program.exprs[id];
+    if (x.kind == 5) return true;
+    if (x.kind == 9 || x.kind == 10) return isLValue(program, x.left);
+    return false;
+}
+
+function emitPlace(state: Ref<EmitState>, program: Ref<Program>, id: i64) -> string {
+    let x: Expr = program.exprs[id];
+    if (x.kind == 5) {
+        let t: string = newTemp(state);
+        emitLine(state, "    " + t + " = ref " + x.text);
+        return t;
+    }
+    if (x.kind == 9) {
+        let base: string = emitPlace(state, program, x.left);
+        let t: string = newTemp(state);
+        emitLine(state, "    " + t + " = ref_field " + base + "." + x.text);
+        return t;
+    }
+    if (x.kind == 10) {
+        let base: string = emitPlace(state, program, x.left);
+        let idx: string = emitExpr(state, program, x.right);
+        let t: string = newTemp(state);
+        emitLine(state, "    " + t + " = ref_index " + base + "[" + idx + "]");
+        return t;
+    }
+    return "%invalid";
+}
+
+function callNeedsRef(program: Ref<Program>, callee: string, index: i64) -> bool {
+    if (callee == "push" && index == 0) return true;
+    let fi: i64 = functionIndex(program, callee);
+    if (fi < 0) return false;
+    let fn: FunctionDef = program.functions[fi];
+    if (index < 0 || index >= listLength(fn.params)) return false;
+    return isRefType(fn.params[index].type);
+}
+
+function emitExpr(state: Ref<EmitState>, program: Ref<Program>, id: i64) -> string {
+    let x: Expr = program.exprs[id];
+    if (x.kind == 1) {
+        let t: string = newTemp(state);
+        emitLine(state, "    " + t + " = const i64 " + x.valueText);
+        return t;
+    }
+    if (x.kind == 2) {
+        let t: string = newTemp(state);
+        emitLine(state, "    " + t + " = const string \"" + escapeString(x.text) + "\"");
+        return t;
+    }
+    if (x.kind == 3) {
+        let t: string = newTemp(state);
+        emitLine(state, "    " + t + " = const char " + x.valueText);
+        return t;
+    }
+    if (x.kind == 4) {
+        let t: string = newTemp(state);
+        emitLine(state, "    " + t + " = const bool " + x.valueText);
+        return t;
+    }
+    if (x.kind == 5) {
+        let t: string = newTemp(state);
+        emitLine(state, "    " + t + " = load " + x.text);
+        return t;
+    }
+    if (x.kind == 7) {
+        let a: string = emitExpr(state, program, x.left);
+        let t: string = newTemp(state);
+        emitLine(state, "    " + t + " = " + canonicalUnary(x.op) + " " + a);
+        return t;
+    }
+    if (x.kind == 6) {
+        let a: string = emitExpr(state, program, x.left);
+        let b: string = emitExpr(state, program, x.right);
+        let t: string = newTemp(state);
+        emitLine(state, "    " + t + " = " + canonicalBinary(x.op) + " " + a + ", " + b);
+        return t;
+    }
+    if (x.kind == 8) {
+        let callee: string = program.exprs[x.left].text;
+        let args: string = "";
+        let i: i64 = 0;
+        while (i < listLength(x.args)) {
+            if (i > 0) args = args + ", ";
+            if (callNeedsRef(program, callee, i)) {
+                args = args + emitPlace(state, program, x.args[i]);
+            } else {
+                args = args + emitExpr(state, program, x.args[i]);
+            }
+            i = i + 1;
+        }
+        let fi: i64 = functionIndex(program, callee);
+        let returnType: string = "";
+        if (callee == "print" || callee == "writeFile" || callee == "push") returnType = "void";
+        else if (fi >= 0) returnType = program.functions[fi].returnType;
+        if (returnType == "void") {
+            emitLine(state, "    call " + callee + "(" + args + ")");
+            return "";
+        }
+        let t: string = newTemp(state);
+        emitLine(state, "    " + t + " = call " + callee + "(" + args + ")");
+        return t;
+    }
+    if (x.kind == 9) {
+        let base: string = emitExpr(state, program, x.left);
+        let t: string = newTemp(state);
+        emitLine(state, "    " + t + " = field " + base + "." + x.text);
+        return t;
+    }
+    if (x.kind == 10) {
+        let base: string = emitExpr(state, program, x.left);
+        let idx: string = emitExpr(state, program, x.right);
+        let t: string = newTemp(state);
+        emitLine(state, "    " + t + " = index " + base + "[" + idx + "]");
+        return t;
+    }
+    if (x.kind == 11) {
+        let t: string = newTemp(state);
+        emitLine(state, "    " + t + " = new " + x.text);
+        return t;
+    }
+    if (x.kind == 12) {
+        let args: string = "";
+        let i: i64 = 0;
+        while (i < listLength(x.args)) {
+            if (i > 0) args = args + ", ";
+            args = args + emitExpr(state, program, x.args[i]);
+            i = i + 1;
+        }
+        let t: string = newTemp(state);
+        emitLine(state, "    " + t + " = list(" + args + ")");
+        return t;
+    }
+    return "%invalid";
+}
+
+function emitStmt(state: Ref<EmitState>, program: Ref<Program>, id: i64) {
+    let s: Stmt = program.stmts[id];
+    if (s.kind == 1) {
+        let v: string = emitExpr(state, program, s.expr);
+        emitLine(state, "    local " + s.type + " " + s.name);
+        emitLine(state, "    store " + s.name + ", " + v);
+        return;
+    }
+    if (s.kind == 2) {
+        if (s.expr < 0) emitLine(state, "    return");
+        else emitLine(state, "    return " + emitExpr(state, program, s.expr));
+        return;
+    }
+    if (s.kind == 3) {
+        emitExpr(state, program, s.expr);
+        return;
+    }
+    if (s.kind == 4) {
+        let value: string = emitExpr(state, program, s.right);
+        let target: Expr = program.exprs[s.left];
+        if (target.kind == 5) emitLine(state, "    store " + target.text + ", " + value);
+        else if (target.kind == 9) {
+            let base: Expr = program.exprs[target.left];
+            emitLine(state, "    field_set " + base.text + "." + target.text + " = " + value);
+        } else if (target.kind == 10) {
+            let base: Expr = program.exprs[target.left];
+            let idx: string = emitExpr(state, program, target.right);
+            emitLine(state, "    index_set " + base.text + "[" + idx + "] = " + value);
+        }
+        return;
+    }
+    if (s.kind == 5) {
+        let cond: string = emitExpr(state, program, s.expr);
+        let thenLabel: string = newLabel(state, "then");
+        let elseLabel: string = newLabel(state, "else");
+        let endLabel: string = newLabel(state, "endif");
+        emitLine(state, "    branch " + cond + " ? " + thenLabel + " : " + elseLabel);
+        emitLine(state, thenLabel + ":");
+        let i: i64 = 0;
+        while (i < listLength(s.thenStmts)) {
+            emitStmt(state, program, s.thenStmts[i]);
+            i = i + 1;
+        }
+        emitLine(state, "    jump " + endLabel);
+        emitLine(state, elseLabel + ":");
+        i = 0;
+        while (i < listLength(s.elseStmts)) {
+            emitStmt(state, program, s.elseStmts[i]);
+            i = i + 1;
+        }
+        emitLine(state, "    jump " + endLabel);
+        emitLine(state, endLabel + ":");
+        return;
+    }
+    if (s.kind == 6) {
+        let head: string = newLabel(state, "while");
+        let body: string = newLabel(state, "while_body");
+        let end: string = newLabel(state, "while_end");
+        emitLine(state, "    jump " + head);
+        emitLine(state, head + ":");
+        let cond: string = emitExpr(state, program, s.expr);
+        emitLine(state, "    branch " + cond + " ? " + body + " : " + end);
+        emitLine(state, body + ":");
+        let i: i64 = 0;
+        while (i < listLength(s.body)) {
+            emitStmt(state, program, s.body[i]);
+            i = i + 1;
+        }
+        emitLine(state, "    jump " + head);
+        emitLine(state, end + ":");
+        return;
+    }
+}
+
+function emitProgram(program: Ref<Program>) -> string {
+    let state: EmitState = new EmitState();
+    state.lines = [];
+    state.temp = 0;
+    state.label = 0;
+    let header: string = "rir 1";
+    emitLine(state, header);
+
+    let i: i64 = 0;
+    while (i < listLength(program.structs)) {
+        let s: StructDef = program.structs[i];
+        emitLine(state, "struct " + s.name);
+        let j: i64 = 0;
+        while (j < listLength(s.fields)) {
+            emitLine(state, "  field " + s.fields[j].type + " " + s.fields[j].name);
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+
+    i = 0;
+    while (i < listLength(program.functions)) {
+        let f: FunctionDef = program.functions[i];
+        let sig: string = "function " + f.name + "(";
+        let j: i64 = 0;
+        while (j < listLength(f.params)) {
+            if (j > 0) sig = sig + ", ";
+            sig = sig + f.params[j].type + " " + f.params[j].name;
+            j = j + 1;
+        }
+        sig = sig + ") -> " + f.returnType;
+        emitLine(state, sig);
+        emitLine(state, "entry:");
+        j = 0;
+        while (j < listLength(f.body)) {
+            emitStmt(state, program, f.body[j]);
+            j = j + 1;
+        }
+        emitLine(state, "endfunction");
+        i = i + 1;
+    }
+
+    let out: string = "";
+    i = 0;
+    while (i < listLength(state.lines)) {
+        out = out + state.lines[i] + "\n";
+        i = i + 1;
+    }
+    return out;
+}
+
+function compileSource(source: string) -> string {
+    let program: Program = parseProgram(source);
+    if (analyzeProgram(program) != 0) return "";
+    return emitProgram(program);
+}
+
+function main() -> i64 {
+    let source: string = readFile("stage1/input.raz");
+    let rir: string = compileSource(source);
+    if (rir == "") return 1;
+    writeFile("stage1/output.rir", rir);
+    return 0;
+}

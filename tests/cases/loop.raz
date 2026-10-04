@@ -1,0 +1,13 @@
+function fact(n: i64) -> i64 {
+    let x: i64 = 1;
+    let i: i64 = 1;
+    while (i <= n) {
+        x = x * i;
+        i = i + 1;
+    }
+    return x;
+}
+
+function main() -> i64 {
+    return fact(5);
+}

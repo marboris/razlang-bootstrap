@@ -1,0 +1,5 @@
+function main() -> i64 {
+    let xs: List<i64> = [1, 2];
+    push(xs, 3);
+    return listLength(xs);
+}

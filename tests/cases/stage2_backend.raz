@@ -1,0 +1,11 @@
+function abs(x: i64) -> i64 {
+    if (x < 0) {
+        return -x;
+    } else {
+        return x;
+    }
+}
+
+function main() -> i64 {
+    return abs(-46);
+}

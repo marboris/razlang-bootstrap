@@ -1,0 +1,8 @@
+rir 1
+function main() -> i64
+entry:
+    %t0 = const i64 1
+again:
+    return %t0
+again:
+endfunction

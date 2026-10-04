@@ -1,0 +1,76 @@
+{
+  "name": "Raz",
+  "version": "0.2.0",
+  "entry": "main",
+  "aliases": {},
+  "typeConstructors": {
+    "List": {
+      "kind": "sequence",
+      "arity": 1
+    },
+    "Ref": {
+      "kind": "reference",
+      "arity": 1
+    }
+  },
+  "builtins": {
+    "append": {
+      "params": [
+        "List<$T>",
+        "$T"
+      ],
+      "return": "List<$T>",
+      "effect": "pure",
+      "intrinsic": "list_append",
+      "generic": true
+    },
+    "push": {
+      "params": [
+        "Ref<List<$T>>",
+        "$T"
+      ],
+      "return": "void",
+      "effect": "mutation",
+      "intrinsic": "list_push",
+      "generic": true
+    },
+    "slice": {
+      "params": [
+        "string",
+        "i64",
+        "i64"
+      ],
+      "return": "string",
+      "effect": "pure",
+      "intrinsic": "string_slice"
+    },
+    "int_to_string": {
+      "params": [
+        "i64"
+      ],
+      "return": "string",
+      "effect": "pure",
+      "intrinsic": "int_to_string"
+    }
+  },
+  "types": {
+    "void": {
+      "kind": "void"
+    },
+    "i64": {
+      "kind": "integer",
+      "bits": 64,
+      "signed": true
+    },
+    "f64": {
+      "kind": "float",
+      "bits": 64
+    },
+    "bool": {
+      "kind": "boolean"
+    },
+    "string": {
+      "kind": "string"
+    }
+  }
+}

@@ -1,0 +1,128 @@
+{
+  "positive": [
+    {
+      "name": "arithmetic",
+      "source": "cases/arithmetic.raz",
+      "exit": 207,
+      "ir": [
+        "mul",
+        "add",
+        "return"
+      ]
+    },
+    {
+      "name": "loop",
+      "source": "cases/loop.raz",
+      "exit": 120,
+      "ir": [
+        "branch",
+        "jump",
+        "mul",
+        "add"
+      ]
+    },
+    {
+      "name": "struct",
+      "source": "cases/struct.raz",
+      "exit": 25,
+      "ir": [
+        "field_set",
+        "field",
+        "call"
+      ]
+    },
+    {
+      "name": "list-generic",
+      "source": "cases/list_generic.raz",
+      "exit": 32,
+      "ir": [
+        "builtin list_append",
+        "index"
+      ]
+    },
+    {
+      "name": "short-circuit",
+      "source": "cases/short_circuit.raz",
+      "exit": 0,
+      "ir": [
+        "branch"
+      ]
+    },
+    {
+      "name": "string",
+      "source": "cases/string.raz",
+      "exit": 9,
+      "ir": [
+        "builtin string_length"
+      ]
+    },
+    {
+      "name": "ref-list-mutation",
+      "source": "cases/ref_list.raz",
+      "exit": 3,
+      "ir": [
+        "builtin list_push"
+      ]
+    },
+    {
+      "name": "ref-struct",
+      "source": "cases/ref-struct.raz",
+      "exit": 41,
+      "ir": [
+        "ref box : Ref<Box>",
+        "field_set",
+        "call inc"
+      ]
+    }
+  ],
+  "negative": [
+    {
+      "name": "type-error",
+      "source": "cases/type_error.raz",
+      "contains": "cannot initialize"
+    }
+  ],
+  "stage1": {
+    "frontend_source": "cases/stage1_frontend.raz",
+    "frontend_contains": [
+      "struct Point",
+      "function square",
+      "function sumTo",
+      "field_set",
+      "index",
+      "branch",
+      "jump",
+      "call square",
+      "call append"
+    ],
+    "self_source": "../stage1/compiler.raz",
+    "self_contains": [
+      "function lex",
+      "function parseProgram",
+      "function emitExpr",
+      "function emitProgram",
+      "endfunction"
+    ],
+    "negative_source": "cases/stage1_semantic_error.raz",
+    "negative_contains": [
+      "semantic-error: duplicate field"
+    ]
+  },
+  "stage2": {
+    "source": "cases/stage2_backend.raz",
+    "exit": 46,
+    "rir_contains": [
+      "function abs",
+      "lt",
+      "branch",
+      "neg",
+      "call abs"
+    ],
+    "cpp_contains": [
+      "std::int64_t abs",
+      "if (",
+      "goto then",
+      "-"
+    ]
+  }
+}

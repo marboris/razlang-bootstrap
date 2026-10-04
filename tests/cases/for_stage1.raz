@@ -1,0 +1,8 @@
+function add_demo() -> i64 {
+    let a: i64 = 40;
+    return a + 2;
+}
+
+function main() -> i64 {
+    return add_demo();
+}

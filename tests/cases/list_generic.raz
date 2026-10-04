@@ -1,0 +1,6 @@
+function main() -> i64 {
+    let xs: List<i64> = [];
+    xs = append(xs, 10);
+    xs = append(xs, 32);
+    return xs[1];
+}

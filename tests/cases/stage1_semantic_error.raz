@@ -1,0 +1,8 @@
+struct Broken {
+    x: i64;
+    x: i64;
+}
+
+function main() -> i64 {
+    return 0;
+}

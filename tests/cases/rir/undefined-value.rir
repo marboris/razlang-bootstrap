@@ -1,0 +1,6 @@
+rir 1
+function main() -> i64
+entry:
+    %t0 = add %missing, %missing
+    return %t0
+endfunction

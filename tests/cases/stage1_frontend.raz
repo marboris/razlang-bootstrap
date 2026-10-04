@@ -1,0 +1,32 @@
+// Full Stage-1 frontend exercise.
+struct Point {
+    x: i64;
+    y: i64;
+}
+
+function square(x: i64) -> i64 {
+    return x * x;
+}
+
+function sumTo(n: i64) -> i64 {
+    let i: i64 = 0;
+    let total: i64 = 0;
+    while (i <= n) {
+        total = total + i;
+        i = i + 1;
+    }
+    return total;
+}
+
+function main() -> i64 {
+    let p: Point = new Point();
+    p.x = 3;
+    p.y = 4;
+    let values: List<i64> = [1, 2, 3];
+    values = append(values, square(p.x) + square(p.y));
+    if (p.x < p.y) {
+        return values[3] + sumTo(3);
+    } else {
+        return 0;
+    }
+}

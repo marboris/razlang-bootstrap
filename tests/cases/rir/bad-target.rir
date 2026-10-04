@@ -1,0 +1,9 @@
+rir 1
+function main() -> i64
+entry:
+    %t0 = const bool true
+    branch %t0 ? yes : missing
+yes:
+    %t1 = const i64 0
+    return %t1
+endfunction

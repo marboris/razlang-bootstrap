@@ -1,0 +1,25 @@
+rir 1
+function abs(i64 x) -> i64
+entry:
+    %t0 = load x
+    %t1 = const i64 0
+    %t2 = lt %t0, %t1
+    branch %t2 ? then0 : else1
+then0:
+    %t3 = load x
+    %t4 = neg %t3
+    return %t4
+    jump endif2
+else1:
+    %t5 = load x
+    return %t5
+    jump endif2
+endif2:
+endfunction
+function main() -> i64
+entry:
+    %t6 = const i64 46
+    %t7 = neg %t6
+    %t8 = call abs(%t7)
+    return %t8
+endfunction

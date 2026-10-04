@@ -1,0 +1,13 @@
+struct Box {
+    value: i64;
+}
+
+function inc(box: Ref<Box>) -> i64 {
+    box.value = 41;
+    return box.value;
+}
+
+function main() -> i64 {
+    let box: Box = new Box();
+    return inc(box);
+}

@@ -1,0 +1,16 @@
+{
+  "name": "raz-compiler-bootstrap",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node tests/run-tests.mjs",
+    "test:bootstrap": "node tests/run-tests.mjs --bootstrap",
+    "test:stage2": "node tests/run-tests.mjs --stage2",
+    "test:stage3": "node tests/run-tests.mjs",
+    "test:host": "node tests/run-tests.mjs --host",
+    "test:full": "node tests/run-tests.mjs --bootstrap --host",
+    "bootstrap": "node scripts/bootstrap.mjs",
+    "test:targets": "node scripts/test-targets.mjs",
+    "check": "npm test && npm run test:stage2 && npm run test:targets"
+  }
+}

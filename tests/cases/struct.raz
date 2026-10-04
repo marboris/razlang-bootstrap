@@ -1,0 +1,15 @@
+struct Point {
+    x: i64;
+    y: i64;
+}
+
+function norm2(p: Point) -> i64 {
+    return p.x * p.x + p.y * p.y;
+}
+
+function main() -> i64 {
+    let p: Point = new Point();
+    p.x = 3;
+    p.y = 4;
+    return norm2(p);
+}
