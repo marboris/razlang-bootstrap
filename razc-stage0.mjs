@@ -3,23 +3,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
-/*
- * Raz Stage-0 Compiler
- *
- * Design goals:
- *   source -> tokens -> AST -> typed AST -> linear IR -> passes -> backend
- *
- * This file is deliberately data-oriented and functional: no JS classes, no
- * inheritance, and no C++ runtime implementation hidden inside the compiler.
- *
- * Language semantics come from a language spec JSON file.
- * Target details come from a target profile JSON file.
- *
- * The default specs at the bottom are only bootstrap fallbacks. They can be
- * replaced with --language and --target, which is the important part for
- * self-hosting and extension.
- */
-
 const VERSION = '0.2.0-stage0';
 
 // ---------------------------------------------------------------------------

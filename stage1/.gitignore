@@ -1,0 +1,11 @@
+# Generated compiler artifacts
+compiler
+compiler-debug
+compiler-asan
+compiler-o2
+compiler-o3
+compiler.cpp
+compiler-build.ir
+input.raz
+output.rir
+raz_runtime.hpp
