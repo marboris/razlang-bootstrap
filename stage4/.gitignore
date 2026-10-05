@@ -1,7 +1,0 @@
-self-host/
-self/
-.cache/
-*.cpp
-*.o
-*.out
-raz_runtime.hpp

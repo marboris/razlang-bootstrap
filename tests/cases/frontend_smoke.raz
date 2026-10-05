@@ -1,4 +1,4 @@
-// Full Stage-1 frontend exercise.
+// Full native frontend exercise.
 struct Point {
     x: i64;
     y: i64;
@@ -22,8 +22,9 @@ function main() -> i64 {
     let p: Point = new Point();
     p.x = 3;
     p.y = 4;
+    let inferred = square(p.x);
     let values: List<i64> = [1, 2, 3];
-    values = append(values, square(p.x) + square(p.y));
+    values = append(values, inferred + square(p.y));
     if (p.x < p.y) {
         return values[3] + sumTo(3);
     } else {

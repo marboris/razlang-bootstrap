@@ -1,4 +1,4 @@
-// Stage-1 native frontend, written in Raz.
+// Native frontend, written in Raz.
 //
 // Important implementation rule:
 // Compiler state is explicit and passed as Ref<T>. There is no JS/OOP state.
@@ -877,6 +877,7 @@ function checkStatement(program: Ref<Program>, state: Ref<SemanticState>, scope:
         else actual = checkExpr(program, state, scope, s.expr);
         if (declared == "") declared = actual;
         else if (!validateType(program, state, declared, false)) return;
+        program.stmts[stmtId].type = declared;
         if (!assignableType(declared, actual)) semanticFail(state, "cannot initialize " + declared + " with " + actual);
         let b: Binding = new Binding();
         b.name = s.name;
@@ -1238,17 +1239,9 @@ function emitStmt(state: Ref<EmitState>, program: Ref<Program>, id: i64) {
         return;
     }
     if (s.kind == 4) {
+        let place: string = emitPlace(state, program, s.left);
         let value: string = emitExpr(state, program, s.right);
-        let target: Expr = program.exprs[s.left];
-        if (target.kind == 5) emitLine(state, "    store " + target.text + ", " + value);
-        else if (target.kind == 9) {
-            let base: Expr = program.exprs[target.left];
-            emitLine(state, "    field_set " + base.text + "." + target.text + " = " + value);
-        } else if (target.kind == 10) {
-            let base: Expr = program.exprs[target.left];
-            let idx: string = emitExpr(state, program, target.right);
-            emitLine(state, "    index_set " + base.text + "[" + idx + "] = " + value);
-        }
+        emitLine(state, "    store_ref " + place + ", " + value);
         return;
     }
     if (s.kind == 5) {
@@ -1352,9 +1345,9 @@ function compileSource(source: string) -> string {
 }
 
 function main() -> i64 {
-    let source: string = readFile("stage1/input.raz");
+    let source: string = readFile("frontend/input.raz");
     let rir: string = compileSource(source);
     if (rir == "") return 1;
-    writeFile("stage1/output.rir", rir);
+    writeFile("frontend/output.rir", rir);
     return 0;
 }

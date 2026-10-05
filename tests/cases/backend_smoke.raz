@@ -1,0 +1,21 @@
+struct Counter {
+    value: i64;
+}
+
+function readCounter(counter: Ref<Counter>) -> i64 {
+    return counter.value;
+}
+
+function abs(x: i64) -> i64 {
+    if (x < 0) {
+        return -x;
+    } else {
+        return x;
+    }
+}
+
+function main() -> i64 {
+    let values: List<i64> = [];
+    push(values, abs(-46));
+    return values[0];
+}

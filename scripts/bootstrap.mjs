@@ -5,12 +5,12 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const TMP = path.join(ROOT, '.bootstrap');
-const STAGE0 = path.join(ROOT, 'razc-stage0.mjs');
-const LANGUAGE = path.join(ROOT, 'raz.language.json');
-const TARGET = path.join(ROOT, 'cpp17.target.json');
-const SOURCE = path.join(ROOT, 'stage1', 'compiler.raz');
-const RUNTIME = path.join(ROOT, 'raz_runtime.hpp');
+const TMP = path.join(ROOT, '.build', 'bootstrap');
+const SEED = path.join(ROOT, 'src', 'bootstrap', 'seed.mjs');
+const LANGUAGE = path.join(ROOT, 'config', 'language.json');
+const TARGET = path.join(ROOT, 'config', 'targets', 'cpp17.json');
+const SOURCE = path.join(ROOT, 'src', 'frontend', 'compiler.raz');
+const RUNTIME = path.join(ROOT, 'runtime', 'raz_runtime.hpp');
 
 fs.rmSync(TMP, { recursive: true, force: true });
 fs.mkdirSync(TMP, { recursive: true });
@@ -33,27 +33,27 @@ function run(cmd, args, opts = {}) {
 
 function buildGeneration(label) {
   const dir = path.join(TMP, label);
-  const stageDir = path.join(dir, 'stage1');
-  fs.mkdirSync(stageDir, { recursive: true });
-  fs.copyFileSync(RUNTIME, path.join(stageDir, 'raz_runtime.hpp'));
-  fs.copyFileSync(SOURCE, path.join(stageDir, 'input.raz'));
+  const frontendDir = path.join(dir, 'frontend');
+  fs.mkdirSync(frontendDir, { recursive: true });
+  fs.copyFileSync(RUNTIME, path.join(frontendDir, 'raz_runtime.hpp'));
+  fs.copyFileSync(SOURCE, path.join(frontendDir, 'input.raz'));
   const cpp = path.join(dir, 'compiler.cpp');
   const bin = path.join(dir, 'compiler');
 
-  run(process.execPath, [STAGE0, 'compile', SOURCE, '-o', cpp, '--language', LANGUAGE, '--target', TARGET]);
+  run(process.execPath, [SEED, 'compile', SOURCE, '-o', cpp, '--language', LANGUAGE, '--target', TARGET]);
   fs.copyFileSync(RUNTIME, path.join(dir, 'raz_runtime.hpp'));
   run('c++', ['-std=c++17', '-O2', cpp, '-o', bin]);
   run(bin, [], { cwd: dir, timeout: 60000 });
 
-  const rir = fs.readFileSync(path.join(stageDir, 'output.rir'), 'utf8');
+  const rir = fs.readFileSync(path.join(frontendDir, 'output.rir'), 'utf8');
   fs.writeFileSync(path.join(dir, 'output.rir'), rir, 'utf8');
   return { cpp, bin, rir };
 }
 
-console.log('[bootstrap] 1/4 Stage-0 -> native Stage-1 (generation A)');
+console.log('[bootstrap] 1/4 JavaScript seed -> native frontend (generation A)');
 const a = buildGeneration('generation-a');
-console.log('[bootstrap] 2/4 native Stage-1 -> compiler.raz -> RIR-A');
-console.log('[bootstrap] 3/4 Stage-0 -> native Stage-1 (generation B)');
+console.log('[bootstrap] 2/4 native frontend -> compiler.raz -> RIR-A');
+console.log('[bootstrap] 3/4 JavaScript seed -> native frontend (generation B)');
 const b = buildGeneration('generation-b');
 console.log('[bootstrap] 4/4 compare generated RIR');
 

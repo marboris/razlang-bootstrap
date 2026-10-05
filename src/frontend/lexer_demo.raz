@@ -1,5 +1,5 @@
 // First piece of the self-hosted compiler: a lexer written in Raz itself.
-// It uses only the Stage-0 language and generic runtime primitives.
+// It uses only the seed language and generic runtime primitives.
 
 struct Token {
     kind: i64;

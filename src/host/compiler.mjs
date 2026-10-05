@@ -8,12 +8,12 @@ import {
   DEFAULT_TARGET,
   loadLanguage,
   loadTarget,
-  createCppBackend,
-} from '../razc-stage0.mjs';
+} from '../bootstrap/seed.mjs';
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const STAGE1_SOURCE = path.join(ROOT, 'stage1', 'compiler.raz');
-const CACHE = path.join(ROOT, 'stage4', '.cache');
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const FRONTEND_SOURCE = path.join(ROOT, 'src', 'frontend', 'compiler.raz');
+const CACHE = path.join(ROOT, '.build', 'host');
+const WORK = path.join(CACHE, 'work');
 
 function fail(message) { throw new Error(message); }
 function trim(s) { return s.trim(); }
@@ -448,44 +448,62 @@ function parseRir(rir, language = DEFAULT_LANGUAGE) {
   };
 }
 
-function buildStage1({ languagePath, targetPath, optimization = '-O3' } = {}) {
+function buildFrontend({ languagePath, targetPath, optimization = '-O3' } = {}) {
   fs.mkdirSync(CACHE, { recursive: true });
   const language = loadLanguage(languagePath);
   const target = loadTarget(targetPath);
 
-  // The test harness may provide a previously built Stage-1 binary. This keeps
+  // The test harness may provide a previously built frontend binary. This keeps
   // the bootstrap test deterministic and avoids rebuilding the same native
   // compiler in a child process after the suite already built it once.
-  const externalBin = process.env.RAZ_STAGE1_BIN;
+  const externalBin = process.env.RAZ_FRONTEND_BIN;
   if (externalBin && fs.existsSync(externalBin)) {
     return { language, target, bin: path.resolve(externalBin) };
   }
-  const cpp = path.join(CACHE, 'stage1.cpp');
-  const bin = path.join(CACHE, process.platform === 'win32' ? 'stage1.exe' : 'stage1');
-  fs.copyFileSync(path.join(ROOT, 'raz_runtime.hpp'), path.join(CACHE, 'raz_runtime.hpp'));
-  const p = spawnSync(process.execPath, [path.join(ROOT, 'razc-stage0.mjs'), 'compile', STAGE1_SOURCE, '-o', cpp, '--language', languagePath ?? path.join(ROOT, 'raz.language.json'), '--target', targetPath ?? path.join(ROOT, 'cpp17.target.json')], { cwd: ROOT, encoding: 'utf8' });
-  if (p.status !== 0) fail(`Stage-1 bootstrap compile failed:\n${p.stdout}\n${p.stderr}`);
+  const cpp = path.join(CACHE, 'frontend.cpp');
+  const bin = path.join(CACHE, process.platform === 'win32' ? 'razc-front.exe' : 'razc-front');
+  fs.copyFileSync(path.join(ROOT, 'runtime', 'raz_runtime.hpp'), path.join(CACHE, 'raz_runtime.hpp'));
+  const p = spawnSync(process.execPath, [path.join(ROOT, 'src', 'bootstrap', 'seed.mjs'), 'compile', FRONTEND_SOURCE, '-o', cpp, '--language', languagePath ?? path.join(ROOT, 'config', 'language.json'), '--target', targetPath ?? path.join(ROOT, 'config', 'targets', 'cpp17.json')], { cwd: ROOT, encoding: 'utf8' });
+  if (p.status !== 0) fail(`frontend bootstrap compile failed:\n${p.stdout}\n${p.stderr}`);
   const cc = spawnSync('c++', [optimization, '-std=c++17', cpp, '-o', bin], { cwd: ROOT, encoding: 'utf8' });
-  if (cc.status !== 0) fail(`Stage-1 native build failed:\n${cc.stdout}\n${cc.stderr}`);
+  if (cc.status !== 0) fail(`native frontend build failed:\n${cc.stdout}\n${cc.stderr}`);
   return { language, target, bin };
 }
 
+function buildBackend({ languagePath, targetPath, optimization = '-O3' } = {}) {
+  fs.mkdirSync(CACHE, { recursive: true });
+  const source = path.join(ROOT, 'src', 'backend', 'cpp_backend.raz');
+  const cpp = path.join(CACHE, 'backend.cpp');
+  const bin = path.join(CACHE, process.platform === 'win32' ? 'raz-backend.exe' : 'raz-backend');
+  fs.copyFileSync(path.join(ROOT, 'runtime', 'raz_runtime.hpp'), path.join(CACHE, 'raz_runtime.hpp'));
+  const build = spawnSync(process.execPath, [path.join(ROOT, 'src', 'bootstrap', 'seed.mjs'), 'compile', source, '-o', cpp, '--language', languagePath ?? path.join(ROOT, 'config', 'language.json'), '--target', targetPath ?? path.join(ROOT, 'config', 'targets', 'cpp17.json')], { cwd: ROOT, encoding: 'utf8' });
+  if (build.status !== 0) fail(`Raz backend bootstrap compile failed:\n${build.stdout}\n${build.stderr}`);
+  const cc = spawnSync('c++', [optimization, '-std=c++17', cpp, '-o', bin], { cwd: ROOT, encoding: 'utf8' });
+  if (cc.status !== 0) fail(`native Raz backend build failed:\n${cc.stdout}\n${cc.stderr}`);
+  return bin;
+}
+
 function compileWithHostFrontend(sourcePath, outputPath, { run = false, languagePath, targetPath } = {}) {
-  const { language, target, bin } = buildStage1({ languagePath, targetPath });
-  const input = path.join(ROOT, 'stage1', 'input.raz');
-  const rirPath = path.join(CACHE, 'input.rir');
+  const { target, bin } = buildFrontend({ languagePath, targetPath });
+  const frontendDir = path.join(WORK, 'frontend');
+  const backendDir = path.join(WORK, 'backend');
+  fs.mkdirSync(frontendDir, { recursive: true });
+  fs.mkdirSync(backendDir, { recursive: true });
+  const input = path.join(frontendDir, 'input.raz');
+  const rirPath = path.join(backendDir, 'input.rir');
   fs.copyFileSync(sourcePath, input);
-  const stage = spawnSync(bin, [], { cwd: ROOT, encoding: 'utf8', timeout: 120000 });
-  if (stage.status !== 0) fail(`Stage-1 failed:\n${stage.stdout}\n${stage.stderr}`);
-  const rir = fs.readFileSync(path.join(ROOT, 'stage1', 'output.rir'), 'utf8');
+  const frontend = spawnSync(bin, [], { cwd: WORK, encoding: 'utf8', timeout: 120000 });
+  if (frontend.status !== 0) fail(`frontend failed:\n${frontend.stdout}\n${frontend.stderr}`);
+  const rir = fs.readFileSync(path.join(frontendDir, 'output.rir'), 'utf8');
   fs.writeFileSync(rirPath, rir);
-  const ir = parseRir(rir, language);
-  const backend = createCppBackend(target, language);
-  const cpp = backend.generate(ir);
+  const backendBin = buildBackend({ languagePath, targetPath });
+  const backend = spawnSync(backendBin, [], { cwd: WORK, encoding: 'utf8', timeout: 120000 });
+  if (backend.status !== 0) fail(`Raz backend failed:\n${backend.stdout}\n${backend.stderr}`);
+  const cpp = fs.readFileSync(path.join(backendDir, 'output.cpp'), 'utf8');
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   fs.writeFileSync(outputPath, cpp, 'utf8');
   const runtimeDest = path.join(path.dirname(outputPath), 'raz_runtime.hpp');
-  if (!fs.existsSync(runtimeDest)) fs.copyFileSync(path.join(ROOT, 'raz_runtime.hpp'), runtimeDest);
+  if (!fs.existsSync(runtimeDest)) fs.copyFileSync(path.join(ROOT, 'runtime', 'raz_runtime.hpp'), runtimeDest);
   if (run) {
     const binOut = outputPath.replace(/\.cpp$/i, '');
     const cc = spawnSync('c++', [...(target.flags ?? ['-std=c++17']), outputPath, '-o', binOut], { cwd: ROOT, encoding: 'utf8' });
@@ -498,11 +516,11 @@ function compileWithHostFrontend(sourcePath, outputPath, { run = false, language
 
 function cli(argv) {
   const args = [...argv];
-  if ((args[0] ?? '') === 'version') { console.log('razc-stage4 0.1.0'); return 0; }
+  if ((args[0] ?? '') === 'version') { console.log('razc 0.1.0'); return 0; }
   if (args[0] === 'compile') args.shift();
   const source = args.shift();
-  if (!source) { console.error('usage: node stage4/host-driver.mjs compile <source.raz> -o <output.cpp> [--run]'); return 2; }
-  let output = null, run = false, languagePath = path.join(ROOT, 'raz.language.json'), targetPath = path.join(ROOT, 'cpp17.target.json');
+  if (!source) { console.error('usage: node src/host/compiler.mjs compile <source.raz> -o <output.cpp> [--run]'); return 2; }
+  let output = null, run = false, languagePath = path.join(ROOT, 'config', 'language.json'), targetPath = path.join(ROOT, 'config', 'targets', 'cpp17.json');
   while (args.length) {
     const a = args.shift();
     if (a === '-o' || a === '--output') output = args.shift();
@@ -518,11 +536,11 @@ function cli(argv) {
     if (run) console.log(`program exit=${result.status}`);
     return result.status ?? 0;
   } catch (e) {
-    console.error(`razc-stage4: ${e.message}`);
+    console.error(`razc: ${e.message}`);
     return 1;
   }
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) process.exitCode = cli(process.argv.slice(2));
 
-export { parseRir, buildStage1, compileWithHostFrontend };
+export { parseRir, buildFrontend, buildBackend, compileWithHostFrontend };

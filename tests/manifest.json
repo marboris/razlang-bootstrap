@@ -104,20 +104,20 @@
       "contains": "new Point field x expects i64, got string"
     }
   ],
-  "stage1": {
-    "frontend_source": "cases/stage1_frontend.raz",
-    "frontend_contains": [
+  "frontend": {
+    "source": "cases/frontend_smoke.raz",
+    "contains": [
       "struct Point",
       "function square",
       "function sumTo",
-      "field_set",
+      "local i64 inferred",
+      "store_ref",
       "index",
       "branch",
       "jump",
       "call square",
       "call append"
     ],
-    "self_source": "../stage1/compiler.raz",
     "self_contains": [
       "function lex",
       "function parseProgram",
@@ -125,22 +125,26 @@
       "function emitProgram",
       "endfunction"
     ],
-    "negative_source": "cases/stage1_semantic_error.raz",
+    "negative_source": "cases/frontend_semantic_error.raz",
     "negative_contains": [
       "semantic-error: duplicate field"
     ]
   },
-  "stage2": {
-    "source": "cases/stage2_backend.raz",
+  "backend": {
+    "source": "cases/backend_smoke.raz",
     "exit": 46,
     "rir_contains": [
+      "function readCounter",
       "function abs",
+      "call push",
       "lt",
       "branch",
       "neg",
       "call abs"
     ],
     "cpp_contains": [
+      "readCounter(Counter& counter)",
+      "raz::list_push",
       "std::int64_t abs",
       "if (",
       "goto then",

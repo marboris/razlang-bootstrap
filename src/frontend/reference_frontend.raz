@@ -1,4 +1,4 @@
-// Stage-1 native frontend, written in Raz.
+// Reference frontend, written in Raz.
 //
 // Important implementation rule:
 // Compiler state is explicit and passed as Ref<T>. There is no JS/OOP state.
@@ -1285,9 +1285,9 @@ function compileSource(source: string) -> string {
 }
 
 function main() -> i64 {
-    let source: string = readFile("stage1/input.raz");
+    let source: string = readFile("frontend/input.raz");
     let rir: string = compileSource(source);
     if (rir == "") return 1;
-    writeFile("stage1/output.rir", rir);
+    writeFile("frontend/output.rir", rir);
     return 0;
 }

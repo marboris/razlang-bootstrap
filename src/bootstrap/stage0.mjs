@@ -1688,7 +1688,7 @@ function main(argv) {
     return 0;
   }
   if (!opts.source) {
-    console.error('usage: node razc-stage0.mjs compile <source.raz> -o <output.cpp> [--language file] [--target file] [--emit-ir] [--run]');
+    console.error('usage: node src/bootstrap/stage0.mjs compile <source.raz> -o <output.cpp> [--language file] [--target file] [--emit-ir] [--run]');
     return 2;
   }
 

@@ -1,10 +1,10 @@
-// Stage-3: RIR-1 structural parser and verifier, written in Raz.
+// RIR-1 structural parser and verifier, written in Raz.
 //
 // The purpose of this stage is to make the textual IR a real compiler
 // contract instead of an informal string convention used by the backend.
 //
-// Input:  stage3/input.rir
-// Output: stage3/verification.txt
+// Input:  ir/input.rir
+// Output: ir/verification.txt
 // Return value: 0 when valid, 1 when invalid.
 
 struct RirFunction {
@@ -468,14 +468,14 @@ function verifyRir(rir: string, state: Ref<VerifyState>) -> i64 {
 }
 
 function main() -> i64 {
-    let rir: string = readFile("stage3/input.rir");
+    let rir: string = readFile("ir/input.rir");
     let state: VerifyState = new VerifyState();
     let result: i64 = verifyRir(rir, state);
     if (result == 0) {
         let summary: string = "RIR-1 OK\nfunctions=" + int_to_string(listLength(state.functions)) + "\n";
-        writeFile("stage3/verification.txt", summary);
+        writeFile("ir/verification.txt", summary);
         return 0;
     }
-    writeFile("stage3/verification.txt", "RIR-1 ERROR\n" + state.message + "\n");
+    writeFile("ir/verification.txt", "RIR-1 ERROR\n" + state.message + "\n");
     return 1;
 }
