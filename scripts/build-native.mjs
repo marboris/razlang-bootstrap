@@ -7,15 +7,15 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BUILD = path.join(ROOT, '.build', 'native');
 const WORK = path.join(BUILD, 'work');
-const FRONTEND = path.join(ROOT, 'src', 'frontend', 'compiler.raz');
-const BACKEND = path.join(ROOT, 'src', 'backend', 'cpp_backend.raz');
-const SEED = path.join(ROOT, 'src', 'bootstrap', 'seed.mjs');
+const FRONTEND = path.join(ROOT, 'generations', 'gen0', 'src', 'frontend', 'compiler.raz');
+const BACKEND = path.join(ROOT, 'generations', 'gen0', 'src', 'backend', 'cpp_backend.raz');
+const SEED = path.join(ROOT, 'generations', 'gen0', 'seed', 'seed.mjs');
 const LANGUAGE = path.join(ROOT, 'config', 'language.json');
 const TARGET = path.join(ROOT, 'config', 'targets', 'cpp17.json');
 const RUNTIME = path.join(ROOT, 'runtime', 'raz_runtime.hpp');
-const BUNDLE = path.join(BUILD, 'compiler.raz');
+const BUNDLE = path.join(ROOT, 'generations', 'gen0', 'final', 'compiler.raz');
 const CPP = path.join(BUILD, 'compiler.cpp');
-const BINARY = path.join(BUILD, process.platform === 'win32' ? 'razc.exe' : 'razc');
+const BINARY = path.join(ROOT, 'generations', 'gen0', 'bin', process.platform === 'win32' ? 'razc.exe' : 'razc');
 
 function stripMain(source, label) {
   const match = /^function main\(\) -> i64[ \t]*\{/m.exec(source);
@@ -106,6 +106,7 @@ function run(command, args) {
   if (result.status !== 0) throw new Error(`${command} failed with ${result.status}`);
 }
 
+fs.mkdirSync(path.dirname(BUNDLE), { recursive: true });
 fs.mkdirSync(path.join(WORK, 'frontend'), { recursive: true });
 fs.mkdirSync(path.join(WORK, 'backend'), { recursive: true });
 fs.copyFileSync(RUNTIME, path.join(BUILD, 'raz_runtime.hpp'));

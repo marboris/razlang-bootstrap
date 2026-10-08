@@ -7,11 +7,11 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BUILD = path.join(ROOT, '.build', 'native');
 const WORK = path.join(BUILD, 'work');
-const BUNDLE = path.join(BUILD, 'compiler.raz');
+const BUNDLE = path.join(ROOT, 'generations', 'gen0', 'final', 'compiler.raz');
 const FIRST_CPP = path.join(BUILD, 'compiler-generation-0.cpp');
 const SECOND_CPP = path.join(WORK, 'backend', 'output.cpp');
-const FIRST_BINARY = path.join(BUILD, process.platform === 'win32' ? 'razc.exe' : 'razc');
-const NEXT_BINARY = path.join(BUILD, process.platform === 'win32' ? 'razc-generation-1.exe' : 'razc-generation-1');
+const FIRST_BINARY = path.join(ROOT, 'generations', 'gen0', 'bin', process.platform === 'win32' ? 'razc.exe' : 'razc');
+const NEXT_BINARY = path.join(ROOT, 'generations', 'gen0', 'build', process.platform === 'win32' ? 'razc-generation-1.exe' : 'razc-generation-1');
 const INPUT = path.join(WORK, 'frontend', 'input.raz');
 
 function run(command, args, cwd = ROOT) {

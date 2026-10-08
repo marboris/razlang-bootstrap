@@ -1,0 +1,11 @@
+{
+  "generation": 1,
+  "language": "raz-1.0",
+  "status": "planned",
+  "compiled_by": "generation 0 (generations/gen0/bin/razc)",
+  "source": "generations/gen1/src/ (to be written in raz-0.2)",
+  "final_file": "generations/gen1/final/compiler.raz",
+  "binary": "generations/gen1/bin/razc",
+  "checksum": "generations/gen1/bin/razc.sha256",
+  "build_dir": "generations/gen1/build/"
+}

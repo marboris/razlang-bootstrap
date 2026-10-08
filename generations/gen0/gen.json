@@ -1,0 +1,11 @@
+{
+  "generation": 0,
+  "language": "raz-0.2",
+  "status": "frozen",
+  "built_by": "generations/gen0/seed/seed.mjs (JavaScript seed, one-time bootstrap)",
+  "source": "generations/gen0/src/",
+  "final_file": "generations/gen0/final/compiler.raz",
+  "binary": "generations/gen0/bin/razc",
+  "checksum": "generations/gen0/bin/razc.sha256",
+  "build_dir": "generations/gen0/build/"
+}

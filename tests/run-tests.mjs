@@ -10,7 +10,7 @@ const MANIFEST = JSON.parse(fs.readFileSync(path.join(HERE, 'manifest.json'), 'u
 const BOOTSTRAP = process.argv.includes('--bootstrap');
 const HOST = process.argv.includes('--host');
 const BACKEND = process.argv.includes('--backend');
-const COMPILER = path.join(ROOT, 'src', 'bootstrap', 'seed.mjs');
+const COMPILER = path.join(ROOT, 'generations', 'gen0', 'seed', 'seed.mjs');
 const LANGUAGE = path.join(ROOT, 'config', 'language.json');
 const TARGET = path.join(ROOT, 'config', 'targets', 'cpp17.json');
 const RUNTIME = path.join(ROOT, 'runtime', 'raz_runtime.hpp');
@@ -74,7 +74,7 @@ function buildFrontend() {
   const cpp = path.join(frontendTmp, 'frontend.cpp');
   const bin = path.join(frontendTmp, process.platform === 'win32' ? 'frontend.exe' : 'frontend');
   fs.copyFileSync(RUNTIME, path.join(frontendTmp, 'raz_runtime.hpp'));
-  const build = run(['compile', path.join(ROOT, 'src', 'frontend', 'compiler.raz'), '-o', cpp, '--language', LANGUAGE, '--target', TARGET]);
+  const build = run(['compile', path.join(ROOT, 'generations', 'gen0', 'src', 'frontend', 'compiler.raz'), '-o', cpp, '--language', LANGUAGE, '--target', TARGET]);
   if (build.status !== 0) return { ok: false, details: `frontend build failed:\n${build.stdout ?? ''}\n${build.stderr ?? ''}` };
   const cc = spawnSync('c++', ['-std=c++17', '-O3', cpp, '-o', bin], { cwd: ROOT, encoding: 'utf8', timeout: 30000 });
   if (cc.status !== 0) return { ok: false, details: `native frontend build failed:\n${cc.stdout ?? ''}\n${cc.stderr ?? ''}` };
@@ -122,7 +122,7 @@ function testFrontend() {
     console.log('[BOOTSTRAP] frontend self-parse');
     const self = runFrontendInput(
       built.bin,
-      path.join(ROOT, 'src', 'frontend', 'compiler.raz'),
+      path.join(ROOT, 'generations', 'gen0', 'src', 'frontend', 'compiler.raz'),
       MANIFEST.frontend.self_contains
     );
     if (!self.ok) return { ok: false, details: `frontend self-parse/test failed:\n${self.details}` };
@@ -167,7 +167,7 @@ function testBackend() {
 
   const backendBuild = run([
     'compile',
-    path.join(ROOT, 'src', 'backend', 'cpp_backend.raz'),
+    path.join(ROOT, 'generations', 'gen0', 'src', 'backend', 'cpp_backend.raz'),
     '-o', backendCpp,
     '--language', LANGUAGE,
     '--target', TARGET
@@ -243,7 +243,7 @@ function buildVerifier() {
   const cpp = path.join(verifierTmp, 'rir_verify.cpp');
   const bin = path.join(verifierTmp, process.platform === 'win32' ? 'rir_verify.exe' : 'rir_verify');
   fs.copyFileSync(RUNTIME, path.join(verifierTmp, 'raz_runtime.hpp'));
-  const build = run(['compile', path.join(ROOT, 'src', 'ir', 'rir_verify.raz'), '-o', cpp, '--language', LANGUAGE, '--target', TARGET]);
+  const build = run(['compile', path.join(ROOT, 'generations', 'gen0', 'src', 'ir', 'rir_verify.raz'), '-o', cpp, '--language', LANGUAGE, '--target', TARGET]);
   if (build.status !== 0) return { ok: false, details: `RIR verifier build failed:\n${build.stdout ?? ''}\n${build.stderr ?? ''}` };
   const cc = spawnSync('c++', ['-std=c++17', '-O0', cpp, '-o', bin], { cwd: verifierTmp, encoding: 'utf8', timeout: 30000 });
   if (cc.status !== 0) return { ok: false, details: `native RIR verifier build failed:\n${cc.stdout ?? ''}\n${cc.stderr ?? ''}` };
@@ -342,7 +342,7 @@ function testHostSelfCompile() {
   const output = path.join(TMP, 'host-self-compiler.cpp');
   const binary = path.join(TMP, process.platform === 'win32' ? 'host-self-compiler.exe' : 'host-self-compiler');
   console.log('[TRACE] host compiler start');
-  const p = spawnSync(process.execPath, [driver, 'compile', path.join(ROOT, 'src', 'frontend', 'compiler.raz'), '-o', output], {
+  const p = spawnSync(process.execPath, [driver, 'compile', path.join(ROOT, 'generations', 'gen0', 'src', 'frontend', 'compiler.raz'), '-o', output], {
     cwd: ROOT,
     encoding: 'utf8',
     timeout: 360000,
@@ -355,7 +355,7 @@ function testHostSelfCompile() {
   const cc = spawnSync('c++', ['-std=c++17', '-O0', output, '-o', binary], { cwd: ROOT, encoding: 'utf8', timeout: 360000 });
   console.log('[TRACE] native c++ done status=' + cc.status);
   if (cc.status !== 0) return { ok: false, details: `native self-compiler build failed\n${cc.stdout ?? ''}\n${cc.stderr ?? ''}` };
-  fs.copyFileSync(path.join(ROOT, 'src', 'frontend', 'compiler.raz'), path.join(WORK, 'frontend', 'input.raz'));
+  fs.copyFileSync(path.join(ROOT, 'generations', 'gen0', 'src', 'frontend', 'compiler.raz'), path.join(WORK, 'frontend', 'input.raz'));
   console.log('[TRACE] native self run start');
   const self = spawnSync(binary, [], { cwd: WORK, encoding: 'utf8', timeout: 180000 });
   console.log('[TRACE] native self run done status=' + self.status);

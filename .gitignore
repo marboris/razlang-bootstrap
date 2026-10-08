@@ -38,3 +38,7 @@ tests/last-run.txt
 *.cpp~
 
 *.zip
+
+# Generations: build caches only (binaries and final files are tracked)
+generations/*/build/*
+!generations/*/build/.gitkeep

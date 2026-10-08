@@ -8,10 +8,10 @@ import {
   DEFAULT_TARGET,
   loadLanguage,
   loadTarget,
-} from '../bootstrap/seed.mjs';
+} from '../../generations/gen0/seed/seed.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const FRONTEND_SOURCE = path.join(ROOT, 'src', 'frontend', 'compiler.raz');
+const FRONTEND_SOURCE = path.join(ROOT, 'generations', 'gen0', 'src', 'frontend', 'compiler.raz');
 const CACHE = path.join(ROOT, '.build', 'host');
 const WORK = path.join(CACHE, 'work');
 
@@ -463,7 +463,7 @@ function buildFrontend({ languagePath, targetPath, optimization = '-O3' } = {}) 
   const cpp = path.join(CACHE, 'frontend.cpp');
   const bin = path.join(CACHE, process.platform === 'win32' ? 'razc-front.exe' : 'razc-front');
   fs.copyFileSync(path.join(ROOT, 'runtime', 'raz_runtime.hpp'), path.join(CACHE, 'raz_runtime.hpp'));
-  const p = spawnSync(process.execPath, [path.join(ROOT, 'src', 'bootstrap', 'seed.mjs'), 'compile', FRONTEND_SOURCE, '-o', cpp, '--language', languagePath ?? path.join(ROOT, 'config', 'language.json'), '--target', targetPath ?? path.join(ROOT, 'config', 'targets', 'cpp17.json')], { cwd: ROOT, encoding: 'utf8' });
+  const p = spawnSync(process.execPath, [path.join(ROOT, 'generations', 'gen0', 'seed', 'seed.mjs'), 'compile', FRONTEND_SOURCE, '-o', cpp, '--language', languagePath ?? path.join(ROOT, 'config', 'language.json'), '--target', targetPath ?? path.join(ROOT, 'config', 'targets', 'cpp17.json')], { cwd: ROOT, encoding: 'utf8' });
   if (p.status !== 0) fail(`frontend bootstrap compile failed:\n${p.stdout}\n${p.stderr}`);
   const cc = spawnSync('c++', [optimization, '-std=c++17', cpp, '-o', bin], { cwd: ROOT, encoding: 'utf8' });
   if (cc.status !== 0) fail(`native frontend build failed:\n${cc.stdout}\n${cc.stderr}`);
@@ -472,11 +472,11 @@ function buildFrontend({ languagePath, targetPath, optimization = '-O3' } = {}) 
 
 function buildBackend({ languagePath, targetPath, optimization = '-O3' } = {}) {
   fs.mkdirSync(CACHE, { recursive: true });
-  const source = path.join(ROOT, 'src', 'backend', 'cpp_backend.raz');
+  const source = path.join(ROOT, 'generations', 'gen0', 'src', 'backend', 'cpp_backend.raz');
   const cpp = path.join(CACHE, 'backend.cpp');
   const bin = path.join(CACHE, process.platform === 'win32' ? 'raz-backend.exe' : 'raz-backend');
   fs.copyFileSync(path.join(ROOT, 'runtime', 'raz_runtime.hpp'), path.join(CACHE, 'raz_runtime.hpp'));
-  const build = spawnSync(process.execPath, [path.join(ROOT, 'src', 'bootstrap', 'seed.mjs'), 'compile', source, '-o', cpp, '--language', languagePath ?? path.join(ROOT, 'config', 'language.json'), '--target', targetPath ?? path.join(ROOT, 'config', 'targets', 'cpp17.json')], { cwd: ROOT, encoding: 'utf8' });
+  const build = spawnSync(process.execPath, [path.join(ROOT, 'generations', 'gen0', 'seed', 'seed.mjs'), 'compile', source, '-o', cpp, '--language', languagePath ?? path.join(ROOT, 'config', 'language.json'), '--target', targetPath ?? path.join(ROOT, 'config', 'targets', 'cpp17.json')], { cwd: ROOT, encoding: 'utf8' });
   if (build.status !== 0) fail(`Raz backend bootstrap compile failed:\n${build.stdout}\n${build.stderr}`);
   const cc = spawnSync('c++', [optimization, '-std=c++17', cpp, '-o', bin], { cwd: ROOT, encoding: 'utf8' });
   if (cc.status !== 0) fail(`native Raz backend build failed:\n${cc.stdout}\n${cc.stderr}`);

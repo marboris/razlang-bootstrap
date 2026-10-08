@@ -6,10 +6,10 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const TMP = path.join(ROOT, '.build', 'bootstrap');
-const SEED = path.join(ROOT, 'src', 'bootstrap', 'seed.mjs');
+const SEED = path.join(ROOT, 'generations', 'gen0', 'seed', 'seed.mjs');
 const LANGUAGE = path.join(ROOT, 'config', 'language.json');
 const TARGET = path.join(ROOT, 'config', 'targets', 'cpp17.json');
-const SOURCE = path.join(ROOT, 'src', 'frontend', 'compiler.raz');
+const SOURCE = path.join(ROOT, 'generations', 'gen0', 'src', 'frontend', 'compiler.raz');
 const RUNTIME = path.join(ROOT, 'runtime', 'raz_runtime.hpp');
 
 fs.rmSync(TMP, { recursive: true, force: true });
