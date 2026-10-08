@@ -8,3 +8,24 @@ NOW:
     emitLine(state, "#include \"raz_runtime.hpp\"");
 ```
 
+Im not happy with this in output:
+```
+ _v2941_const = std::string("int main(int argc, char** argv) {");
+    emitLine(state, _v2941_const);
+    _v2943_const = std::string("    raz::set_cli(argc, argv);");
+    emitLine(state, _v2943_const);
+    _v2945_const = std::string("    return static_cast<int>(raz_main());");
+    emitLine(state, _v2945_const);
+```
+
+```
+_v2734_const = std::string("#include <cstdint>");
+    emitLine(state, _v2734_const);
+    _v2736_const = std::string("#include <cstddef>");
+    emitLine(state, _v2736_const);
+    _v2738_const = std::string("#include <string>");
+    emitLine(state, _v2738_const);
+    _v2740_const = std::string("#include <vector>");
+    emitLine(state, _v2740_const);
+    _v2742_const = std::string("#include \"raz_runtime.hpp\"");
+```
