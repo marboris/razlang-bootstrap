@@ -36,3 +36,5 @@ tests/last-run.txt
 
 # Generated C/C++ outputs from ad-hoc runs
 *.cpp~
+
+*.zip
