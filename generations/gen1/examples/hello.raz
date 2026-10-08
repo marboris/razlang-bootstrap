@@ -1,0 +1,3 @@
+// Gen1 example: this file is written in L1 and must be compiled by Gen1.
+print("Hello, Raz Gen1!");
+return 0;

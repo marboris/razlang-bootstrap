@@ -1,5 +1,6 @@
 #!/bin/sh
 # Freeze the candidate binary of generation N into generations/genN/bin/ with its checksum.
+# After this point genN is the operational compiler for L_N and the builder of genN+1.
 # usage: scripts/freeze.sh <N>
 # A frozen generation is never overwritten: if bin/razc already exists, this refuses.
 set -eu

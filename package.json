@@ -11,6 +11,10 @@
     "bootstrap": "node scripts/bootstrap.mjs",
     "build:native": "node scripts/build-native.mjs",
     "self-host:native": "node scripts/self-host-native.mjs",
-    "check": "npm test && npm run test:backend && npm run test:full"
+    "check": "npm test && npm run test:backend && npm run test:full",
+    "test:gen1:fast": "node scripts/test-gen1-fast.mjs",
+    "build:gen1": "node scripts/build-gen1.mjs",
+    "build:gen1:fast": "node scripts/build-gen1-fast.mjs",
+    "test:gen1:example": "node scripts/test-gen1-example.mjs"
   }
 }

@@ -33,7 +33,9 @@
     "list_push": "raz::list_push",
     "string_concat": "raz::string_concat",
     "int_to_string": "raz::int_to_string",
-    "list_length": "raz::list_length"
+    "list_length": "raz::list_length",
+    "arg_count": "raz::arg_count",
+    "arg_at": "raz::arg_at"
   },
   "intrinsics": {
     "add": "(({a}) + ({b}))",
@@ -52,5 +54,7 @@
     "neg": "(-({a}))",
     "not": "(!({a}))",
     "string_concat": "(({a}) + ({b}))"
-  }
+  },
+  "entry": "cli",
+  "uses": {}
 }

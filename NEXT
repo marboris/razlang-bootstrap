@@ -1,0 +1,10 @@
+نکته بعدی این هست که باید در نسل بعدی hard coded رو برداریم و کتابخانه ها رو به کاربر بسپاریم:
+NOW:
+```
+    emitLine(state, "#include <cstdint>");
+    emitLine(state, "#include <cstddef>");
+    emitLine(state, "#include <string>");
+    emitLine(state, "#include <vector>");
+    emitLine(state, "#include \"raz_runtime.hpp\"");
+```
+

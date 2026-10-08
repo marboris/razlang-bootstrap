@@ -8,6 +8,20 @@
 #include <vector>
 
 namespace raz {
+    inline int g_argc = 0;
+    inline char** g_argv = nullptr;
+
+    inline void set_cli(int argc, char** argv) {
+        g_argc = argc;
+        g_argv = argv;
+    }
+    inline std::int64_t arg_count() {
+        return static_cast<std::int64_t>(g_argc);
+    }
+    inline std::string arg_at(std::int64_t index) {
+        if(index < 0 || index >= g_argc || g_argv == nullptr || g_argv[index] == nullptr) return {};
+        return std::string(g_argv[index]);
+    }
     inline void print(const std::string& s) {
         std::cout << s << std::endl;
     }

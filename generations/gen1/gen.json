@@ -1,11 +1,16 @@
 {
   "generation": 1,
   "language": "raz-1.0",
-  "status": "planned",
+  "status": "source-complete-bootstrap-pending",
   "compiled_by": "generation 0 (generations/gen0/bin/razc)",
-  "source": "generations/gen1/src/ (to be written in raz-0.2)",
+  "source": "generations/gen1/src/",
   "final_file": "generations/gen1/final/compiler.raz",
   "binary": "generations/gen1/bin/razc",
   "checksum": "generations/gen1/bin/razc.sha256",
-  "build_dir": "generations/gen1/build/"
+  "build_dir": "generations/gen1/build/",
+  "milestone": "M1-M4 complete; Gen1 source/docs/examples complete; one-time Gen0 bootstrap+freeze remains",
+  "source_notes": "gen1 source is authored in raz-0.2 (L_0) until gen1 is frozen",
+  "fast_check": "generations/gen1/build/fast-check/",
+  "operational_role": "After freeze, Gen1 compiles L1 programs and builds S2/Gen2; it is not required to compile S1",
+  "example_dir": "generations/gen1/examples/"
 }
