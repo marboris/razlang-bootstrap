@@ -32,7 +32,9 @@ scripts/                   اسکریپت‌های ساخت
 قاعده‌ی هر نسل: سورس در `src/`، فایل نهایی در `final/`، باینری در `bin/`، و فایل‌های موقت در `build/`.
 
 ## اسکریپت‌ها
-- `npm run build:native`: ساخت `gen0` از seed جاوااسکریپتی و نوشتن `final/` و `bin/`.
+- `npm run build:native`: ساخت کاندید `gen0` از seed جاوااسکریپتی در `generations/gen0/build/razc-candidate`. `bin/` دست‌نخورده می‌ماند.
+- `npm run self-host:native`: کاندید را با خودش بازسازی می‌کند و بررسی می‌کند خروجی C++ یکسان است. نتیجه در `build/` می‌ماند.
+- `scripts/freeze.sh <N>`: کاندید نسل `N` را به `bin/` منجمد می‌کند و checksum می‌نویسد. اگر `bin/razc` از قبل باشد، رد می‌کند.
 - `scripts/bootstrap-gen.sh <N> <source.raz> <out>`: کامپایل سورس با باینری نسل `N` بدون Node.
   مثال: `scripts/bootstrap-gen.sh 0 tests/cases/arithmetic.raz out`
 

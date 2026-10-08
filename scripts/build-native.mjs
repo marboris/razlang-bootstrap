@@ -5,8 +5,9 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const BUILD = path.join(ROOT, '.build', 'native');
-const WORK = path.join(BUILD, 'work');
+// Candidate outputs only. Frozen binaries in bin/ are never written here.
+const BUILD = path.join(ROOT, 'generations', 'gen0', 'build');
+const WORK = path.join(BUILD, 'native-work');
 const FRONTEND = path.join(ROOT, 'generations', 'gen0', 'src', 'frontend', 'compiler.raz');
 const BACKEND = path.join(ROOT, 'generations', 'gen0', 'src', 'backend', 'cpp_backend.raz');
 const SEED = path.join(ROOT, 'generations', 'gen0', 'seed', 'seed.mjs');
@@ -15,7 +16,7 @@ const TARGET = path.join(ROOT, 'config', 'targets', 'cpp17.json');
 const RUNTIME = path.join(ROOT, 'runtime', 'raz_runtime.hpp');
 const BUNDLE = path.join(ROOT, 'generations', 'gen0', 'final', 'compiler.raz');
 const CPP = path.join(BUILD, 'compiler.cpp');
-const BINARY = path.join(ROOT, 'generations', 'gen0', 'bin', process.platform === 'win32' ? 'razc.exe' : 'razc');
+const BINARY = path.join(BUILD, process.platform === 'win32' ? 'razc-candidate.exe' : 'razc-candidate');
 
 function stripMain(source, label) {
   const match = /^function main\(\) -> i64[ \t]*\{/m.exec(source);
@@ -138,6 +139,5 @@ console.log('[native] compile combined Raz frontend/backend with the JavaScript 
 run(process.execPath, [SEED, 'compile', BUNDLE, '-o', CPP, '--language', LANGUAGE, '--target', TARGET]);
 console.log('[native] build standalone compiler binary');
 run(process.env.CXX ?? 'c++', ['-std=c++17', '-O2', CPP, '-o', BINARY]);
-console.log(`[native] compiler ready: ${BINARY}`);
-console.log(`[native] input: ${path.join(WORK, 'frontend', 'input.raz')}`);
-console.log(`[native] output: ${path.join(WORK, 'backend', 'output.cpp')}`);
+console.log(`[native] candidate compiler ready: ${BINARY}`);
+console.log('[native] to freeze it as generation 0: scripts/freeze.sh 0 (only if bin/ is empty)');
