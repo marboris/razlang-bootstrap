@@ -123,6 +123,94 @@ function testGlobalNameCollision() {
   }
 }
 
+
+function testRirVerifierFixtures() {
+  const work = path.join(BUILD, 'case-rir-verifier');
+  fs.rmSync(work, { recursive: true, force: true });
+  fs.mkdirSync(path.join(work, 'ir'), { recursive: true });
+  const fixtures = [
+    ['valid.rir', true, 'RIR-1 OK'],
+    ['references.rir', true, 'RIR-1 OK'],
+    ['duplicate-label.rir', false, 'duplicate label'],
+    ['undefined-value.rir', false, 'undefined value'],
+    ['bad-target.rir', false, 'control-flow target'],
+  ];
+
+  for (const [filename, shouldPass, expectedReport] of fixtures) {
+    const source = path.join(ROOT, 'tests', 'cases', 'rir', filename);
+    const input = path.join(work, 'ir', 'input.rir');
+    const reportPath = path.join(work, 'ir', 'verification.txt');
+    fs.writeFileSync(input, fs.readFileSync(source, 'utf8'), 'utf8');
+    fs.rmSync(reportPath, { force: true });
+    const result = run(path.join(BIN, 'rirverify'), [], { cwd: work, capture: true });
+    const report = fs.existsSync(reportPath) ? fs.readFileSync(reportPath, 'utf8') : '';
+    const passed = shouldPass
+      ? result.status === 0 && report.includes(expectedReport)
+      : result.status !== 0 && report.includes(expectedReport);
+    if (!passed) {
+      throw new Error(
+        `RIR verifier fixture ${filename} failed: status=${result.status}, report=${JSON.stringify(report)}, stderr=${JSON.stringify(result.stderr ?? '')}`,
+      );
+    }
+  }
+}
+
+function testFreezeMetadataLifecycle() {
+  const tempRoot = fs.mkdtempSync(path.join(BUILD, 'freeze-test-'));
+  try {
+    const scriptDir = path.join(tempRoot, 'scripts');
+    const gen = path.join(tempRoot, 'generations', 'gen77');
+    const bin = path.join(gen, 'bin');
+    const build = path.join(gen, 'build');
+    fs.mkdirSync(scriptDir, { recursive: true });
+    fs.mkdirSync(bin, { recursive: true });
+    fs.mkdirSync(build, { recursive: true });
+    fs.copyFileSync(path.join(ROOT, 'scripts', 'freeze.sh'), path.join(scriptDir, 'freeze.sh'));
+    fs.writeFileSync(path.join(gen, 'gen.json'), JSON.stringify({
+      generation: 77,
+      status: 'source-complete-bootstrap-pending',
+      milestone: 'pending',
+    }, null, 2) + '\n', 'utf8');
+    fs.writeFileSync(path.join(build, 'razc-candidate'), 'candidate-binary-v1\n', 'utf8');
+    fs.writeFileSync(path.join(bin, 'razc'), 'provisional-binary\n', 'utf8');
+
+    const freeze = spawnSync('sh', [path.join(scriptDir, 'freeze.sh'), '77', '--replace-pending'], {
+      cwd: tempRoot,
+      encoding: 'utf8',
+      timeout: 10000,
+    });
+    if (freeze.status !== 0) {
+      throw new Error(`freeze did not complete: ${freeze.stdout ?? ''}\n${freeze.stderr ?? ''}`);
+    }
+    const metadata = JSON.parse(fs.readFileSync(path.join(gen, 'gen.json'), 'utf8'));
+    if (metadata.status !== 'frozen') {
+      throw new Error(`freeze did not update metadata status: ${metadata.status}`);
+    }
+    const candidateBytes = fs.readFileSync(path.join(build, 'razc-candidate'));
+    const frozenBytes = fs.readFileSync(path.join(bin, 'razc'));
+    if (!candidateBytes.equals(frozenBytes)) {
+      throw new Error('freeze did not install the exact candidate binary');
+    }
+    const checksum = spawnSync('sha256sum', ['-c', 'razc.sha256'], {
+      cwd: bin,
+      encoding: 'utf8',
+      timeout: 10000,
+    });
+    if (checksum.status !== 0) throw new Error(`frozen checksum is invalid: ${checksum.stdout ?? ''} ${checksum.stderr ?? ''}`);
+
+    const secondFreeze = spawnSync('sh', [path.join(scriptDir, 'freeze.sh'), '77', '--replace-pending'], {
+      cwd: tempRoot,
+      encoding: 'utf8',
+      timeout: 10000,
+    });
+    if (secondFreeze.status === 0 || !(secondFreeze.stderr ?? '').includes('not marked pending')) {
+      throw new Error('freeze allowed replacing a generation after it was marked frozen');
+    }
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+}
+
 function testCycle() {
   const work = path.join(BUILD, 'case-cycle');
   fs.rmSync(work, { recursive: true, force: true });
@@ -138,11 +226,22 @@ function testCycle() {
 }
 
 ensureBuilt();
-compileProgram('top-level', `let g: i64 = 5;\nfunction twice(x: i64) -> i64 { return x + x; }\nreturn twice(g);\n`, 10);
-compileProgram('string-global', `let message: string = \"ok\";\nfunction size() -> i64 { return length(message); }\nreturn size();\n`, 2);
-compileProgram('cli', `return argCount();\n`, 2);
+compileProgram('top-level', `use "cstdint";\nlet g: i64 = 5;\nfunction twice(x: i64) -> i64 { return x + x; }\nreturn twice(g);\n`, 10);
+compileProgram('string-global', `use "raz_runtime.hpp";\nlet message: string = "ok";\nfunction size() -> i64 { return length(message); }\nreturn size();\n`, 2);
+compileProgram('cli', `use "raz_runtime.hpp";\nreturn argCount();\n`, 2);
 compileProgram('use-header', `use \"cstdint\";\nreturn 0;\n`, 0);
-compileProgram('unsafe', `unsafe { let p: char* = nullptr; }\nreturn 0;\n`, 0);
+const explicitHeaderIncludes = fs.readFileSync(path.join(BUILD, 'case-use-header', 'backend', 'output.cpp'), 'utf8').split(/\r?\n/).filter((line) => line.startsWith('#include'));
+if (explicitHeaderIncludes.length !== 1 || explicitHeaderIncludes[0] !== '#include "cstdint"') {
+  throw new Error('use-header: backend emitted an undeclared include or unnecessary CLI setup');
+}
+compileProgram('use-angle-header', `use cstdint;\nreturn 0;\n`, 0);
+const angleHeaderIncludes = fs.readFileSync(path.join(BUILD, 'case-use-angle-header', 'backend', 'output.cpp'), 'utf8').split(/\r?\n/).filter((line) => line.startsWith('#include'));
+if (angleHeaderIncludes.length !== 1 || angleHeaderIncludes[0] !== '#include <cstdint>') {
+  throw new Error('use-angle-header: backend did not preserve the bare include');
+}
+const cliCpp = fs.readFileSync(path.join(BUILD, 'case-cli', 'backend', 'output.cpp'), 'utf8');
+if (!cliCpp.includes('raz::set_cli(argc, argv);')) throw new Error('cli: backend omitted CLI initialization');
+compileProgram('unsafe', `use "cstdint";\nunsafe { let p: char* = nullptr; }\nreturn 0;\n`, 0);
 const unsafeRir = fs.readFileSync(path.join(BUILD, 'case-unsafe', 'frontend', 'output.rir'), 'utf8');
 if (!unsafeRir.includes('local char* p') || !unsafeRir.includes('const char* nullptr')) {
   throw new Error('unsafe: nullptr/unsafe body was not lowered into RIR');
@@ -154,4 +253,6 @@ testIncludes();
 testIncludeDeclarationInBlock();
 testGlobalNameCollision();
 testCycle();
+testRirVerifierFixtures();
+testFreezeMetadataLifecycle();
 console.log('[gen1-fast] all fast checks passed');

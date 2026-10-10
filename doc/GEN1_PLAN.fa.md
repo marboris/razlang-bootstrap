@@ -37,7 +37,7 @@
 
 - `npm run test:gen1:fast` باید سبز باشد.
 - `npm run build:gen1`، `S1` را با `gen0` می‌سازد.
-- `scripts/freeze.sh 1` باینری را در `generations/gen1/bin/razc` freeze می‌کند و checksum می‌نویسد.
+- `scripts/freeze.sh 1` ابتدا candidate را با تست runtime/CLI می‌پذیرد، سپس باینری و checksum را ثبت می‌کند و وضعیت `gen.json` را از pending به `frozen` تغییر می‌دهد.
 - بعد از freeze، `generations/gen1/examples/hello.raz` باید با **خود Gen1** کامپایل و اجرا شود.
 - self-compile شدن `S1` با Gen1 فقط check اختیاری است و در acceptance معیار نیست.
 

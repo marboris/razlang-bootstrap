@@ -34,7 +34,7 @@ scripts/                   اسکریپت‌های ساخت
 ## اسکریپت‌ها
 - `npm run build:native`: ساخت کاندید `gen0` از seed جاوااسکریپتی در `generations/gen0/build/razc-candidate`. `bin/` دست‌نخورده می‌ماند.
 - `npm run self-host:native`: کاندید را با خودش بازسازی می‌کند و بررسی می‌کند خروجی C++ یکسان است. نتیجه در `build/` می‌ماند.
-- `scripts/freeze.sh <N>`: کاندید نسل `N` را به `bin/` منجمد می‌کند و checksum می‌نویسد. اگر `bin/razc` از قبل باشد، رد می‌کند.
+- `scripts/freeze.sh <N>`: کاندید نسل `N` را می‌پذیرد، باینری و checksum را ثبت می‌کند و `gen.json` را به `frozen` تغییر می‌دهد. برای Gen1 قبل از freeze تست runtime/CLI اجرا می‌شود. اگر `bin/razc` از قبل باشد، فقط با `--replace-pending` و metadata در وضعیت pending جایگزین می‌شود.
 - `scripts/bootstrap-gen.sh <N> <source.raz> <out>`: کامپایل سورس با باینری نسل `N` بدون Node.
   مثال: `scripts/bootstrap-gen.sh 0 tests/cases/arithmetic.raz out`
 

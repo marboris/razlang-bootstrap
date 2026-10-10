@@ -1840,6 +1840,20 @@ function parseRir(rir: string) -> BackendModule {
     return module;
 }
 
+function usesCli(module: BackendModule) -> bool {
+    let i: i64 = 0;
+    while (i < listLength(module.functions)) {
+        let j: i64 = 0;
+        while (j < listLength(module.functions[i].body)) {
+            let line: string = module.functions[i].body[j];
+            if (rirBackend_findText(line, "call argCount(", 0) >= 0 || rirBackend_findText(line, "call argAt(", 0) >= 0) return true;
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    return false;
+}
+
 function cppType(t: string) -> string {
     if (t == "i64") return "std::int64_t";
     if (t == "f64") return "double";
@@ -2371,11 +2385,6 @@ function generate(rir: string) -> string {
     let state: BackendState = new BackendState();
     state.lines = [];
 
-    rirBackend_emitLine(state, "#include <cstdint>");
-    rirBackend_emitLine(state, "#include <cstddef>");
-    rirBackend_emitLine(state, "#include <string>");
-    rirBackend_emitLine(state, "#include <vector>");
-    rirBackend_emitLine(state, "#include \"raz_runtime.hpp\"");
     let i: i64 = 0;
     while (i < listLength(module.uses)) {
         let u: string = module.uses[i];
@@ -2428,7 +2437,7 @@ function generate(rir: string) -> string {
     }
 
     rirBackend_emitLine(state, "int main(int argc, char** argv) {");
-    rirBackend_emitLine(state, "    raz::set_cli(argc, argv);");
+    if (usesCli(module)) rirBackend_emitLine(state, "    raz::set_cli(argc, argv);");
     rirBackend_emitLine(state, "    return static_cast<int>(raz_main());");
     rirBackend_emitLine(state, "}");
 

@@ -6,7 +6,9 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const GEN = path.join(ROOT, 'generations', 'gen1');
-const BIN = path.join(GEN, 'bin', process.platform === 'win32' ? 'razc.exe' : 'razc');
+const BIN = process.env.RAZC
+  ? path.resolve(ROOT, process.env.RAZC)
+  : path.join(GEN, 'bin', process.platform === 'win32' ? 'razc.exe' : 'razc');
 const EXAMPLE = path.join(GEN, 'examples', 'hello.raz');
 const WORK = path.join(GEN, 'build', 'example');
 const RUNTIME = path.join(ROOT, 'runtime', 'raz_runtime.hpp');
@@ -29,16 +31,26 @@ if (!fs.existsSync(BIN)) {
 fs.rmSync(WORK, { recursive: true, force: true });
 fs.mkdirSync(path.join(WORK, 'frontend'), { recursive: true });
 fs.mkdirSync(path.join(WORK, 'backend'), { recursive: true });
-fs.copyFileSync(EXAMPLE, path.join(WORK, 'frontend', 'input.raz'));
 fs.copyFileSync(RUNTIME, path.join(WORK, 'backend', 'raz_runtime.hpp'));
 
-run(BIN, [], WORK);
-const cpp = path.join(WORK, 'backend', 'output.cpp');
-const exe = path.join(WORK, process.platform === 'win32' ? 'hello.exe' : 'hello');
-run(process.env.CXX ?? 'c++', ['-std=c++17', cpp, '-I', path.join(WORK, 'backend'), '-o', exe], ROOT);
-const result = run(exe, [], WORK);
-const stdout = (result.stdout ?? '').trim();
-if (stdout !== 'Hello, Raz Gen1!') {
-  throw new Error(`[gen1-example] unexpected output: ${JSON.stringify(stdout)}`);
+function compileAndRun(name, source, args, expectedOutput) {
+  fs.writeFileSync(path.join(WORK, 'frontend', 'input.raz'), source, 'utf8');
+  run(BIN, [], WORK);
+  const cpp = path.join(WORK, 'backend', 'output.cpp');
+  const exe = path.join(WORK, process.platform === 'win32' ? `${name}.exe` : name);
+  run(process.env.CXX ?? 'c++', ['-std=c++17', cpp, '-I', path.join(WORK, 'backend'), '-o', exe], ROOT);
+  const result = run(exe, args, WORK);
+  const stdout = (result.stdout ?? '').trim();
+  if (stdout !== expectedOutput) {
+    throw new Error(`[gen1-example] ${name}: unexpected output: ${JSON.stringify(stdout)}`);
+  }
 }
-console.log('[gen1-example] hello.raz compiled by Gen1 and ran successfully');
+
+compileAndRun('hello', fs.readFileSync(EXAMPLE, 'utf8'), [], 'Hello, Raz Gen1!');
+compileAndRun(
+  'cli',
+  'use "raz_runtime.hpp";\nprint(argAt(1));\nreturn 0;\n',
+  ['candidate-arg'],
+  'candidate-arg',
+);
+console.log('[gen1-example] hello and runtime/CLI smoke tests passed');
