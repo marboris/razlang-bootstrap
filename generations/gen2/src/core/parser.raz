@@ -1,0 +1,455 @@
+function current(state: Ref<ParserState>) -> Token {
+    return state.tokens[state.pos];
+}
+
+function take(state: Ref<ParserState>, kind: i64) -> Token {
+    let t: Token = state.tokens[state.pos];
+    state.pos = state.pos + 1;
+    if (t.kind != kind) return t;
+    return t;
+}
+
+function maybe(state: Ref<ParserState>, kind: i64) -> bool {
+    let t: Token = state.tokens[state.pos];
+    if (t.kind == kind) {
+        state.pos = state.pos + 1;
+        return true;
+    }
+    return false;
+}
+
+function emptyExpr(kind: i64) -> Expr {
+    let e: Expr = new Expr();
+    e.kind = kind;
+    e.left = -1;
+    e.right = -1;
+    e.valueText = "";
+    e.args = [];
+    return e;
+}
+
+function emptyStmt(kind: i64) -> Stmt {
+    let s: Stmt = new Stmt();
+    s.kind = kind;
+    s.expr = -1;
+    s.left = -1;
+    s.right = -1;
+    s.thenStmts = [];
+    s.elseStmts = [];
+    s.body = [];
+    return s;
+}
+
+function addExpr(state: Ref<ParserState>, e: Expr) -> i64 {
+    let id: i64 = listLength(state.exprs);
+    push(state.exprs, e);
+    return id;
+}
+
+function addStmt(state: Ref<ParserState>, s: Stmt) -> i64 {
+    let id: i64 = listLength(state.stmts);
+    push(state.stmts, s);
+    return id;
+}
+
+function precedence(kind: i64) -> i64 {
+    if (kind == 44) return 10;
+    if (kind == 43) return 20;
+    if (kind == 37 || kind == 38) return 30;
+    if (kind == 39 || kind == 40 || kind == 41 || kind == 42) return 40;
+    if (kind == 31 || kind == 32) return 50;
+    if (kind == 33 || kind == 34 || kind == 35) return 60;
+    return -1;
+}
+
+function parseType(state: Ref<ParserState>) -> string {
+    let t: Token = take(state, 1);
+    let out: string = t.text;
+    if (current(state).kind == 39) {
+        take(state, 39);
+        let inner: string = parseType(state);
+        out = out + "<" + inner;
+        while (current(state).kind == 26) {
+            take(state, 26);
+            let arg: string = parseType(state);
+            out = out + "," + arg;
+        }
+        maybe(state, 41);
+        out = out + ">";
+    }
+    while (current(state).kind == 33) {
+        take(state, 33);
+        out = out + "*";
+    }
+    return out;
+}
+
+function parseExpression(state: Ref<ParserState>, minPrec: i64) -> i64 {
+    let left: i64 = parseUnary(state);
+    let p: i64 = precedence(current(state).kind);
+    while (p >= minPrec) {
+        let op: string = current(state).text;
+        take(state, current(state).kind);
+        let right: i64 = parseExpression(state, p + 1);
+        let e: Expr = emptyExpr(6);
+        e.op = op;
+        e.left = left;
+        e.right = right;
+        left = addExpr(state, e);
+        p = precedence(current(state).kind);
+    }
+    return left;
+}
+
+function parseCallArgs(state: Ref<ParserState>) -> List<i64> {
+    let args: List<i64> = [];
+    if (current(state).kind != 21) {
+        push(args, parseExpression(state, 0));
+        while (current(state).kind == 26) {
+            take(state, 26);
+            push(args, parseExpression(state, 0));
+        }
+    }
+    maybe(state, 21);
+    return args;
+}
+
+function parsePrimary(state: Ref<ParserState>) -> i64 {
+    let t: Token = current(state);
+    if (t.kind == 2) {
+        take(state, 2);
+        let e: Expr = emptyExpr(1);
+        e.text = t.text;
+        e.valueText = t.text;
+        return addExpr(state, e);
+    }
+    if (t.kind == 3) {
+        take(state, 3);
+        let e: Expr = emptyExpr(2);
+        e.text = t.text;
+        return addExpr(state, e);
+    }
+    if (t.kind == 4) {
+        take(state, 4);
+        let e: Expr = emptyExpr(3);
+        e.valueText = t.text;
+        return addExpr(state, e);
+    }
+    if (t.kind == 17 || t.kind == 18) {
+        take(state, t.kind);
+        let e: Expr = emptyExpr(4);
+        if (t.kind == 17) e.valueText = "true";
+        else e.valueText = "false";
+        return addExpr(state, e);
+    }
+    if (t.kind == 49) {
+        take(state, 49);
+        let e: Expr = emptyExpr(13);
+        e.valueText = "nullptr";
+        return addExpr(state, e);
+    }
+    if (t.kind == 1) {
+        take(state, 1);
+        let e: Expr = emptyExpr(5);
+        e.text = t.text;
+        return addExpr(state, e);
+    }
+    if (t.kind == 19) {
+        take(state, 19);
+        let e: Expr = emptyExpr(11);
+        e.text = parseType(state);
+        maybe(state, 20);
+        e.args = parseCallArgs(state);
+        return addExpr(state, e);
+    }
+    if (t.kind == 28) {
+        take(state, 28);
+        let e: Expr = emptyExpr(12);
+        if (current(state).kind != 29) {
+            push(e.args, parseExpression(state, 0));
+            while (current(state).kind == 26) {
+                take(state, 26);
+                push(e.args, parseExpression(state, 0));
+            }
+        }
+        maybe(state, 29);
+        return addExpr(state, e);
+    }
+    if (t.kind == 20) {
+        take(state, 20);
+        let id: i64 = parseExpression(state, 0);
+        maybe(state, 21);
+        return id;
+    }
+    return -1;
+}
+
+function parsePostfix(state: Ref<ParserState>, id: i64) -> i64 {
+    let out: i64 = id;
+    let more: bool = true;
+    while (more) {
+        if (current(state).kind == 20) {
+            let args: List<i64> = [] ;
+            take(state, 20);
+            args = parseCallArgs(state);
+            let e: Expr = emptyExpr(8);
+            e.left = out;
+            e.args = args;
+            out = addExpr(state, e);
+        } else if (current(state).kind == 27) {
+            take(state, 27);
+            let member: Token = take(state, 1);
+            let e: Expr = emptyExpr(9);
+            e.left = out;
+            e.text = member.text;
+            out = addExpr(state, e);
+        } else if (current(state).kind == 28) {
+            take(state, 28);
+            let idx: i64 = parseExpression(state, 0);
+            maybe(state, 29);
+            let e: Expr = emptyExpr(10);
+            e.left = out;
+            e.right = idx;
+            out = addExpr(state, e);
+        } else {
+            more = false;
+        }
+    }
+    return out;
+}
+
+function parseUnary(state: Ref<ParserState>) -> i64 {
+    let k: i64 = current(state).kind;
+    if (k == 36 || k == 31 || k == 32) {
+        let op: string = current(state).text;
+        take(state, k);
+        let operand: i64 = parseUnary(state);
+        let e: Expr = emptyExpr(7);
+        e.op = op;
+        e.left = operand;
+        return addExpr(state, e);
+    }
+    let id: i64 = parsePrimary(state);
+    if (id < 0) return id;
+    return parsePostfix(state, id);
+}
+
+function parseBlock(state: Ref<ParserState>) -> List<i64> {
+    let body: List<i64> = [];
+    maybe(state, 22);
+    state.blockDepth = state.blockDepth + 1;
+    while (!state.parseError && current(state).kind != 23 && current(state).kind != 0) {
+        let stmtId: i64 = parseStatement(state);
+        if (stmtId >= 0) push(body, stmtId);
+    }
+    state.blockDepth = state.blockDepth - 1;
+    maybe(state, 23);
+    return body;
+}
+
+function parseControlledBody(state: Ref<ParserState>) -> List<i64> {
+    let body: List<i64> = [];
+    if (current(state).kind == 22) return parseBlock(state);
+    state.blockDepth = state.blockDepth + 1;
+    push(body, parseStatement(state));
+    state.blockDepth = state.blockDepth - 1;
+    return body;
+}
+
+function parseStatement(state: Ref<ParserState>) -> i64 {
+    let k: i64 = current(state).kind;
+    if (state.blockDepth > 0 && (k == 10 || k == 11)) {
+        state.parseError = true;
+        state.parseErrorText = "declaration is only allowed at file scope";
+        state.pos = listLength(state.tokens) - 1;
+        return -1;
+    }
+    if (k == 46) {
+        take(state, 46);
+        let s: Stmt = emptyStmt(7);
+        let t: Token = current(state);
+        if (t.kind == 3 || t.kind == 1) {
+            take(state, t.kind);
+            s.name = t.text;
+            if (t.kind == 3) s.type = "quoted";
+            else s.type = "bare";
+        } else {
+            state.pos = state.pos + 1;
+        }
+        maybe(state, 24);
+        return addStmt(state, s);
+    }
+    if (k == 47) {
+        take(state, 47);
+        let s: Stmt = emptyStmt(8);
+        if (current(state).kind == 3) {
+            s.name = take(state, 3).text;
+        }
+        maybe(state, 24);
+        return addStmt(state, s);
+    }
+    if (k == 48) {
+        take(state, 48);
+        let s: Stmt = emptyStmt(9);
+        s.body = parseControlledBody(state);
+        return addStmt(state, s);
+    }
+    if (k == 12) {
+        take(state, 12);
+        let s: Stmt = emptyStmt(1);
+        let name: Token = take(state, 1);
+        s.name = name.text;
+        if (current(state).kind == 25) {
+            take(state, 25);
+            s.type = parseType(state);
+        }
+        maybe(state, 30);
+        s.expr = parseExpression(state, 0);
+        maybe(state, 24);
+        return addStmt(state, s);
+    }
+    if (k == 13) {
+        take(state, 13);
+        let s: Stmt = emptyStmt(2);
+        if (current(state).kind != 24) s.expr = parseExpression(state, 0);
+        maybe(state, 24);
+        return addStmt(state, s);
+    }
+    if (k == 14) {
+        take(state, 14);
+        let s: Stmt = emptyStmt(5);
+        maybe(state, 20);
+        s.expr = parseExpression(state, 0);
+        maybe(state, 21);
+        s.thenStmts = parseControlledBody(state);
+        if (current(state).kind == 15) {
+            take(state, 15);
+            if (current(state).kind == 14) push(s.elseStmts, parseStatement(state));
+            else if (current(state).kind == 22) s.elseStmts = parseBlock(state);
+            else push(s.elseStmts, parseStatement(state));
+        }
+        return addStmt(state, s);
+    }
+    if (k == 16) {
+        take(state, 16);
+        let s: Stmt = emptyStmt(6);
+        maybe(state, 20);
+        s.expr = parseExpression(state, 0);
+        maybe(state, 21);
+        s.body = parseControlledBody(state);
+        return addStmt(state, s);
+    }
+
+    let first: i64 = parseExpression(state, 0);
+    if (first < 0) {
+        state.pos = state.pos + 1;
+        return -1;
+    }
+    if (current(state).kind == 30) {
+        take(state, 30);
+        let s: Stmt = emptyStmt(4);
+        s.left = first;
+        s.right = parseExpression(state, 0);
+        maybe(state, 24);
+        return addStmt(state, s);
+    }
+    let s: Stmt = emptyStmt(3);
+    s.expr = first;
+    maybe(state, 24);
+    return addStmt(state, s);
+}
+
+function parseFunction(state: Ref<ParserState>) -> FunctionDef {
+    take(state, 10);
+    let f: FunctionDef = new FunctionDef();
+    let name: Token = take(state, 1);
+    f.name = name.text;
+    f.params = [];
+    f.returnType = "void";
+    maybe(state, 20);
+    if (current(state).kind != 21) {
+        let more: bool = true;
+        while (more) {
+            let p: Param = new Param();
+            let pname: Token = take(state, 1);
+            p.name = pname.text;
+            maybe(state, 25);
+            p.type = parseType(state);
+            push(f.params, p);
+            if (!maybe(state, 26)) more = false;
+        }
+    }
+    maybe(state, 21);
+    if (current(state).kind == 45) {
+        take(state, 45);
+        f.returnType = parseType(state);
+    }
+    f.body = parseBlock(state);
+    return f;
+}
+
+function parseStruct(state: Ref<ParserState>) -> StructDef {
+    take(state, 11);
+    let s: StructDef = new StructDef();
+    let name: Token = take(state, 1);
+    s.name = name.text;
+    s.fields = [];
+    maybe(state, 22);
+    while (current(state).kind != 23 && current(state).kind != 0) {
+        let f: Field = new Field();
+        let fname: Token = take(state, 1);
+        f.name = fname.text;
+        maybe(state, 25);
+        f.type = parseType(state);
+        push(s.fields, f);
+        maybe(state, 24);
+    }
+    maybe(state, 23);
+    return s;
+}
+
+
+function parseProgram(source: string) -> Program {
+    let state: ParserState = new ParserState();
+    state.tokens = lex(source);
+    state.pos = 0;
+    state.exprs = [];
+    state.stmts = [];
+    state.functions = [];
+    state.structs = [];
+    state.lastList = [];
+    state.blockDepth = 0;
+    state.parseError = false;
+    state.parseErrorText = "";
+
+    while (!state.parseError && current(state).kind != 0) {
+        if (current(state).kind == 10) push(state.functions, parseFunction(state));
+        else if (current(state).kind == 11) push(state.structs, parseStruct(state));
+        else {
+            let stmtId: i64 = parseStatement(state);
+            if (stmtId >= 0) push(state.lastList, stmtId);
+        }
+    }
+
+    let p: Program = new Program();
+    p.exprs = state.exprs;
+    p.stmts = state.stmts;
+    p.topStmts = state.lastList;
+    p.uses = [];
+    let i: i64 = 0;
+    while (i < listLength(state.lastList)) {
+        let sid: i64 = state.lastList[i];
+        if (state.stmts[sid].kind == 7) {
+            if (state.stmts[sid].type == "quoted") push(p.uses, "quoted:" + state.stmts[sid].name);
+            else push(p.uses, "bare:" + state.stmts[sid].name);
+        }
+        i = i + 1;
+    }
+    p.functions = state.functions;
+    p.structs = state.structs;
+    p.valid = !state.parseError;
+    p.error = state.parseErrorText;
+    if (!p.valid) print("parse-error: " + p.error);
+    return p;
+}
+

@@ -1,0 +1,39 @@
+// Experimental Raz backend: RIR text -> C++17 text.
+// The backend accepts the RIR-1 subset produced by the native frontend.
+
+struct FunctionMeta {
+    name: string;
+    params: List<string>;
+    paramTypes: List<string>;
+    returnType: string;
+    body: List<string>;
+}
+
+struct StructMeta {
+    name: string;
+    fields: List<string>;
+    fieldTypes: List<string>;
+}
+
+struct GlobalMeta {
+    name: string;
+    type: string;
+}
+
+struct BackendModule {
+    uses: List<string>;
+    globals: List<GlobalMeta>;
+    structs: List<StructMeta>;
+    functions: List<FunctionMeta>;
+}
+
+struct BackendState {
+    lines: List<string>;
+    temps: List<string>;
+    tempTypes: List<string>;
+    locals: List<string>;
+    localTypes: List<string>;
+    aliasNames: List<string>;
+    aliasValues: List<string>;
+}
+

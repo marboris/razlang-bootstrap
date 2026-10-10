@@ -1,0 +1,81 @@
+// Gen2 command-line entry point.
+// These uses are intentionally explicit: the native compiler's headers are
+// declared by the compiler program, not silently injected by the backend.
+use cstdint;
+use cstddef;
+use string;
+use vector;
+use "raz_runtime.hpp";
+
+// Gen1 bootstrap workaround: the frozen backend infers some local string loads as i64.
+// These CLI string slots are explicit globals until the new Gen2 backend replaces it.
+let gInputPath: string = "";
+let gOutputPath: string = "";
+let gOption: string = "";
+let gSource: string = "";
+let gRir: string = "";
+let gCpp: string = "";
+
+function printUsage() {
+    print("Raz Gen2 compiler preview");
+    print("Usage: razc <input.raz> [--emit-cpp <output.cpp>]");
+    print("Options: --help, --version, -o <output.cpp>, --emit-cpp <output.cpp>");
+}
+
+function runCompiler() -> i64 {
+    let argc: i64 = argCount();
+    if (argc < 2) {
+        printUsage();
+        return 2;
+    }
+
+    gInputPath = argAt(1);
+    if (gInputPath == "--help" || gInputPath == "-h") {
+        printUsage();
+        return 0;
+    }
+    if (gInputPath == "--version" || gInputPath == "-V") {
+        print("razc Gen2 preview 0.1.0");
+        return 0;
+    }
+
+    gOutputPath = gInputPath + ".cpp";
+    let i: i64 = 2;
+    while (i < argc) {
+        gOption = argAt(i);
+        if (gOption == "--emit-cpp" || gOption == "-o") {
+            i = i + 1;
+            if (i >= argc) {
+                print("razc: missing path after " + gOption);
+                return 2;
+            }
+            gOutputPath = argAt(i);
+        } else {
+            print("razc: unknown argument: " + gOption);
+            printUsage();
+            return 2;
+        }
+        i = i + 1;
+    }
+
+    gSource = readFile(gInputPath);
+    if (gSource == "") {
+        print("razc: cannot read input: " + gInputPath);
+        return 1;
+    }
+    gRir = compileSourceAt(gSource, gInputPath);
+    if (gRir == "") {
+        print("razc: compilation failed");
+        return 1;
+    }
+    gCpp = generate(gRir);
+    if (gCpp == "") {
+        print("razc: C++ generation failed");
+        return 1;
+    }
+    writeFile(gOutputPath, gCpp);
+    print("razc: wrote " + gOutputPath);
+    return 0;
+}
+
+return runCompiler();

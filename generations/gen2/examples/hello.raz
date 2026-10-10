@@ -1,0 +1,4 @@
+use "raz_runtime.hpp";
+
+print("Hello from Raz Gen2!");
+return 0;

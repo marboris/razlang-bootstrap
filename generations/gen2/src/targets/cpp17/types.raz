@@ -1,0 +1,373 @@
+function cppType(t: string) -> string {
+    if (t == "i64") return "std::int64_t";
+    if (t == "f64") return "double";
+    if (t == "bool") return "bool";
+    if (t == "string") return "std::string";
+    if (starts(t, "List<")) {
+        let inner: string = slice(t, 5, length(t) - 1);
+        return "std::vector<" + cppType(inner) + ">";
+    }
+    if (starts(t, "Ref<")) {
+        let inner: string = slice(t, 4, length(t) - 1);
+        return cppType(inner) + "&";
+    }
+    return t;
+}
+
+function cppName(name: string) -> string {
+    if (name == "main") return "raz_main";
+    if (name == "argCount") return "raz::arg_count";
+    if (name == "argAt") return "raz::arg_at";
+    if (name == "print") return "raz::print";
+    if (name == "readFile") return "raz::read_file";
+    if (name == "writeFile") return "raz::write_file";
+    if (name == "length") return "raz::string_length";
+    if (name == "slice") return "raz::string_slice";
+    if (name == "append") return "raz::list_append";
+    if (name == "push") return "raz::list_push";
+    if (name == "listLength") return "raz::list_length";
+    if (name == "int_to_string") return "raz::int_to_string";
+    return name;
+}
+
+function valueName(v: string) -> string {
+    let x: string = trim(v);
+    if (starts(x, "%")) return "t" + slice(x, 1, length(x));
+    return x;
+}
+
+function cppValue(state: Ref<BackendState>, value: string) -> string {
+    let x: string = trim(value);
+    if (!starts(x, "%")) return x;
+    let name: string = valueName(x);
+    let i: i64 = 0;
+    while (i < listLength(state.aliasNames)) {
+        if (state.aliasNames[i] == name) return state.aliasValues[i];
+        i = i + 1;
+    }
+    return name;
+}
+
+function setAlias(state: Ref<BackendState>, name: string, value: string) {
+    let i: i64 = 0;
+    while (i < listLength(state.aliasNames)) {
+        if (state.aliasNames[i] == name) {
+            state.aliasValues[i] = value;
+            return;
+        }
+        i = i + 1;
+    }
+    push(state.aliasNames, name);
+    push(state.aliasValues, value);
+}
+
+function cppArgs(state: Ref<BackendState>, values: string) -> string {
+    let out: string = "";
+    let start: i64 = 0;
+    let i: i64 = 0;
+    while (i <= length(values)) {
+        if (i == length(values) || values[i] == 44) {
+            let item: string = trim(slice(values, start, i));
+            if (item != "") {
+                if (out != "") out = out + ", ";
+                out = out + cppValue(state, item);
+            }
+            start = i + 1;
+        }
+        i = i + 1;
+    }
+    return out;
+}
+
+function has(state: Ref<BackendState>, name: string) -> bool {
+    let i: i64 = 0;
+    while (i < listLength(state.temps)) {
+        if (state.temps[i] == name) return true;
+        i = i + 1;
+    }
+    return false;
+}
+
+function localIndex(state: Ref<BackendState>, name: string) -> i64 {
+    let i: i64 = 0;
+    while (i < listLength(state.locals)) {
+        if (state.locals[i] == name) return i;
+        i = i + 1;
+    }
+    return -1;
+}
+
+function addTemp(state: Ref<BackendState>, name: string, type: string) {
+    if (name == "" || has(state, name)) return;
+    push(state.temps, name);
+    push(state.tempTypes, type);
+}
+
+function tempType(state: Ref<BackendState>, name: string) -> string {
+    let i: i64 = 0;
+    while (i < listLength(state.temps)) {
+        if (state.temps[i] == name) return state.tempTypes[i];
+        i = i + 1;
+    }
+    return "i64";
+}
+
+function setTempType(state: Ref<BackendState>, name: string, type: string) {
+    let i: i64 = 0;
+    while (i < listLength(state.temps)) {
+        if (state.temps[i] == name) {
+            state.tempTypes[i] = type;
+            return;
+        }
+        i = i + 1;
+    }
+}
+
+function refineListType(state: Ref<BackendState>, value: string, expected: string) {
+    let x: string = trim(value);
+    if (!starts(x, "%") || !starts(expected, "List<")) return;
+    let name: string = valueName(x);
+    if (tempType(state, name) == "List<i64>") setTempType(state, name, expected);
+}
+
+function findVarType(f: Ref<FunctionMeta>, state: Ref<BackendState>, name: string) -> string {
+    let i: i64 = 0;
+    while (i < listLength(f.params)) {
+        if (f.params[i] == name) return f.paramTypes[i];
+        i = i + 1;
+    }
+    i = 0;
+    while (i < listLength(state.locals)) {
+        if (state.locals[i] == name) return state.localTypes[i];
+        i = i + 1;
+    }
+    return "i64";
+}
+
+function valueType(module: Ref<BackendModule>, f: Ref<FunctionMeta>, state: Ref<BackendState>, value: string) -> string {
+    let x: string = trim(value);
+    if (starts(x, "%")) {
+        return tempType(state, valueName(x));
+    }
+    if (x == "true" || x == "false") return "bool";
+    if (starts(x, "\"")) return "string";
+    return findVarType(f, state, x);
+}
+
+function functionReturnType(module: Ref<BackendModule>, name: string) -> string {
+    let i: i64 = 0;
+    while (i < listLength(module.functions)) {
+        if (module.functions[i].name == name) return module.functions[i].returnType;
+        i = i + 1;
+    }
+    if (name == "readFile" || name == "slice" || name == "int_to_string" || name == "argAt") return "string";
+    if (name == "length" || name == "listLength" || name == "argCount") return "i64";
+    if (name == "print" || name == "writeFile" || name == "push") return "void";
+    return "i64";
+}
+
+function structFieldType(module: Ref<BackendModule>, type: string, field: string) -> string {
+    let name: string = type;
+    if (starts(name, "Ref<")) name = slice(name, 4, length(name) - 1);
+    let generic: i64 = findText(name, "<", 0);
+    if (generic >= 0) name = slice(name, 0, generic);
+    let i: i64 = 0;
+    while (i < listLength(module.structs)) {
+        let st: StructMeta = module.structs[i];
+        if (st.name == name) {
+            let j: i64 = 0;
+            while (j < listLength(st.fields)) {
+                if (st.fields[j] == field) return st.fieldTypes[j];
+                j = j + 1;
+            }
+        }
+        i = i + 1;
+    }
+    return "i64";
+}
+
+function globalType(module: Ref<BackendModule>, name: string) -> string {
+    let i: i64 = 0;
+    while (i < listLength(module.globals)) {
+        if (module.globals[i].name == name) return module.globals[i].type;
+        i = i + 1;
+    }
+    return "i64";
+}
+
+function inferRhsType(module: Ref<BackendModule>, f: Ref<FunctionMeta>, state: Ref<BackendState>, rhs: string) -> string {
+    if (starts(rhs, "load ")) {
+        let name: string = trim(slice(rhs, 5, length(rhs)));
+        let i: i64 = 0;
+        while (i < listLength(f.params)) {
+            if (f.params[i] == name) return f.paramTypes[i];
+            i = i + 1;
+        }
+        if (localIndex(state, name) >= 0) return findVarType(f, state, name);
+        return globalType(module, name);
+    }
+    if (starts(rhs, "ref ")) {
+        let type: string = findVarType(f, state, trim(slice(rhs, 4, length(rhs))));
+        if (starts(type, "Ref<")) return type;
+        return "Ref<" + type + ">";
+    }
+    if (starts(rhs, "ref_field ")) {
+        let rest: string = trim(slice(rhs, 10, length(rhs)));
+        let dot: i64 = findText(rest, ".", 0);
+        if (dot >= 0) {
+            let base: string = valueType(module, f, state, slice(rest, 0, dot));
+            return "Ref<" + structFieldType(module, base, trim(slice(rest, dot + 1, length(rest)))) + ">";
+        }
+    }
+    if (starts(rhs, "ref_index ")) {
+        let rest: string = trim(slice(rhs, 10, length(rhs)));
+        let open: i64 = findText(rest, "[", 0);
+        if (open >= 0) {
+            let base: string = valueType(module, f, state, slice(rest, 0, open));
+            if (starts(base, "Ref<")) base = slice(base, 4, length(base) - 1);
+            if (starts(base, "List<")) return "Ref<" + slice(base, 5, length(base) - 1) + ">";
+        }
+    }
+    if (starts(rhs, "const ")) {
+        let rest: string = trim(slice(rhs, 6, length(rhs)));
+        let p: i64 = findText(rest, " ", 0);
+        if (p >= 0) return trim(slice(rest, 0, p));
+    }
+    if (starts(rhs, "load ")) return findVarType(f, state, trim(slice(rhs, 5, length(rhs))));
+    if (starts(rhs, "new ")) {
+        let rest: string = trim(slice(rhs, 4, length(rhs)));
+        let p: i64 = findText(rest, "(", 0);
+        if (p >= 0) return trim(slice(rest, 0, p));
+        return rest;
+    }
+    if (starts(rhs, "field ")) {
+        let rest: string = trim(slice(rhs, 6, length(rhs)));
+        let dot: i64 = findText(rest, ".", 0);
+        if (dot >= 0) return structFieldType(module, valueType(module, f, state, slice(rest, 0, dot)), trim(slice(rest, dot + 1, length(rest))));
+    }
+    if (starts(rhs, "index ")) {
+        let rest: string = trim(slice(rhs, 6, length(rhs)));
+        let open: i64 = findText(rest, "[", 0);
+        if (open >= 0) {
+            let base: string = valueType(module, f, state, slice(rest, 0, open));
+            let sequence: string = base;
+            if (starts(sequence, "Ref<")) sequence = slice(sequence, 4, length(sequence) - 1);
+            if (starts(sequence, "List<")) return slice(sequence, 5, length(sequence) - 1);
+            if (base == "string") return "i64";
+        }
+    }
+    if (starts(rhs, "list(")) {
+        let rest: string = slice(rhs, 5, length(rhs) - 1);
+        let comma: i64 = findText(rest, ",", 0);
+        if (comma < 0) return "List<i64>";
+        return "List<" + valueType(module, f, state, slice(rest, 0, comma)) + ">";
+    }
+    if (starts(rhs, "call ")) {
+        let rest: string = trim(slice(rhs, 5, length(rhs)));
+        let open: i64 = findText(rest, "(", 0);
+        if (open >= 0) {
+            let name: string = trim(slice(rest, 0, open));
+            if (name == "append") {
+                let args: string = slice(rest, open + 1, length(rest) - 1);
+                let comma: i64 = findText(args, ",", 0);
+                if (comma >= 0) return valueType(module, f, state, slice(args, 0, comma));
+            }
+            return functionReturnType(module, name);
+        }
+    }
+    let space: i64 = findText(rhs, " ", 0);
+    if (space >= 0) {
+        let op: string = slice(rhs, 0, space);
+        if (op == "eq" || op == "ne" || op == "lt" || op == "le" || op == "gt" || op == "ge" || op == "and" || op == "or" || op == "not") return "bool";
+        if (op == "add" || op == "sub" || op == "mul" || op == "div" || op == "mod" || op == "neg" || op == "pos") {
+            let rest: string = trim(slice(rhs, space + 1, length(rhs)));
+            let comma: i64 = findText(rest, ",", 0);
+            let left: string = trim(slice(rest, 0, comma));
+            let leftType: string = valueType(module, f, state, left);
+            if (op == "add" && leftType == "string") return "string";
+            return leftType;
+        }
+    }
+    // Gen2 correctly propagates the type of a plain variable RHS. Gen1's backend
+    // defaulted such values to i64, which broke strings, structs, and collections.
+    return valueType(module, f, state, rhs);
+}
+
+function collectDeclarations(module: Ref<BackendModule>, f: Ref<FunctionMeta>, state: Ref<BackendState>) {
+    state.temps = [];
+    state.tempTypes = [];
+    state.locals = [];
+    state.localTypes = [];
+    state.aliasNames = [];
+    state.aliasValues = [];
+
+    let i: i64 = 0;
+    while (i < listLength(f.body)) {
+        let line: string = trim(f.body[i]);
+        if (starts(line, "local ")) {
+            let local: string = trim(slice(line, 6, length(line)));
+            let split: i64 = findText(local, " ", 0);
+            if (split >= 0) {
+                let type: string = trim(slice(local, 0, split));
+                let name: string = trim(slice(local, split + 1, length(local)));
+                if (localIndex(state, name) < 0) {
+                    push(state.localTypes, type);
+                    push(state.locals, name);
+                }
+            }
+        }
+        i = i + 1;
+    }
+
+    i = 0;
+    while (i < listLength(f.body)) {
+        let line: string = trim(f.body[i]);
+        let split: i64 = findText(line, " = ", 0);
+        if (starts(line, "%") && split > 2) {
+            let name: string = valueName(trim(slice(line, 0, split)));
+            let rhs: string = trim(slice(line, split + 3, length(line)));
+            addTemp(state, name, inferRhsType(module, f, state, rhs));
+        }
+        i = i + 1;
+    }
+
+    i = 0;
+    while (i < listLength(f.body)) {
+        let line: string = trim(f.body[i]);
+        if (starts(line, "store ")) {
+            let store: string = slice(line, 6, length(line));
+            let comma: i64 = findText(store, ",", 0);
+            if (comma >= 0) {
+                let local: string = trim(slice(store, 0, comma));
+                let value: string = trim(slice(store, comma + 1, length(store)));
+                refineListType(state, value, findVarType(f, state, local));
+            }
+        } else if (starts(line, "field_set ")) {
+            let fieldSet: string = slice(line, 10, length(line));
+            let eq: i64 = findText(fieldSet, " = ", 0);
+            if (eq >= 0) {
+                let target: string = trim(slice(fieldSet, 0, eq));
+                let dot: i64 = findText(target, ".", 0);
+                if (dot >= 0) {
+                    let base: string = trim(slice(target, 0, dot));
+                    let field: string = trim(slice(target, dot + 1, length(target)));
+                    let expected: string = structFieldType(module, findVarType(f, state, base), field);
+                    refineListType(state, trim(slice(fieldSet, eq + 3, length(fieldSet))), expected);
+                }
+            }
+        } else if (starts(line, "store_ref ")) {
+            let refStore: string = slice(line, 10, length(line));
+            let comma: i64 = findText(refStore, ",", 0);
+            if (comma >= 0) {
+                let ref: string = valueName(trim(slice(refStore, 0, comma)));
+                let refType: string = tempType(state, ref);
+                if (starts(refType, "Ref<") && length(refType) > 5) {
+                    let expected: string = slice(refType, 4, length(refType) - 1);
+                    refineListType(state, trim(slice(refStore, comma + 1, length(refStore))), expected);
+                }
+            }
+        }
+        i = i + 1;
+    }
+}
+

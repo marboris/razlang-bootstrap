@@ -1,0 +1,3 @@
+// std.io is reserved as a Raz standard-library module.
+// This file is intentionally not wired into Gen2's resolver in G2-001.
+// Native runtime bridges are still recognized by the compatibility frontend.

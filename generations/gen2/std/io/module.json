@@ -1,0 +1,10 @@
+{
+  "schema": "raz-module-0",
+  "name": "std.io",
+  "version": "0.1.0-preview",
+  "status": "planned",
+  "description": "Standard I/O module metadata placeholder; not yet resolved by razc Gen2.",
+  "source": "io.raz",
+  "native_headers": ["raz_runtime.hpp"],
+  "exports": ["print", "readFile", "writeFile", "argCount", "argAt"]
+}

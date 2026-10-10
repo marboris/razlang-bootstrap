@@ -1,0 +1,30 @@
+function findText(s: string, needle: string, from: i64) -> i64 {
+    let n: i64 = length(needle);
+    let i: i64 = from;
+    if (n == 0) return from;
+    while (i + n <= length(s)) {
+        if (slice(s, i, i + n) == needle) return i;
+        i = i + 1;
+    }
+    return -1;
+}
+
+function starts(s: string, prefix: string) -> bool {
+    if (length(s) < length(prefix)) return false;
+    return slice(s, 0, length(prefix)) == prefix;
+}
+
+function endsWith(s: string, suffix: string) -> bool {
+    if (length(s) < length(suffix)) return false;
+    return slice(s, length(s) - length(suffix), length(s)) == suffix;
+}
+
+function containsText(xs: List<string>, value: string) -> bool {
+    let i: i64 = 0;
+    while (i < listLength(xs)) {
+        if (xs[i] == value) return true;
+        i = i + 1;
+    }
+    return false;
+}
+
