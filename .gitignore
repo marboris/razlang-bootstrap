@@ -27,7 +27,7 @@ yarn-error.log*
 *.dll
 *.exe
 *.out
-core
+#core
 core.*
 
 tests/.tmp/

@@ -8,9 +8,10 @@
   "binary": "generations/gen1/bin/razc",
   "checksum": "generations/gen1/bin/razc.sha256",
   "build_dir": "generations/gen1/build/",
-  "milestone": "M1-M5 complete; Gen1 candidate accepted and frozen",
+  "milestone": "M1-M4 complete; Gen1 candidate accepted, checksum recorded, and frozen after runtime/CLI smoke tests",
   "source_notes": "gen1 source is authored in raz-0.2 (L_0) until gen1 is frozen",
   "fast_check": "generations/gen1/build/fast-check/",
-  "operational_role": "After freeze, Gen1 compiles L1 programs and builds S2/Gen2; it is not required to compile S1",
-  "example_dir": "generations/gen1/examples/"
+  "operational_role": "Frozen compiler for compiling L1 programs and building Gen2; source and binary must not be modified",
+  "example_dir": "generations/gen1/examples/",
+  "frozen_on": "2026-10-11"
 }

@@ -15,6 +15,10 @@
     "test:gen1:fast": "node scripts/test-gen1-fast.mjs",
     "build:gen1": "node scripts/build-gen1.mjs",
     "build:gen1:fast": "node scripts/build-gen1-fast.mjs",
-    "test:gen1:example": "node scripts/test-gen1-example.mjs"
+    "test:gen1:example": "node scripts/test-gen1-example.mjs",
+    "build:gen2": "node scripts/build-gen2.mjs",
+    "test:gen2:fast": "node scripts/test-gen2-fast.mjs",
+    "check:gen2:source": "node scripts/build-gen2.mjs --bundle-only && node scripts/check-gen2-source.mjs",
+    "test:gen2:driver-fast": "node scripts/test-gen2-driver-fast.mjs"
   }
 }
