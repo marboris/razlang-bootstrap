@@ -55,7 +55,9 @@ function findText(s: string, needle: string, from: i64) -> i64 {
     let i: i64 = from;
     if (n == 0) return from;
     while (i + n <= length(s)) {
-        if (slice(s, i, i + n) == needle) return i;
+        let j: i64 = 0;
+        while (j < n && s[i + j] == needle[j]) j = j + 1;
+        if (j == n) return i;
         i = i + 1;
     }
     return -1;

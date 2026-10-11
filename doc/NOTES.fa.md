@@ -1,3 +1,5 @@
+> یادداشت تاریخی: بخش‌هایی از این فایل به suite جاوااسکریپتی قدیمی اشاره دارند که حذف شده است. مسیر فعال تست اکنون `make test` با CMake/CTest است و به build کامپایلر Gen2 وابسته نیست.
+
 # یادداشت‌های توسعه‌ی Raz
 
 ## اصول کار
@@ -22,21 +24,22 @@ generations/
   gen1/                    نسل یک (در حال توسعه؛ سازنده‌ی Gen2 پس از freeze)
     src/  final/  bin/  build/  gen.json
 src/
-  host/                    درایور Node (ابزار، نه نسل)
+  host/                    درایور بومی C++ (ابزار، نه نسل)
 config/                    تعریف زبان و target
 runtime/                   هدر runtime
-tests/                     تست‌ها
+tests/                     harness قدیمی JavaScript (حذف‌شده؛ CTest فعال است)
 scripts/                   اسکریپت‌های ساخت
 ```
 
 قاعده‌ی هر نسل: سورس در `src/`، فایل نهایی در `final/`، باینری در `bin/`، و فایل‌های موقت در `build/`.
 
 ## اسکریپت‌ها
-- `npm run build:native`: ساخت کاندید `gen0` از seed جاوااسکریپتی در `generations/gen0/build/razc-candidate`. `bin/` دست‌نخورده می‌ماند.
-- `npm run self-host:native`: کاندید را با خودش بازسازی می‌کند و بررسی می‌کند خروجی C++ یکسان است. نتیجه در `build/` می‌ماند.
-- `scripts/freeze.sh <N>`: کاندید نسل `N` را می‌پذیرد، باینری و checksum را ثبت می‌کند و `gen.json` را به `frozen` تغییر می‌دهد. برای Gen1 قبل از freeze تست runtime/CLI اجرا می‌شود. اگر `bin/razc` از قبل باشد، فقط با `--replace-pending` و metadata در وضعیت pending جایگزین می‌شود.
+- `make build-gen0`: ساخت candidate نسل صفر از seed و سورس Gen0؛ `bin/` منجمد دست‌نخورده می‌ماند.
+- `make build-gen1`: ساخت candidate تاریخی Gen1 با Gen0.
+- `make build-gen2`: bootstrap سنگین frontend Gen2 با Gen1 منجمد.
+- `scripts/freeze.sh <N>`: کاندید نسل `N` را کپی، checksum را ثبت و `gen.json` را به `frozen` تغییر می‌دهد؛ این فرمان suite تست اجرا نمی‌کند. اگر `bin/razc` از قبل باشد، فقط با `--replace-pending` و metadata در وضعیت pending جایگزین می‌شود.
 - `scripts/bootstrap-gen.sh <N> <source.raz> <out>`: کامپایل سورس با باینری نسل `N` بدون Node.
-  مثال: `scripts/bootstrap-gen.sh 0 tests/cases/arithmetic.raz out`
+  نمونه‌ی قدیمی bootstrap-gen برای اجرای compiler نسل مشخص، خارج از workflow تست فعلی است.
 
 ## وضعیت فعلی
 - `gen0` بازسازی شد و باینری آن بایت‌به‌بایت با نسخه‌ی قبلی یکسان است (`fea705b4…`).
@@ -64,6 +67,6 @@ scripts/                   اسکریپت‌های ساخت
 - M4 تکمیل: `unsafe`، `char*`/`nullptr` و global storage در RIR/backend.
 - RIR verifier Gen1 با `use-*` و `global` هم‌تراز شده است.
 - `gen0` منجمد و تغییرناپذیر باقی مانده است.
-- `npm run test:gen1:fast` به‌عنوان suite سریع Gen1 اضافه شده است.
+- suite تست JavaScript قدیمی در بازطراحی native حذف شد؛ تست‌های فعال با `make test` اجرا می‌شوند.
 - bundle Gen1 در `generations/gen1/final/compiler.raz` آماده است.
 - پذیرش نهایی هنوز وابسته به ساخت باینری Gen1 با Gen0 و freeze است؛ بعد از freeze exampleهای L1 با خود Gen1 اجرا می‌شوند.

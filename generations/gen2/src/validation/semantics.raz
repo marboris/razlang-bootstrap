@@ -46,6 +46,23 @@ function bindingType(scope: Ref<List<Binding>>, name: string) -> string {
     return "";
 }
 
+function bindingIsConst(scope: Ref<List<Binding>>, name: string) -> bool {
+    let i: i64 = 0;
+    while (i < listLength(scope)) {
+        if (scope[i].name == name) return scope[i].isConst;
+        i = i + 1;
+    }
+    return false;
+}
+
+function isConstPlace(program: Ref<Program>, scope: Ref<List<Binding>>, id: i64) -> bool {
+    if (id < 0 || id >= listLength(program.exprs)) return false;
+    let x: Expr = program.exprs[id];
+    if (x.kind == 5) return bindingIsConst(scope, x.text);
+    if (x.kind == 9 || x.kind == 10) return isConstPlace(program, scope, x.left);
+    return false;
+}
+
 function cloneBindings(scope: Ref<List<Binding>>) -> List<Binding> {
     let out: List<Binding> = [];
     let i: i64 = 0;
@@ -63,6 +80,36 @@ function semanticFail(state: Ref<SemanticState>, message: string) -> string {
         print("semantic-error: " + message);
     }
     return "";
+}
+
+// The current RIR flattens all branches into one C++ function scope and does
+// not yet carry Symbol IDs. Until that representation is upgraded, reject
+// same-spelled locals anywhere in one function rather than silently aliasing
+// distinct Raz declarations to one C++ object.
+function collectUniqueLocalNames(program: Ref<Program>, ids: List<i64>, names: Ref<List<string>>, state: Ref<SemanticState>) {
+    let i: i64 = 0;
+    while (i < listLength(ids) && state.ok) {
+        let s: Stmt = program.stmts[ids[i]];
+        if (s.kind == 1) {
+            let j: i64 = 0;
+            let duplicate: bool = false;
+            while (j < listLength(names)) {
+                if (names[j] == s.name) duplicate = true;
+                j = j + 1;
+            }
+            if (duplicate) {
+                semanticFail(state, "duplicate local name across flattened control-flow scopes: " + s.name);
+                return;
+            }
+            push(names, s.name);
+        } else if (s.kind == 5) {
+            collectUniqueLocalNames(program, s.thenStmts, names, state);
+            collectUniqueLocalNames(program, s.elseStmts, names, state);
+        } else if (s.kind == 6 || s.kind == 9) {
+            collectUniqueLocalNames(program, s.body, names, state);
+        }
+        i = i + 1;
+    }
 }
 
 function validateType(program: Ref<Program>, state: Ref<SemanticState>, type: string, allowVoid: bool) -> bool {
@@ -100,6 +147,7 @@ function numericType(type: string) -> bool {
 }
 
 function assignableType(expected: string, actual: string) -> bool {
+    if (actual == "Native") return expected != "void";
     if (expected == actual) return true;
     if (expected == "f64" && numericType(actual)) return true;
     if (expected == "i64" && actual == "char") return true;
@@ -107,26 +155,11 @@ function assignableType(expected: string, actual: string) -> bool {
 }
 
 function builtinReturnType(name: string, args: List<i64>, program: Ref<Program>, state: Ref<SemanticState>, scope: Ref<List<Binding>>) -> string {
-    if (name == "print") return "void";
-    if (name == "readFile") return "string";
-    if (name == "writeFile") return "void";
-    if (name == "length") return "i64";
-    if (name == "slice") return "string";
-    if (name == "int_to_string") return "string";
     if (name == "listLength") return "i64";
-    if (name == "argCount") {
-        if (listLength(args) != 0) return semanticFail(state, "argCount takes no arguments");
-        return "i64";
-    }
-    if (name == "argAt") {
-        if (listLength(args) != 1) return semanticFail(state, "argAt takes one argument");
-        let idxType: string = checkExpr(program, state, scope, args[0]);
-        if (!assignableType("i64", idxType)) return semanticFail(state, "argAt index must be i64");
-        return "string";
-    }
     if (name == "push") {
         if (listLength(args) < 2) return semanticFail(state, "push requires a list and value");
         if (!isLValue(program, args[0])) return semanticFail(state, "push first argument must be an lvalue");
+        if (isConstPlace(program, scope, args[0])) return semanticFail(state, "cannot mutate a const value");
         let listType: string = checkExpr(program, state, scope, args[0]);
         let inner: string = innerGeneric(listType, "List<");
         if (inner == "") return semanticFail(state, "push first argument must be List<T>");
@@ -160,7 +193,7 @@ function checkExpr(program: Ref<Program>, state: Ref<SemanticState>, scope: Ref<
     if (x.kind == 7) {
         let a: string = checkExpr(program, state, scope, x.left);
         if (x.op == "!") {
-            if (a != "bool") return semanticFail(state, "! requires bool");
+            if (a != "bool" && a != "Native") return semanticFail(state, "! requires bool");
             return "bool";
         }
         if (!numericType(a)) return semanticFail(state, "unary " + x.op + " requires numeric operand");
@@ -181,6 +214,17 @@ function checkExpr(program: Ref<Program>, state: Ref<SemanticState>, scope: Ref<
         if (!numericType(a) || !numericType(b)) return semanticFail(state, "operator " + x.op + " requires numeric operands");
         if (a == "f64" || b == "f64") return "f64";
         return "i64";
+    }
+    if (x.kind == 14) {
+        let i: i64 = 0;
+        while (i < listLength(x.args)) {
+            checkExpr(program, state, scope, x.args[i]);
+            if (!state.ok) return "";
+            i = i + 1;
+        }
+        // No Raz signature is required: the native compiler validates symbol,
+        // arity and C++ types after an explicit native header is included.
+        return "Native";
     }
     if (x.kind == 8) {
         let calleeExpr: Expr = program.exprs[x.left];
@@ -258,6 +302,10 @@ function checkStatement(program: Ref<Program>, state: Ref<SemanticState>, scope:
         let declared: string = s.type;
         if (declared != "" && program.exprs[s.expr].kind == 12 && listLength(program.exprs[s.expr].args) == 0) actual = declared;
         else actual = checkExpr(program, state, scope, s.expr);
+        if (declared == "" && actual == "Native") {
+            semanticFail(state, "native call return type is unknown; annotate the variable");
+            return;
+        }
         if (declared == "") declared = actual;
         else if (!validateType(program, state, declared, false)) return;
         program.stmts[stmtId].type = declared;
@@ -265,6 +313,7 @@ function checkStatement(program: Ref<Program>, state: Ref<SemanticState>, scope:
         let b: Binding = new Binding();
         b.name = s.name;
         b.type = declared;
+        b.isConst = s.isConst;
         push(scope, b);
         return;
     }
@@ -279,6 +328,10 @@ function checkStatement(program: Ref<Program>, state: Ref<SemanticState>, scope:
         return;
     }
     if (s.kind == 4) {
+        if (isConstPlace(program, scope, s.left)) {
+            semanticFail(state, "cannot assign to const value");
+            return;
+        }
         let lhs: string = checkExpr(program, state, scope, s.left);
         let rhs: string = "";
         if (program.exprs[s.right].kind == 12 && listLength(program.exprs[s.right].args) == 0) rhs = lhs;
@@ -288,7 +341,7 @@ function checkStatement(program: Ref<Program>, state: Ref<SemanticState>, scope:
     }
     if (s.kind == 5) {
         let cond: string = checkExpr(program, state, scope, s.expr);
-        if (cond != "bool") {
+        if (cond != "bool" && cond != "Native") {
             semanticFail(state, "if condition must be bool");
             return;
         }
@@ -326,7 +379,7 @@ function checkStatement(program: Ref<Program>, state: Ref<SemanticState>, scope:
     }
     if (s.kind == 6) {
         let cond: string = checkExpr(program, state, scope, s.expr);
-        if (cond != "bool") {
+        if (cond != "bool" && cond != "Native") {
             semanticFail(state, "while condition must be bool");
             return;
         }
@@ -372,6 +425,14 @@ function analyzeProgram(program: Ref<Program>) -> i64 {
         let f: FunctionDef = program.functions[i];
         if (functionIndex(program, f.name) != i) {
             semanticFail(state, "duplicate function " + f.name);
+            return 1;
+        }
+        if (starts(f.name, "raz_global_init_")) {
+            semanticFail(state, "function names beginning with raz_global_init_ are reserved by the compiler");
+            return 1;
+        }
+        if (starts(f.name, "raz_module_init_") && (length(f.name) <= 16 || f.returnType != "void" || listLength(f.params) != 0)) {
+            semanticFail(state, "module initializer must be named raz_module_init_<name>, take no parameters, and return void");
             return 1;
         }
         if (!validateType(program, state, f.returnType, true)) return 1;
@@ -438,9 +499,19 @@ function analyzeProgram(program: Ref<Program>) -> i64 {
             let b: Binding = new Binding();
             b.name = f.params[j].name;
             b.type = valueTypeForParam(f.params[j].type);
+            b.isConst = false;
             push(scope, b);
             j = j + 1;
         }
+        let uniqueNames: List<string> = [];
+        j = 0;
+        while (j < listLength(f.params)) {
+            push(uniqueNames, f.params[j].name);
+            j = j + 1;
+        }
+        collectUniqueLocalNames(program, f.body, uniqueNames, state);
+        if (!state.ok) return 1;
+
         j = 0;
         while (j < listLength(f.body)) {
             checkStatement(program, state, scope, f.body[j], f.returnType);

@@ -21,11 +21,7 @@ c++ -std=c++17 -I generations/gen1/build/example/backend \
 generations/gen1/build/example/hello
 ```
 
-یا پس از freeze از تست خودکار استفاده کنید:
-
-```sh
-npm run test:gen1:example
-```
+این فرمان‌ها نمونه‌ی دستی اجرای باینری تاریخی هستند؛ در پروژه‌ی فعلی suite تست Gen1 نگه‌داری نمی‌شود.
 
 خروجی مورد انتظار:
 

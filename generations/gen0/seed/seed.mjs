@@ -1131,6 +1131,25 @@ function createIRBuilder(language) {
       throw new Error(`internal: expected lvalue, got ${expr.kind}`);
     }
 
+    function isPlaceExpr(expr) {
+      if (expr.kind === 'Name') return true;
+      if (expr.kind === 'Member') return isPlaceExpr(expr.base);
+      if (expr.kind === 'Index') return isPlaceExpr(expr.base);
+      return false;
+    }
+
+    function isSideEffectFree(expr) {
+      switch (expr.kind) {
+        case 'Literal':
+        case 'Name': return true;
+        case 'Member': return isSideEffectFree(expr.base);
+        case 'Index': return isSideEffectFree(expr.base) && isSideEffectFree(expr.index);
+        case 'Unary': return isSideEffectFree(expr.operand);
+        case 'Binary': return isSideEffectFree(expr.left) && isSideEffectFree(expr.right);
+        default: return false;
+      }
+    }
+
     function lowerExpr(expr) {
       switch (expr.kind) {
         case 'Literal': {
@@ -1188,6 +1207,12 @@ function createIRBuilder(language) {
             if (expected && baseType(expected) === 'Ref') {
               return lowerPlace(arg);
             }
+            // These builtins only inspect their single argument. Passing a
+            // place alias avoids copying complete strings/vectors just to get
+            // their size, especially inside lexer/parser loops.
+            if ((callee === 'length' || callee === 'listLength') && isPlaceExpr(arg)) {
+              return lowerPlace(arg);
+            }
             return lowerExpr(arg);
           });
           if (expr.builtin) {
@@ -1206,7 +1231,12 @@ function createIRBuilder(language) {
           return r;
         }
         case 'Index': {
-          const base = lowerExpr(expr.base);
+          // Read through an lvalue alias when the index is side-effect free.
+          // Copying the whole string/vector before every indexed read makes
+          // lexer/parser loops quadratic on large compiler source files.
+          const base = isPlaceExpr(expr.base) && isSideEffectFree(expr.index)
+            ? lowerPlace(expr.base)
+            : lowerExpr(expr.base);
           const index = lowerExpr(expr.index);
           const r = fresh('index');
           emit('index_get', { result: r, type: expr.type, base, index });

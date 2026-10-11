@@ -2,9 +2,9 @@
 
 `gen0` ریشه‌ی bootstrap است. Gen1 فقط یک‌بار با Gen0 ساخته می‌شود؛ پس از freeze، Gen1 compiler عملیاتی برنامه‌های `L1` و سازنده‌ی `Gen2` است. Gen1 الزام ندارد سورس خودش (`S1`) را دوباره کامپایل کند.
 
-## قاعده‌ی تست
+## سیاست فعلی
 
-تست‌های سریع و deterministic بعد از هر تغییر اجرا می‌شوند. build سنگین generation فقط هنگام acceptance/freeze همان generation اجرا می‌شود و پس از timeout یا موفقیت، به‌صورت تکراری اجرا نمی‌شود.
+این سند برنامه‌ی تاریخی Gen1 است. suite تست JavaScript نسل‌ها حذف شده است؛ Gen0 و Gen1 فقط در صورت نیاز با `make build-gen0` و `make build-gen1` بازسازی می‌شوند. تست‌های فعال مربوط به درایور native هستند و با `make test` اجرا می‌شوند؛ آن‌ها Gen2 را به‌طور خودکار bootstrap نمی‌کنند.
 
 ## M1 — top-level و entry داخلی
 
@@ -35,11 +35,10 @@
 
 ## M5 — ساخت و freeze Gen1
 
-- `npm run test:gen1:fast` باید سبز باشد.
-- `npm run build:gen1`، `S1` را با `gen0` می‌سازد.
-- `scripts/freeze.sh 1` ابتدا candidate را با تست runtime/CLI می‌پذیرد، سپس باینری و checksum را ثبت می‌کند و وضعیت `gen.json` را از pending به `frozen` تغییر می‌دهد.
-- بعد از freeze، `generations/gen1/examples/hello.raz` باید با **خود Gen1** کامپایل و اجرا شود.
-- self-compile شدن `S1` با Gen1 فقط check اختیاری است و در acceptance معیار نیست.
+- `make build-gen1`، `S1` را با `gen0` می‌سازد.
+- `scripts/freeze.sh 1` باینری candidate و checksum را ثبت می‌کند؛ مرحله‌ی freeze تست اجرا نمی‌کند.
+- مثال‌های Gen1 برای provenance نگه داشته شده‌اند؛ اجرای تستی خودکار در چرخه‌ی فعلی وجود ندارد.
+- self-compile شدن `S1` با Gen1 در workflow فعلی اجرا نمی‌شود و معیار پذیرش نیست.
 
 ## قرارداد خروجی Gen1
 

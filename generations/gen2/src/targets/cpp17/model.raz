@@ -18,6 +18,9 @@ struct StructMeta {
 struct GlobalMeta {
     name: string;
     type: string;
+    isConst: bool;
+    isAuto: bool;
+    initFunction: string;
 }
 
 struct BackendModule {
@@ -33,6 +36,8 @@ struct BackendState {
     tempTypes: List<string>;
     locals: List<string>;
     localTypes: List<string>;
+    localAutos: List<bool>;
+    localInitValues: List<string>;
     aliasNames: List<string>;
     aliasValues: List<string>;
 }

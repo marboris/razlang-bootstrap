@@ -1,7 +1,52 @@
+// Raz declarations are never emitted with their source spelling. Encode each
+// ASCII identifier as length + decimal character codes. This is deterministic,
+// injective for the lexer's identifier alphabet, valid in C++, and deliberately
+// keeps the source name opaque to the C++ layer. Native `name!(...)` calls are
+// the only exception because they explicitly name an external C++ API.
+function cppMangledName(prefix: string, name: string) -> string {
+    let out: string = prefix + "_n" + int_to_string(length(name));
+    let i: i64 = 0;
+    while (i < length(name)) {
+        out = out + "_" + int_to_string(name[i]);
+        i = i + 1;
+    }
+    return out;
+}
+
+function cppVariableName(name: string) -> string {
+    return cppMangledName("raz_v", name);
+}
+
+function cppFunctionName(name: string) -> string {
+    return cppMangledName("raz_fn", name);
+}
+
+function cppStructName(name: string) -> string {
+    return cppMangledName("raz_ty", name);
+}
+
+function cppFieldName(name: string) -> string {
+    return cppMangledName("raz_field", name);
+}
+
+// Calls that bind to a Raz function are mangled. Calls provided by an
+// explicitly imported C++ library (including current generic container
+// templates) keep their native spelling; no library names are hard-coded.
+function cppCallName(module: Ref<BackendModule>, name: string) -> string {
+    let i: i64 = 0;
+    while (i < listLength(module.functions)) {
+        if (module.functions[i].name == name) return cppFunctionName(name);
+        i = i + 1;
+    }
+    return name;
+}
+
 function cppType(t: string) -> string {
+    if (t == "void") return "void";
     if (t == "i64") return "std::int64_t";
     if (t == "f64") return "double";
     if (t == "bool") return "bool";
+    if (t == "char") return "char";
     if (t == "string") return "std::string";
     if (starts(t, "List<")) {
         let inner: string = slice(t, 5, length(t) - 1);
@@ -11,23 +56,8 @@ function cppType(t: string) -> string {
         let inner: string = slice(t, 4, length(t) - 1);
         return cppType(inner) + "&";
     }
-    return t;
-}
-
-function cppName(name: string) -> string {
-    if (name == "main") return "raz_main";
-    if (name == "argCount") return "raz::arg_count";
-    if (name == "argAt") return "raz::arg_at";
-    if (name == "print") return "raz::print";
-    if (name == "readFile") return "raz::read_file";
-    if (name == "writeFile") return "raz::write_file";
-    if (name == "length") return "raz::string_length";
-    if (name == "slice") return "raz::string_slice";
-    if (name == "append") return "raz::list_append";
-    if (name == "push") return "raz::list_push";
-    if (name == "listLength") return "raz::list_length";
-    if (name == "int_to_string") return "raz::int_to_string";
-    return name;
+    if (endsWith(t, "*")) return cppType(slice(t, 0, length(t) - 1)) + "*";
+    return cppStructName(t);
 }
 
 function valueName(v: string) -> string {
@@ -36,16 +66,63 @@ function valueName(v: string) -> string {
     return x;
 }
 
-function cppValue(state: Ref<BackendState>, value: string) -> string {
-    let x: string = trim(value);
-    if (!starts(x, "%")) return x;
-    let name: string = valueName(x);
+function aliasValue(state: Ref<BackendState>, name: string) -> string {
     let i: i64 = 0;
     while (i < listLength(state.aliasNames)) {
         if (state.aliasNames[i] == name) return state.aliasValues[i];
         i = i + 1;
     }
     return name;
+}
+
+function simpleRazIdentifier(value: string) -> bool {
+    if (value == "") return false;
+    let first: i64 = charCodeAt(value, 0);
+    if (!((first >= 65 && first <= 90) || (first >= 97 && first <= 122) || first == 95)) return false;
+    let i: i64 = 1;
+    while (i < length(value)) {
+        let c: i64 = charCodeAt(value, i);
+        if (!((c >= 65 && c <= 90) || (c >= 97 && c <= 122) || (c >= 48 && c <= 57) || c == 95)) return false;
+        i = i + 1;
+    }
+    return true;
+}
+
+function cppValue(state: Ref<BackendState>, value: string) -> string {
+    let x: string = trim(value);
+    if (starts(x, "%") && findText(x, "%t", 0) == 0) return aliasValue(state, valueName(x));
+    if (findText(x, "%t", 0) < 0) {
+        if (x == "true" || x == "false" || x == "nullptr") return x;
+        if (simpleRazIdentifier(x)) return cppVariableName(x);
+        return x;
+    }
+    let out: string = "";
+    let i: i64 = 0;
+    while (i < length(x)) {
+        if (i + 2 < length(x) && slice(x, i, i + 2) == "%t" && charCodeAt(x, i + 2) >= 48 && charCodeAt(x, i + 2) <= 57) {
+            let end: i64 = i + 2;
+            while (end < length(x) && charCodeAt(x, end) >= 48 && charCodeAt(x, end) <= 57) end = end + 1;
+            let name: string = "t" + slice(x, i + 2, end);
+            out = out + aliasValue(state, name);
+            i = end;
+        } else {
+            out = out + slice(x, i, i + 1);
+            i = i + 1;
+        }
+    }
+    return out;
+}
+
+function topLevelComma(value: string) -> i64 {
+    let depth: i64 = 0;
+    let i: i64 = 0;
+    while (i < length(value)) {
+        if (charCodeAt(value, i) == 40 || charCodeAt(value, i) == 91 || charCodeAt(value, i) == 123) depth = depth + 1;
+        else if (charCodeAt(value, i) == 41 || charCodeAt(value, i) == 93 || charCodeAt(value, i) == 125) depth = depth - 1;
+        else if (charCodeAt(value, i) == 44 && depth == 0) return i;
+        i = i + 1;
+    }
+    return -1;
 }
 
 function setAlias(state: Ref<BackendState>, name: string, value: string) {
@@ -64,9 +141,12 @@ function setAlias(state: Ref<BackendState>, name: string, value: string) {
 function cppArgs(state: Ref<BackendState>, values: string) -> string {
     let out: string = "";
     let start: i64 = 0;
+    let depth: i64 = 0;
     let i: i64 = 0;
     while (i <= length(values)) {
-        if (i == length(values) || values[i] == 44) {
+        if (i < length(values) && (charCodeAt(values, i) == 40 || charCodeAt(values, i) == 91 || charCodeAt(values, i) == 123)) depth = depth + 1;
+        else if (i < length(values) && (charCodeAt(values, i) == 41 || charCodeAt(values, i) == 93 || charCodeAt(values, i) == 125)) depth = depth - 1;
+        if (i == length(values) || (charCodeAt(values, i) == 44 && depth == 0)) {
             let item: string = trim(slice(values, start, i));
             if (item != "") {
                 if (out != "") out = out + ", ";
@@ -160,9 +240,8 @@ function functionReturnType(module: Ref<BackendModule>, name: string) -> string 
         if (module.functions[i].name == name) return module.functions[i].returnType;
         i = i + 1;
     }
-    if (name == "readFile" || name == "slice" || name == "int_to_string" || name == "argAt") return "string";
-    if (name == "length" || name == "listLength" || name == "argCount") return "i64";
-    if (name == "print" || name == "writeFile" || name == "push") return "void";
+    if (name == "listLength") return "i64";
+    if (name == "push") return "void";
     return "i64";
 }
 
@@ -258,7 +337,7 @@ function inferRhsType(module: Ref<BackendModule>, f: Ref<FunctionMeta>, state: R
     }
     if (starts(rhs, "list(")) {
         let rest: string = slice(rhs, 5, length(rhs) - 1);
-        let comma: i64 = findText(rest, ",", 0);
+        let comma: i64 = topLevelComma(rest);
         if (comma < 0) return "List<i64>";
         return "List<" + valueType(module, f, state, slice(rest, 0, comma)) + ">";
     }
@@ -269,7 +348,7 @@ function inferRhsType(module: Ref<BackendModule>, f: Ref<FunctionMeta>, state: R
             let name: string = trim(slice(rest, 0, open));
             if (name == "append") {
                 let args: string = slice(rest, open + 1, length(rest) - 1);
-                let comma: i64 = findText(args, ",", 0);
+                let comma: i64 = topLevelComma(args);
                 if (comma >= 0) return valueType(module, f, state, slice(args, 0, comma));
             }
             return functionReturnType(module, name);
@@ -281,7 +360,7 @@ function inferRhsType(module: Ref<BackendModule>, f: Ref<FunctionMeta>, state: R
         if (op == "eq" || op == "ne" || op == "lt" || op == "le" || op == "gt" || op == "ge" || op == "and" || op == "or" || op == "not") return "bool";
         if (op == "add" || op == "sub" || op == "mul" || op == "div" || op == "mod" || op == "neg" || op == "pos") {
             let rest: string = trim(slice(rhs, space + 1, length(rhs)));
-            let comma: i64 = findText(rest, ",", 0);
+            let comma: i64 = topLevelComma(rest);
             let left: string = trim(slice(rest, 0, comma));
             let leftType: string = valueType(module, f, state, left);
             if (op == "add" && leftType == "string") return "string";
@@ -298,14 +377,19 @@ function collectDeclarations(module: Ref<BackendModule>, f: Ref<FunctionMeta>, s
     state.tempTypes = [];
     state.locals = [];
     state.localTypes = [];
+    state.localAutos = [];
+    state.localInitValues = [];
     state.aliasNames = [];
     state.aliasValues = [];
 
     let i: i64 = 0;
     while (i < listLength(f.body)) {
         let line: string = trim(f.body[i]);
-        if (starts(line, "local ")) {
-            let local: string = trim(slice(line, 6, length(line)));
+        let inferredLocal: bool = starts(line, "local-auto ");
+        if (starts(line, "local ") || inferredLocal) {
+            let local: string = "";
+            if (inferredLocal) local = trim(slice(line, 11, length(line)));
+            else local = trim(slice(line, 6, length(line)));
             let split: i64 = findText(local, " ", 0);
             if (split >= 0) {
                 let type: string = trim(slice(local, 0, split));
@@ -313,6 +397,8 @@ function collectDeclarations(module: Ref<BackendModule>, f: Ref<FunctionMeta>, s
                 if (localIndex(state, name) < 0) {
                     push(state.localTypes, type);
                     push(state.locals, name);
+                    push(state.localAutos, inferredLocal);
+                    push(state.localInitValues, "");
                 }
             }
         }
@@ -340,6 +426,8 @@ function collectDeclarations(module: Ref<BackendModule>, f: Ref<FunctionMeta>, s
             if (comma >= 0) {
                 let local: string = trim(slice(store, 0, comma));
                 let value: string = trim(slice(store, comma + 1, length(store)));
+                let localId: i64 = localIndex(state, local);
+                if (localId >= 0 && state.localAutos[localId] && state.localInitValues[localId] == "") state.localInitValues[localId] = value;
                 refineListType(state, value, findVarType(f, state, local));
             }
         } else if (starts(line, "field_set ")) {

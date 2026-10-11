@@ -37,6 +37,7 @@ function keywordKind(word: string) -> i64 {
     if (word == "include") return 47;
     if (word == "unsafe") return 48;
     if (word == "nullptr") return 49;
+    if (word == "const") return 51;
     return 1;
 }
 
@@ -75,41 +76,41 @@ function lex(source: string) -> List<Token> {
     let i: i64 = 0;
     let n: i64 = length(source);
     while (i < n) {
-        let c: i64 = source[i];
+        let c: i64 = charCodeAt(source, i);
         if (isSpace(c)) {
             i = i + 1;
-        } else if (c == 47 && i + 1 < n && source[i + 1] == 47) {
+        } else if (c == 47 && i + 1 < n && charCodeAt(source, i + 1) == 47) {
             i = i + 2;
-            while (i < n && source[i] != 10) i = i + 1;
-        } else if (c == 47 && i + 1 < n && source[i + 1] == 42) {
+            while (i < n && charCodeAt(source, i) != 10) i = i + 1;
+        } else if (c == 47 && i + 1 < n && charCodeAt(source, i + 1) == 42) {
             i = i + 2;
-            while (i + 1 < n && !(source[i] == 42 && source[i + 1] == 47)) i = i + 1;
+            while (i + 1 < n && !(charCodeAt(source, i) == 42 && charCodeAt(source, i + 1) == 47)) i = i + 1;
             if (i + 1 < n) i = i + 2;
         } else if (isDigit(c)) {
             let start: i64 = i;
             i = i + 1;
-            while (i < n && isDigit(source[i])) i = i + 1;
-            if (i < n && source[i] == 46 && i + 1 < n && isDigit(source[i + 1])) {
+            while (i < n && isDigit(charCodeAt(source, i))) i = i + 1;
+            if (i < n && charCodeAt(source, i) == 46 && i + 1 < n && isDigit(charCodeAt(source, i + 1))) {
                 i = i + 1;
-                while (i < n && isDigit(source[i])) i = i + 1;
+                while (i < n && isDigit(charCodeAt(source, i))) i = i + 1;
             }
             push(out, tokenValue(2, slice(source, start, i), start));
         } else if (isAlpha(c)) {
             let start: i64 = i;
             i = i + 1;
-            while (i < n && isAlphaNum(source[i])) i = i + 1;
+            while (i < n && isAlphaNum(charCodeAt(source, i))) i = i + 1;
             let word: string = slice(source, start, i);
             push(out, tokenValue(keywordKind(word), word, start));
         } else if (c == 34) {
             let start: i64 = i;
             i = i + 1;
             let value: string = "";
-            while (i < n && source[i] != 34) {
-                if (source[i] == 92 && i + 1 < n) {
+            while (i < n && charCodeAt(source, i) != 34) {
+                if (charCodeAt(source, i) == 92 && i + 1 < n) {
                     i = i + 1;
-                    if (source[i] == 110) value = value + "\n";
-                    else if (source[i] == 116) value = value + "\t";
-                    else if (source[i] == 114) value = value + "\r";
+                    if (charCodeAt(source, i) == 110) value = value + "\n";
+                    else if (charCodeAt(source, i) == 116) value = value + "\t";
+                    else if (charCodeAt(source, i) == 114) value = value + "\r";
                     else value = value + slice(source, i, i + 1);
                     i = i + 1;
                 } else {
@@ -123,18 +124,18 @@ function lex(source: string) -> List<Token> {
             let start: i64 = i;
             i = i + 1;
             let code: i64 = 0;
-            if (i < n && source[i] == 92 && i + 1 < n) {
+            if (i < n && charCodeAt(source, i) == 92 && i + 1 < n) {
                 i = i + 1;
-                if (source[i] == 110) code = 10;
-                else if (source[i] == 116) code = 9;
-                else if (source[i] == 114) code = 13;
-                else code = source[i];
+                if (charCodeAt(source, i) == 110) code = 10;
+                else if (charCodeAt(source, i) == 116) code = 9;
+                else if (charCodeAt(source, i) == 114) code = 13;
+                else code = charCodeAt(source, i);
                 i = i + 1;
             } else if (i < n) {
-                code = source[i];
+                code = charCodeAt(source, i);
                 i = i + 1;
             }
-            if (i < n && source[i] == 39) i = i + 1;
+            if (i < n && charCodeAt(source, i) == 39) i = i + 1;
             push(out, tokenValue(4, int_to_string(code), start));
         } else {
             let two: string = "";

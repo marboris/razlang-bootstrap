@@ -680,7 +680,9 @@ function findText(s: string, needle: string, from: i64) -> i64 {
     let i: i64 = from;
     if (n == 0) return from;
     while (i + n <= length(s)) {
-        if (slice(s, i, i + n) == needle) return i;
+        let j: i64 = 0;
+        while (j < n && s[i + j] == needle[j]) j = j + 1;
+        if (j == n) return i;
         i = i + 1;
     }
     return -1;
@@ -1377,12 +1379,24 @@ function emitPlace(state: Ref<EmitState>, program: Ref<Program>, id: i64) -> str
 }
 
 function callNeedsRef(program: Ref<Program>, callee: string, index: i64) -> bool {
+    if ((callee == "length" || callee == "listLength") && index == 0) return true;
     if (callee == "push" && index == 0) return true;
     let fi: i64 = functionIndex(program, callee);
     if (fi < 0) return false;
     let fn: FunctionDef = program.functions[fi];
     if (index < 0 || index >= listLength(fn.params)) return false;
     return isRefType(fn.params[index].type);
+}
+
+function isPureExpr(program: Ref<Program>, id: i64) -> bool {
+    if (id < 0 || id >= listLength(program.exprs)) return false;
+    let x: Expr = program.exprs[id];
+    if (x.kind == 1 || x.kind == 2 || x.kind == 3 || x.kind == 4 || x.kind == 5) return true;
+    if (x.kind == 7) return isPureExpr(program, x.left);
+    if (x.kind == 6) return isPureExpr(program, x.left) && isPureExpr(program, x.right);
+    if (x.kind == 9) return isPureExpr(program, x.left);
+    if (x.kind == 10) return isPureExpr(program, x.left) && isPureExpr(program, x.right);
+    return false;
 }
 
 function emitExpr(state: Ref<EmitState>, program: Ref<Program>, id: i64) -> string {
@@ -1419,6 +1433,31 @@ function emitExpr(state: Ref<EmitState>, program: Ref<Program>, id: i64) -> stri
         return t;
     }
     if (x.kind == 6) {
+        // Logical operators must preserve source-language short-circuit
+        // semantics. Eagerly lowering both operands can evaluate an invalid
+        // expression such as s[b - 1] even when b > a is false (e.g. in trim).
+        if (x.op == "&&" || x.op == "||") {
+            let left: string = emitExpr(state, program, x.left);
+            let result: string = newTemp(state);
+            let rhsLabel: string = newLabel(state, "logic_rhs");
+            let shortLabel: string = newLabel(state, "logic_short");
+            let endLabel: string = newLabel(state, "logic_end");
+            if (x.op == "&&") emitLine(state, "    branch " + left + " ? " + rhsLabel + " : " + shortLabel);
+            else emitLine(state, "    branch " + left + " ? " + shortLabel + " : " + rhsLabel);
+
+            emitLine(state, shortLabel + ":");
+            if (x.op == "&&") emitLine(state, "    " + result + " = const bool false");
+            else emitLine(state, "    " + result + " = const bool true");
+            emitLine(state, "    jump " + endLabel);
+
+            emitLine(state, rhsLabel + ":");
+            let right: string = emitExpr(state, program, x.right);
+            emitLine(state, "    " + result + " = load " + right);
+            emitLine(state, "    jump " + endLabel);
+
+            emitLine(state, endLabel + ":");
+            return result;
+        }
         let a: string = emitExpr(state, program, x.left);
         let b: string = emitExpr(state, program, x.right);
         let t: string = newTemp(state);
@@ -1431,7 +1470,7 @@ function emitExpr(state: Ref<EmitState>, program: Ref<Program>, id: i64) -> stri
         let i: i64 = 0;
         while (i < listLength(x.args)) {
             if (i > 0) args = args + ", ";
-            if (callNeedsRef(program, callee, i)) {
+            if (callNeedsRef(program, callee, i) && isLValue(program, x.args[i])) {
                 args = args + emitPlace(state, program, x.args[i]);
             } else {
                 args = args + emitExpr(state, program, x.args[i]);
@@ -1457,7 +1496,12 @@ function emitExpr(state: Ref<EmitState>, program: Ref<Program>, id: i64) -> stri
         return t;
     }
     if (x.kind == 10) {
-        let base: string = emitExpr(state, program, x.left);
+        let base: string = "";
+        if (isLValue(program, x.left) && isPureExpr(program, x.right)) {
+            base = emitPlace(state, program, x.left);
+        } else {
+            base = emitExpr(state, program, x.left);
+        }
         let idx: string = emitExpr(state, program, x.right);
         let t: string = newTemp(state);
         emitLine(state, "    " + t + " = index " + base + "[" + idx + "]");
@@ -1719,7 +1763,9 @@ function rirBackend_findText(s: string, needle: string, from: i64) -> i64 {
     let i: i64 = from;
     if (n == 0) return from;
     while (i + n <= length(s)) {
-        if (slice(s, i, i + n) == needle) return i;
+        let j: i64 = 0;
+        while (j < n && s[i + j] == needle[j]) j = j + 1;
+        if (j == n) return i;
         i = i + 1;
     }
     return -1;

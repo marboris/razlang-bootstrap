@@ -31,6 +31,8 @@ function emptyExpr(kind: i64) -> Expr {
 function emptyStmt(kind: i64) -> Stmt {
     let s: Stmt = new Stmt();
     s.kind = kind;
+    s.isTypeExplicit = false;
+    s.isConst = false;
     s.expr = -1;
     s.left = -1;
     s.right = -1;
@@ -187,8 +189,32 @@ function parsePrimary(state: Ref<ParserState>) -> i64 {
 function parsePostfix(state: Ref<ParserState>, id: i64) -> i64 {
     let out: i64 = id;
     let more: bool = true;
-    while (more) {
-        if (current(state).kind == 20) {
+    while (more && !state.parseError) {
+        if (current(state).kind == 36) {
+            let followedByParen: bool = false;
+            if (state.pos + 1 < listLength(state.tokens)) {
+                if (state.tokens[state.pos + 1].kind == 20) followedByParen = true;
+            }
+            if (followedByParen) {
+                let callee: Expr = state.exprs[out];
+                if (callee.kind != 5) {
+                    state.parseError = true;
+                    state.parseErrorText = "native call marker '!' must follow a bare function name";
+                    state.pos = listLength(state.tokens) - 1;
+                } else {
+                    take(state, 36);
+                    take(state, 20);
+                    let e: Expr = emptyExpr(14);
+                    e.text = callee.text;
+                    e.args = parseCallArgs(state);
+                    out = addExpr(state, e);
+                }
+            } else {
+                state.parseError = true;
+                state.parseErrorText = "native call marker '!' must be followed by '(...)'";
+                state.pos = listLength(state.tokens) - 1;
+            }
+        } else if (current(state).kind == 20) {
             let args: List<i64> = [] ;
             take(state, 20);
             args = parseCallArgs(state);
@@ -268,16 +294,23 @@ function parseStatement(state: Ref<ParserState>) -> i64 {
         take(state, 46);
         let s: Stmt = emptyStmt(7);
         let t: Token = current(state);
-        if (t.kind == 3 || t.kind == 1) {
-            take(state, t.kind);
+        if (t.kind == 3) {
+            take(state, 3);
             s.name = t.text;
-            if (t.kind == 3) s.type = "quoted";
-            else s.type = "bare";
-        } else {
-            state.pos = state.pos + 1;
+            s.type = "quoted";
+            maybe(state, 24);
+            return addStmt(state, s);
         }
-        maybe(state, 24);
-        return addStmt(state, s);
+        if (t.kind == 1) {
+            state.parseError = true;
+            state.parseErrorText = "native C++ headers must be quoted in use directives; Raz modules use dotted names";
+            state.pos = listLength(state.tokens) - 1;
+            return -1;
+        }
+        state.parseError = true;
+        state.parseErrorText = "use expects a quoted C++ header or a resolved Raz module";
+        state.pos = listLength(state.tokens) - 1;
+        return -1;
     }
     if (k == 47) {
         take(state, 47);
@@ -294,14 +327,16 @@ function parseStatement(state: Ref<ParserState>) -> i64 {
         s.body = parseControlledBody(state);
         return addStmt(state, s);
     }
-    if (k == 12) {
-        take(state, 12);
+    if (k == 12 || k == 51) {
+        take(state, k);
         let s: Stmt = emptyStmt(1);
+        s.isConst = k == 51;
         let name: Token = take(state, 1);
         s.name = name.text;
         if (current(state).kind == 25) {
             take(state, 25);
             s.type = parseType(state);
+            s.isTypeExplicit = true;
         }
         maybe(state, 30);
         s.expr = parseExpression(state, 0);
@@ -424,6 +459,12 @@ function parseProgram(source: string) -> Program {
 
     while (!state.parseError && current(state).kind != 0) {
         if (current(state).kind == 10) push(state.functions, parseFunction(state));
+        else if (current(state).kind == 50) {
+            take(state, 50);
+            state.parseError = true;
+            state.parseErrorText = "extern declarations are not supported; use name!(...) for native calls";
+            state.pos = listLength(state.tokens) - 1;
+        }
         else if (current(state).kind == 11) push(state.structs, parseStruct(state));
         else {
             let stmtId: i64 = parseStatement(state);
@@ -439,9 +480,8 @@ function parseProgram(source: string) -> Program {
     let i: i64 = 0;
     while (i < listLength(state.lastList)) {
         let sid: i64 = state.lastList[i];
-        if (state.stmts[sid].kind == 7) {
-            if (state.stmts[sid].type == "quoted") push(p.uses, "quoted:" + state.stmts[sid].name);
-            else push(p.uses, "bare:" + state.stmts[sid].name);
+        if (state.stmts[sid].kind == 7 && state.stmts[sid].type == "quoted") {
+            push(p.uses, "quoted:" + state.stmts[sid].name);
         }
         i = i + 1;
     }

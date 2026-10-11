@@ -1,4 +1,3 @@
-use "raz_runtime.hpp";
-
+use std.io;
 print("Hello from Raz Gen2!");
 return 0;

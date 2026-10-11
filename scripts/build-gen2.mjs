@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
 import path from 'node:path';
+import { adaptGen2SourceForGen1Bootstrap, validateGen2BootstrapIncludes } from './gen2-bootstrap-adapter.mjs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
@@ -14,20 +15,36 @@ const CPP = path.join(WORK, 'backend', 'output.cpp');
 const REPAIRED_CPP = path.join(WORK, 'backend', 'output.bootstrap-fixed.cpp');
 const CANDIDATE = path.join(GEN2, 'build', process.platform === 'win32' ? 'razc-candidate.exe' : 'razc-candidate');
 const RUNTIME = path.join(ROOT, 'runtime', 'raz_runtime.hpp');
-const GEN1_BIN = path.join(GEN1, 'bin', process.platform === 'win32' ? 'razc.exe' : 'razc');
+const FROZEN_GEN1_BIN = path.join(GEN1, 'bin', process.platform === 'win32' ? 'razc.exe' : 'razc');
+const GEN1_CANDIDATE = path.join(GEN1, 'build', process.platform === 'win32' ? 'razc-candidate.exe' : 'razc-candidate');
 const GEN1_CHECKSUM = path.join(GEN1, 'bin', 'razc.sha256');
+const USE_BOOTSTRAP_CANDIDATES = process.env.RAZ_BOOTSTRAP_USE_CANDIDATES === '1';
+const GEN1_BIN = USE_BOOTSTRAP_CANDIDATES && fs.existsSync(GEN1_CANDIDATE) ? GEN1_CANDIDATE : FROZEN_GEN1_BIN;
 
 function run(command, args, options = {}) {
+  const started = Date.now();
+  const timeout = options.timeout ?? Number(process.env.RAZ_STAGE_TIMEOUT_MS ?? 180000);
+  const label = options.label ?? `${command} ${args.join(' ')}`;
+  console.log(`[gen2] ${label}`);
   const result = spawnSync(command, args, {
     cwd: options.cwd ?? ROOT,
     encoding: 'utf8',
+    timeout,
+    killSignal: 'SIGKILL',
     stdio: options.capture ? ['inherit', 'pipe', 'pipe'] : 'inherit',
   });
-  if (result.error) throw result.error;
+  const elapsed = ((Date.now() - started) / 1000).toFixed(1);
+  if (result.error) {
+    if (result.error.code === 'ETIMEDOUT') {
+      throw new Error(`${label} timed out after ${elapsed}s (limit ${timeout}ms); set RAZ_STAGE_TIMEOUT_MS to adjust the limit`);
+    }
+    throw result.error;
+  }
   if (result.status !== 0) {
     const detail = options.capture ? `\n${result.stdout ?? ''}\n${result.stderr ?? ''}` : '';
-    throw new Error(`${command} failed with ${result.status}${detail}`);
+    throw new Error(`${label} failed with ${result.status} after ${elapsed}s${detail}`);
   }
+  console.log(`[gen2] ${label} completed in ${elapsed}s`);
   return result;
 }
 
@@ -100,6 +117,7 @@ const sourceModules = [
   'src/core/parser.raz',
   'src/core/text.raz',
   'src/source/includes.raz',
+  'src/source/modules.raz',
   'src/validation/semantics.raz',
   'src/core/rir.raz',
 ];
@@ -110,9 +128,13 @@ const targetModules = [
   'src/targets/cpp17/emitter.raz',
 ];
 
-if (!fs.existsSync(GEN1_BIN)) throw new Error(`Frozen Gen1 compiler not found: ${GEN1_BIN}`);
-if (!fs.existsSync(GEN1_CHECKSUM)) throw new Error(`Gen1 checksum not found: ${GEN1_CHECKSUM}`);
-run('sha256sum', ['-c', GEN1_CHECKSUM], { cwd: path.dirname(GEN1_CHECKSUM) });
+if (!fs.existsSync(GEN1_BIN)) throw new Error(`Gen1 compiler not found: ${GEN1_BIN}`);
+if (GEN1_BIN === FROZEN_GEN1_BIN) {
+  if (!fs.existsSync(GEN1_CHECKSUM)) throw new Error(`Gen1 checksum not found: ${GEN1_CHECKSUM}`);
+  run('sha256sum', ['-c', GEN1_CHECKSUM], { cwd: path.dirname(GEN1_CHECKSUM) });
+} else {
+  console.log('[gen2] bootstrapping with rebuilt Gen1 candidate (frozen binary remains untouched)');
+}
 
 fs.mkdirSync(path.dirname(BUNDLE), { recursive: true });
 fs.mkdirSync(path.dirname(CANDIDATE), { recursive: true });
@@ -140,33 +162,27 @@ if (process.argv.includes('--bundle-only')) {
 fs.rmSync(WORK, { recursive: true, force: true });
 fs.mkdirSync(path.join(WORK, 'frontend'), { recursive: true });
 fs.mkdirSync(path.join(WORK, 'backend'), { recursive: true });
-fs.copyFileSync(BUNDLE, path.join(WORK, 'frontend', 'input.raz'));
+// The canonical Gen2 source imports std.io like user programs. Frozen Gen1
+// cannot parse source-backed module imports yet, so the
+// one-time bootstrap input removes only this directive and uses Gen1's legacy
+// I/O builtins. This is a build adapter, not part of the canonical source/bundle.
+const bootstrapCore = adaptGen2SourceForGen1Bootstrap(bundle);
+const bootstrapBundle = `use "raz_runtime.hpp";
+${bootstrapCore}`;
+fs.writeFileSync(path.join(WORK, 'frontend', 'input.raz'), bootstrapBundle, 'utf8');
 fs.copyFileSync(RUNTIME, path.join(WORK, 'raz_runtime.hpp'));
 
-console.log('[gen2] compile modular bundle with frozen Gen1');
-run(GEN1_BIN, [], { cwd: WORK });
+console.log(`[gen2] compile modular bundle with ${GEN1_BIN === FROZEN_GEN1_BIN ? 'frozen Gen1' : 'rebuilt Gen1 candidate'}`);
+run(GEN1_BIN, [], { cwd: WORK, label: `compile modular bundle with ${GEN1_BIN === FROZEN_GEN1_BIN ? 'frozen Gen1' : 'rebuilt Gen1 candidate'}` });
 
 const generated = fs.readFileSync(CPP, 'utf8');
-const generatedIncludes = generated.split(/\r?\n/).filter((line) => line.startsWith('#include'));
-const requiredIncludes = [
-  '#include <cstdint>',
-  '#include <cstddef>',
-  '#include <string>',
-  '#include <vector>',
-  '#include "raz_runtime.hpp"',
-];
-for (const include of requiredIncludes) {
-  if (!generatedIncludes.includes(include)) throw new Error(`Gen2 compiler source omitted explicit native dependency: ${include}`);
-}
-if (generatedIncludes.some((include) => include.includes('iostream') || include.includes('fstream'))) {
-  throw new Error('Gen2 compiler output unexpectedly includes runtime transitive headers');
-}
+validateGen2BootstrapIncludes(generated);
 
 console.log('[gen2] apply isolated Gen1 bootstrap type-inference repair');
-run(process.execPath, [path.join(ROOT, 'scripts', 'repair-gen2-bootstrap-cpp.mjs'), CPP, REPAIRED_CPP]);
+run(process.execPath, [path.join(ROOT, 'scripts', 'repair-gen2-bootstrap-cpp.mjs'), CPP, REPAIRED_CPP], { label: 'repair isolated Gen1 bootstrap output' });
 
 console.log('[gen2] build native candidate');
 const optimization = process.env.RAZ_BUILD_OPT ?? '-O0';
-run(process.env.CXX ?? 'c++', ['-std=c++17', optimization, REPAIRED_CPP, '-I', WORK, '-o', CANDIDATE]);
+run(process.env.CXX ?? 'g++', ['-std=c++17', optimization, REPAIRED_CPP, '-I', WORK, '-o', CANDIDATE], { label: 'build native Gen2 candidate' });
 fs.chmodSync(CANDIDATE, 0o755);
 console.log(`[gen2] candidate ready: ${CANDIDATE}`);

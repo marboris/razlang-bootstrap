@@ -138,6 +138,6 @@ fs.writeFileSync(BUNDLE, `${frontend}\n${renameIdentifiers(backend, renames)}\n$
 console.log('[native] compile combined Raz frontend/backend with the JavaScript seed');
 run(process.execPath, [SEED, 'compile', BUNDLE, '-o', CPP, '--language', LANGUAGE, '--target', TARGET]);
 console.log('[native] build standalone compiler binary');
-run(process.env.CXX ?? 'c++', ['-std=c++17', '-O2', CPP, '-o', BINARY]);
+run(process.env.CXX ?? 'g++', ['-std=c++17', '-O2', CPP, '-o', BINARY]);
 console.log(`[native] candidate compiler ready: ${BINARY}`);
 console.log('[native] to freeze it as generation 0: scripts/freeze.sh 0 (only if bin/ is empty)');

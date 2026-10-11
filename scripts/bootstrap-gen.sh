@@ -17,5 +17,5 @@ cp "$SRC" "$WORK/frontend/input.raz"
 
 cd "$WORK"
 "$COMPILER"
-c++ -std=c++17 -O2 backend/output.cpp -o "$OUT"
+g++ -std=c++17 -O2 backend/output.cpp -o "$OUT"
 echo "built $OUT with generation $N"

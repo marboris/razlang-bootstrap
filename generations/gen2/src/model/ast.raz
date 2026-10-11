@@ -30,6 +30,8 @@ struct Stmt {
     kind: i64;
     name: string;
     type: string;
+    isTypeExplicit: bool;
+    isConst: bool;
     expr: i64;
     left: i64;
     right: i64;
@@ -102,6 +104,7 @@ struct EmitState {
 struct Binding {
     name: string;
     type: string;
+    isConst: bool;
 }
 
 struct SemanticState {

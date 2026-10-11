@@ -34,39 +34,20 @@ self-compile شدن `S_n` توسط `gen_n` شرط freeze نیست.
 - RIR verifier برای global/use؛
 - C++17 backend و runtime bridge؛
 - example داخل `generations/gen1/examples/hello.raz`؛
-- تست اجرای example پس از freeze در `npm run test:gen1:example`.
+- اجرای example با harness جاوااسکریپتی قدیمی (اکنون حذف‌شده).
 
-## تست‌های انجام‌شده
+## نتایج تاریخی suite قدیمی (اکنون حذف‌شده)
 
-```text
-npm test
-15 passed / 0 failed
-
-npm run test:backend
-15 passed / 0 failed
-
-npm run test:gen1:fast
-all fast checks passed
-```
-
-Fast suite example `hello.raz` را نیز از مسیر frontend → RIR → verifier → backend → C++ اجرا می‌کند.
+در زمان ثبت این snapshot، suite JavaScript زیر اجرا شده بود و نتایجش برای تاریخچه نگه داشته می‌شود؛ فرمان‌ها و harness مربوطه در workflow فعلی حذف شده‌اند و این اعداد وضعیت تست امروز را نشان نمی‌دهند. اکنون تست‌های فعال با `make test` و CTest، فقط درایور native را بدون نیاز به build Gen2 بررسی می‌کنند.
 
 ## وضعیت bootstrap/freeze
 
 `gen0/bin/razc` با checksum ثبت‌شده منجمد است و منبع Gen1 با آن سازگار طراحی شده است.
 
-ساخت bundle Gen1 (`generations/gen1/final/compiler.raz`) آماده است، اما اجرای acceptance سنگین برای تولید `generations/gen1/bin/razc` در یک اجرای قبلی وارد timeout طولانی شد. طبق سیاست توسعه، این build سنگین تکرار نمی‌شود تا زمان milestone freeze.
+این snapshot برای تاریخچه نگه داشته شده است. وضعیت واقعی artifact را از `generations/gen1/gen.json`، وجود `generations/gen1/bin/razc` و checksum بخوانید؛ بخش‌های مربوط به suite تست قدیمی در workflow فعلی اجرا نمی‌شوند.
 
-بنابراین این archive یک **snapshot کامل source/docs/tests برای نقطه‌ی فعلی** است، اما هنوز ادعای freeze شدن باینری Gen1 را ندارد.
+این فایل snapshot تاریخی است؛ وضعیت freeze معتبر را از `generations/gen1/gen.json` و checksum فعلی بخوانید.
 
 ## خروجی بعدی
 
-پس از آماده شدن acceptance bootstrap:
-
-```text
-npm run build:gen1
-scripts/freeze.sh 1
-npm run test:gen1:example
-```
-
-و سپس checksum Gen1 در `generations/gen1/bin/razc.sha256` ثبت می‌شود.
+در صورت نیاز به بازسازی تاریخی: `make build-gen1` و سپس `scripts/freeze.sh 1` (فقط در صورتی که قواعد pending اجازه دهند). این workflow تست Gen1 اجرا نمی‌کند.

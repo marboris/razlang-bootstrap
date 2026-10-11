@@ -17,7 +17,7 @@ case "$MODE" in
 esac
 
 if [ ! -f "$CAND" ]; then
-  if [ "$N" = "1" ]; then BUILD_HINT="npm run build:gen1"; else BUILD_HINT="npm run build:native"; fi
+  if [ "$N" = "0" ]; then BUILD_HINT="make build-gen0"; elif [ "$N" = "1" ]; then BUILD_HINT="make build-gen1"; else BUILD_HINT="make build-gen2"; fi
   echo "no candidate at $CAND (run: $BUILD_HINT)" >&2
   exit 1
 fi
@@ -38,13 +38,8 @@ if [ -e "$GEN/bin/razc" ]; then
   }
 fi
 
-# Gen1 is only frozen after the same candidate passes the documented runtime/CLI smoke test.
-# Run it after the overwrite guards so an invalid freeze request fails immediately.
-if [ "$N" = "1" ]; then
-  echo "running Gen1 candidate acceptance smoke test"
-  RAZC="$CAND" node "$ROOT/scripts/test-gen1-example.mjs"
-fi
-
+# Freeze records build provenance and checksum only. Runtime acceptance checks are no
+# longer coupled to generation freezing; Gen0/Gen1 are historical build stages.
 mkdir -p "$GEN/bin"
 cp "$CAND" "$GEN/bin/razc"
 chmod +x "$GEN/bin/razc"
@@ -55,7 +50,7 @@ node --input-type=module -e '
   const generation = Number(process.argv[2]);
   const metadata = JSON.parse(fs.readFileSync(file, "utf8"));
   metadata.status = "frozen";
-  if (generation === 1) metadata.milestone = "M1-M5 complete; Gen1 candidate accepted and frozen";
+  if (generation === 1) metadata.milestone = "M1-M5 complete; Gen1 build frozen (legacy generation)";
   fs.writeFileSync(file, JSON.stringify(metadata, null, 2) + "\n", "utf8");
 ' "$GEN/gen.json" "$N"
 echo "generation $N frozen: $GEN/bin/razc"

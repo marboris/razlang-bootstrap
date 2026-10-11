@@ -13,25 +13,48 @@ function cppLiteral(rest: string, type: string) -> string {
     return rest;
 }
 
+// Native `name!(...)` expressions are emitted inline in RIR rather than as a
+// normal `call` instruction. Parse their argument list structurally so every
+// temp is resolved through cppArgs/cppValue (including Ref<T> aliases) instead
+// of leaking a raw `%tN` token into the generated C++.
+function cppInlineCall(module: Ref<BackendModule>, state: Ref<BackendState>, expression: string) -> string {
+    let call: string = trim(expression);
+    let open: i64 = findText(call, "(", 0);
+    if (open < 0 || !endsWith(call, ")")) return cppValue(state, call);
+    let callee: string = trim(slice(call, 0, open));
+    let args: string = slice(call, open + 1, length(call) - 1);
+    return cppCallName(module, callee) + "(" + cppArgs(state, args) + ")";
+}
+
 function emitFunction(module: Ref<BackendModule>, f: Ref<FunctionMeta>, state: Ref<BackendState>) {
     collectDeclarations(module, f, state);
     let params: string = "";
     let i: i64 = 0;
     while (i < listLength(f.params)) {
         if (i > 0) params = params + ", ";
-        params = params + cppType(f.paramTypes[i]) + " " + f.params[i];
+        params = params + cppType(f.paramTypes[i]) + " " + cppVariableName(f.params[i]);
         i = i + 1;
     }
 
-    emitLine(state, cppType(f.returnType) + " " + cppName(f.name) + "(" + params + ") {");
-    i = 0;
-    while (i < listLength(state.locals)) {
-        emitLine(state, "    " + cppType(state.localTypes[i]) + " " + state.locals[i] + "{};");
-        i = i + 1;
-    }
+    emitLine(state, cppType(f.returnType) + " " + cppFunctionName(f.name) + "(" + params + ") {");
+    // Temps are declared before local-auto storage so decltype(ttN) is always
+    // available. Runtime initialization remains at the original store site.
     i = 0;
     while (i < listLength(state.temps)) {
         if (!starts(state.tempTypes[i], "Ref<")) emitLine(state, "    " + cppType(state.tempTypes[i]) + " " + state.temps[i] + "{};");
+        i = i + 1;
+    }
+    i = 0;
+    while (i < listLength(state.locals)) {
+        let variable: string = cppVariableName(state.locals[i]);
+        let declaration: string = "";
+        if (state.localAutos[i] && state.localInitValues[i] != "") {
+            let initializerName: string = valueName(state.localInitValues[i]);
+            let initializerType: string = tempType(state, initializerName);
+            if (!starts(initializerType, "Ref<")) declaration = "auto " + variable + " = decltype(" + initializerName + "){};";
+            else declaration = cppType(state.localTypes[i]) + " " + variable + "{};";
+        } else declaration = cppType(state.localTypes[i]) + " " + variable + "{};";
+        emitLine(state, "    " + declaration);
         i = i + 1;
     }
     emitLine(state, "");
@@ -43,18 +66,20 @@ function emitFunction(module: Ref<BackendModule>, f: Ref<FunctionMeta>, state: R
             i = i + 1;
         } else {
         let p: i64 = findText(line, " = ", 0);
+        let isLabel: bool = false;
+        if (length(line) > 0) isLabel = line[length(line) - 1] == 58;
         if (line == "entry:") {
             emitLine(state, "entry:;");
-        } else if (line[length(line) - 1] == 58) {
+        } else if (isLabel) {
             emitLine(state, line + ";");
-        } else if (starts(line, "local ")) {
+        } else if (starts(line, "local ") || starts(line, "local-auto ")) {
         } else if (starts(line, "store ")) {
             let x: string = slice(line, 6, length(line));
-            let c: i64 = findText(x, ",", 0);
-            emitLine(state, "    " + trim(slice(x, 0, c)) + " = " + cppValue(state, trim(slice(x, c + 1, length(x)))) + ";");
+            let c: i64 = topLevelComma(x);
+            emitLine(state, "    " + cppValue(state, trim(slice(x, 0, c))) + " = " + cppValue(state, trim(slice(x, c + 1, length(x)))) + ";");
         } else if (starts(line, "store_ref ")) {
             let x: string = slice(line, 10, length(line));
-            let c: i64 = findText(x, ",", 0);
+            let c: i64 = topLevelComma(x);
             emitLine(state, "    " + cppValue(state, trim(slice(x, 0, c))) + " = " + cppValue(state, trim(slice(x, c + 1, length(x)))) + ";");
         } else if (starts(line, "jump ")) {
             emitLine(state, "    goto " + trim(slice(line, 5, length(line))) + ";");
@@ -66,13 +91,16 @@ function emitFunction(module: Ref<BackendModule>, f: Ref<FunctionMeta>, state: R
         } else if (starts(line, "return")) {
             let x: string = trim(slice(line, 6, length(line)));
             if (x == "") emitLine(state, "    return;");
-            else emitLine(state, "    return " + cppValue(state, x) + ";");
+            else emitLine(state, "    return " + cppInlineCall(module, state, x) + ";");
+        } else if (starts(line, "native-call ")) {
+            let nativeExpr: string = trim(slice(line, 12, length(line)));
+            emitLine(state, "    " + cppInlineCall(module, state, nativeExpr) + ";");
         } else if (starts(line, "call ")) {
             let call: string = trim(slice(line, 5, length(line)));
             let open: i64 = findText(call, "(", 0);
             let callee: string = trim(slice(call, 0, open));
             let args: string = slice(call, open + 1, length(call) - 1);
-            emitLine(state, "    " + cppName(callee) + "(" + cppArgs(state, args) + ");");
+            emitLine(state, "    " + cppCallName(module, callee) + "(" + cppArgs(state, args) + ");");
         } else if (p > 2 && starts(line, "%t")) {
             let lhs: string = valueName(trim(slice(line, 0, p)));
             let rhs: string = trim(slice(line, p + 3, length(line)));
@@ -84,24 +112,26 @@ function emitFunction(module: Ref<BackendModule>, f: Ref<FunctionMeta>, state: R
                 emitLine(state, "    " + lhs + " = " + cppLiteral(val, typ) + ";");
             } else if (starts(rhs, "load ")) {
                 let name: string = trim(slice(rhs, 5, length(rhs)));
-                if (starts(tempType(state, lhs), "Ref<")) setAlias(state, lhs, name);
+                if (starts(tempType(state, lhs), "Ref<")) setAlias(state, lhs, cppVariableName(name));
                 else emitLine(state, "    " + lhs + " = " + cppValue(state, name) + ";");
+            } else if (starts(rhs, "copy ")) {
+                emitLine(state, "    " + lhs + " = " + cppValue(state, trim(slice(rhs, 5, length(rhs)))) + ";");
             } else if (starts(rhs, "ref ")) {
-                setAlias(state, lhs, trim(slice(rhs, 4, length(rhs))));
+                setAlias(state, lhs, cppVariableName(trim(slice(rhs, 4, length(rhs)))));
             } else if (starts(rhs, "ref_field ")) {
                 let z: string = trim(slice(rhs, 10, length(rhs)));
                 let dot: i64 = findText(z, ".", 0);
-                setAlias(state, lhs, cppValue(state, trim(slice(z, 0, dot))) + "." + trim(slice(z, dot + 1, length(z))));
+                setAlias(state, lhs, cppValue(state, trim(slice(z, 0, dot))) + "." + cppFieldName(trim(slice(z, dot + 1, length(z))));
             } else if (starts(rhs, "ref_index ")) {
                 let z: string = trim(slice(rhs, 10, length(rhs)));
                 let open: i64 = findText(z, "[", 0);
                 setAlias(state, lhs, cppValue(state, trim(slice(z, 0, open))) + "[" + cppValue(state, trim(slice(z, open + 1, length(z) - 1))) + "]");
             } else if (starts(rhs, "new ")) {
-                emitLine(state, "    " + lhs + " = " + trim(slice(rhs, 4, length(rhs))) + "{};" );
+                emitLine(state, "    " + lhs + " = " + cppType(trim(slice(rhs, 4, length(rhs)))) + "{};" );
             } else if (starts(rhs, "field ")) {
                 let z: string = trim(slice(rhs, 6, length(rhs)));
                 let dot: i64 = findText(z, ".", 0);
-                emitLine(state, "    " + lhs + " = " + cppValue(state, trim(slice(z, 0, dot))) + "." + trim(slice(z, dot + 1, length(z))) + ";");
+                emitLine(state, "    " + lhs + " = " + cppValue(state, trim(slice(z, 0, dot))) + "." + cppFieldName(trim(slice(z, dot + 1, length(z)))) + ";");
             } else if (starts(rhs, "index ")) {
                 let z: string = trim(slice(rhs, 6, length(rhs)));
                 let open: i64 = findText(z, "[", 0);
@@ -112,7 +142,7 @@ function emitFunction(module: Ref<BackendModule>, f: Ref<FunctionMeta>, state: R
                 let callee: string = trim(slice(z, 0, open));
                 let args: string = slice(z, open + 1, length(z) - 1);
                 let aa: string = cppArgs(state, args);
-                emitLine(state, "    " + lhs + " = " + cppName(callee) + "(" + aa + ");");
+                emitLine(state, "    " + lhs + " = " + cppCallName(module, callee) + "(" + aa + ");");
             } else if (starts(rhs, "list(")) {
                 let z: string = slice(rhs, 5, length(rhs) - 1);
                 let aa: string = cppArgs(state, z);
@@ -142,7 +172,7 @@ function emitFunction(module: Ref<BackendModule>, f: Ref<FunctionMeta>, state: R
                     emitLine(state, "    " + lhs + " = " + symbol + cppValue(state, trim(slice(rhs, length(op) + 1, length(rhs)))) + ";");
                 } else if (op != "") {
                     let z: string = slice(rhs, length(op) + 1, length(rhs));
-                    let comma: i64 = findText(z, ",", 0);
+                    let comma: i64 = topLevelComma(z);
                     let a: string = cppValue(state, trim(slice(z, 0, comma)));
                     let b: string = cppValue(state, trim(slice(z, comma + 1, length(z))));
                     emitLine(state, "    " + lhs + " = " + a + " " + symbol + " " + b + ";");
@@ -151,7 +181,11 @@ function emitFunction(module: Ref<BackendModule>, f: Ref<FunctionMeta>, state: R
         } else if (starts(line, "field_set ")) {
             let x: string = slice(line, 10, length(line));
             let eq: i64 = findText(x, " = ", 0);
-            emitLine(state, "    " + trim(slice(x, 0, eq)) + " = " + cppValue(state, trim(slice(x, eq + 3, length(x)))) + ";");
+            let target: string = trim(slice(x, 0, eq));
+            let dot: i64 = findText(target, ".", 0);
+            let cppTarget: string = target;
+            if (dot >= 0) cppTarget = cppValue(state, trim(slice(target, 0, dot))) + "." + cppFieldName(trim(slice(target, dot + 1, length(target))));
+            emitLine(state, "    " + cppTarget + " = " + cppValue(state, trim(slice(x, eq + 3, length(x)))) + ";");
         }
         i = i + 1;
         }
@@ -168,26 +202,25 @@ function generate(rir: string) -> string {
     let i: i64 = 0;
     while (i < listLength(module.uses)) {
         let u: string = module.uses[i];
-        if (starts(u, "quoted:")) emitLine(state, "#include \"" + slice(u, 7, length(u)) + "\"");
-        else emitLine(state, "#include <" + slice(u, 5, length(u)) + ">");
+        if (starts(u, "quoted:")) {
+            let header: string = slice(u, 7, length(u));
+            if (findText(header, "/", 0) < 0 && findText(header, "\\", 0) < 0 && findText(header, ".", 0) < 0) emitLine(state, "#include <" + header + ">");
+            else emitLine(state, "#include \"" + header + "\"");
+        }
         i = i + 1;
     }
+    // Generic process context is part of the generated program ABI. Libraries
+    // may read it, but the backend does not know or care which library uses it.
+    emitLine(state, "namespace raz_internal_process { int argc = 0; char** argv = nullptr; }");
     emitLine(state, "");
-
-    i = 0;
-    while (i < listLength(module.globals)) {
-        emitLine(state, cppType(module.globals[i].type) + " " + module.globals[i].name + "{};");
-        i = i + 1;
-    }
-    if (listLength(module.globals) > 0) emitLine(state, "");
 
     i = 0;
     while (i < listLength(module.structs)) {
         let st: StructMeta = module.structs[i];
-        emitLine(state, "struct " + st.name + " {");
+        emitLine(state, "struct " + cppStructName(st.name) + " {");
         let j: i64 = 0;
         while (j < listLength(st.fields)) {
-            emitLine(state, "    " + cppType(st.fieldTypes[j]) + " " + st.fields[j] + "{};");
+            emitLine(state, "    " + cppType(st.fieldTypes[j]) + " " + cppFieldName(st.fields[j]) + "{};");
             j = j + 1;
         }
         emitLine(state, "};");
@@ -195,6 +228,8 @@ function generate(rir: string) -> string {
         i = i + 1;
     }
 
+    // Declare every function before globals because a const global may use a
+    // generated runtime initializer such as osName().
     i = 0;
     while (i < listLength(module.functions)) {
         let f: FunctionMeta = module.functions[i];
@@ -202,13 +237,25 @@ function generate(rir: string) -> string {
         let j: i64 = 0;
         while (j < listLength(f.params)) {
             if (j > 0) params = params + ", ";
-            params = params + cppType(f.paramTypes[j]) + " " + f.params[j];
+            params = params + cppType(f.paramTypes[j]) + " " + cppVariableName(f.params[j]);
             j = j + 1;
         }
-        emitLine(state, cppType(f.returnType) + " " + cppName(f.name) + "(" + params + ");");
+        emitLine(state, cppType(f.returnType) + " " + cppFunctionName(f.name) + "(" + params + ");");
         i = i + 1;
     }
     emitLine(state, "");
+
+    i = 0;
+    while (i < listLength(module.globals)) {
+        let g: GlobalMeta = module.globals[i];
+        let variable: string = cppVariableName(g.name);
+        if (g.isConst && g.isAuto) emitLine(state, "const auto " + variable + " = " + cppFunctionName(g.initFunction) + "();");
+        else if (g.isConst) emitLine(state, "const " + cppType(g.type) + " " + variable + " = " + cppFunctionName(g.initFunction) + "();");
+        else if (g.isAuto && g.initFunction != "") emitLine(state, "auto " + variable + " = decltype(" + cppFunctionName(g.initFunction) + "()){};");
+        else emitLine(state, cppType(g.type) + " " + variable + "{};");
+        i = i + 1;
+    }
+    if (listLength(module.globals) > 0) emitLine(state, "");
 
     i = 0;
     while (i < listLength(module.functions)) {
@@ -217,8 +264,9 @@ function generate(rir: string) -> string {
     }
 
     emitLine(state, "int main(int argc, char** argv) {");
-    if (usesCli(module)) emitLine(state, "    raz::set_cli(argc, argv);");
-    emitLine(state, "    return static_cast<int>(raz_main());");
+    emitLine(state, "    raz_internal_process::argc = argc;");
+    emitLine(state, "    raz_internal_process::argv = argv;");
+    emitLine(state, "    return static_cast<int>(" + cppFunctionName("main") + "());");
     emitLine(state, "}");
 
     let out: string = "";

@@ -3,12 +3,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { adaptGen2SourceForGen1Bootstrap } from './gen2-bootstrap-adapter.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const WORK = path.join(ROOT, 'generations', 'gen2', 'build', 'driver-fast');
 const GEN1 = path.join(ROOT, 'generations', 'gen1', 'bin', process.platform === 'win32' ? 'razc.exe' : 'razc');
 const RUNTIME = path.join(ROOT, 'runtime', 'raz_runtime.hpp');
 const CANDIDATE = path.join(WORK, process.platform === 'win32' ? 'razc-driver-test.exe' : 'razc-driver-test');
+const REPAIRED_CPP = path.join(WORK, 'backend', 'output.bootstrap-fixed.cpp');
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { cwd: options.cwd ?? ROOT, encoding: 'utf8', stdio: ['inherit', 'pipe', 'pipe'] });
@@ -25,18 +27,22 @@ fs.mkdirSync(path.join(WORK, 'frontend'), { recursive: true });
 fs.mkdirSync(path.join(WORK, 'backend'), { recursive: true });
 fs.copyFileSync(RUNTIME, path.join(WORK, 'raz_runtime.hpp'));
 const driver = fs.readFileSync(path.join(ROOT, 'generations', 'gen2', 'src', 'driver', 'main.raz'), 'utf8');
-const withoutUses = driver.replace(/^(?:use (?:cstdint|cstddef|string|vector);|use "raz_runtime\.hpp";)\s*$/gm, '');
-const uses = 'use cstdint;\nuse cstddef;\nuse string;\nuse vector;\nuse "raz_runtime.hpp";\n';
+const withoutUses = driver.replace(/^(?:use "(?:cstdint|cstddef|string|vector)";|use std\.(?:io|text|containers);)\s*$/gm, '');
+const uses = 'use "cstdint";\nuse "cstddef";\nuse "string";\nuse "vector";\nuse "raz_runtime.hpp";\n';
 const stubs = `
 function compileSourceAt(source: string, entryPath: string) -> string { return "stub-rir"; }
 function generate(rir: string) -> string { return "driver-stub-payload\n"; }
+function pathDir(path: string) -> string { return "generations/gen2"; }
+function resolveRazModules(source: string, entryPath: string, roots: List<string>) -> string { return source; }
 `;
-fs.writeFileSync(path.join(WORK, 'frontend', 'input.raz'), `${uses}${stubs}\n${withoutUses}`, 'utf8');
+const bootstrapInput = adaptGen2SourceForGen1Bootstrap(`${uses}${stubs}\n${withoutUses}`);
+fs.writeFileSync(path.join(WORK, 'frontend', 'input.raz'), bootstrapInput, 'utf8');
 run(GEN1, [], { cwd: WORK, status: 0 });
-run(process.env.CXX ?? 'c++', ['-std=c++17', '-O0', path.join(WORK, 'backend', 'output.cpp'), '-I', WORK, '-o', CANDIDATE], { status: 0 });
+run(process.execPath, [path.join(ROOT, 'scripts', 'repair-gen2-bootstrap-cpp.mjs'), path.join(WORK, 'backend', 'output.cpp'), REPAIRED_CPP], { status: 0 });
+run(process.env.CXX ?? 'c++', ['-std=c++17', '-O0', REPAIRED_CPP, '-I', WORK, '-o', CANDIDATE], { status: 0 });
 
 const version = run(CANDIDATE, ['--version'], { status: 0 });
-if (!version.output.includes('razc Gen2 preview 0.1.0')) throw new Error('--version output mismatch');
+if (!version.output.includes('razc Gen2 preview 0.3.0')) throw new Error('--version output mismatch');
 run(CANDIDATE, ['--help'], { status: 0 });
 const noArgs = run(CANDIDATE, [], { status: 2 });
 if (!noArgs.output.includes('Usage: razc')) throw new Error('usage output missing for empty args');

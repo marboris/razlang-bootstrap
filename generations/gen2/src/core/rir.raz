@@ -90,12 +90,24 @@ function emitPlace(state: Ref<EmitState>, program: Ref<Program>, id: i64) -> str
 }
 
 function callNeedsRef(program: Ref<Program>, callee: string, index: i64) -> bool {
+    if ((callee == "length" || callee == "listLength") && index == 0) return true;
     if (callee == "push" && index == 0) return true;
     let fi: i64 = functionIndex(program, callee);
     if (fi < 0) return false;
     let fn: FunctionDef = program.functions[fi];
     if (index < 0 || index >= listLength(fn.params)) return false;
     return isRefType(fn.params[index].type);
+}
+
+function isPureExpr(program: Ref<Program>, id: i64) -> bool {
+    if (id < 0 || id >= listLength(program.exprs)) return false;
+    let x: Expr = program.exprs[id];
+    if (x.kind == 1 || x.kind == 2 || x.kind == 3 || x.kind == 4 || x.kind == 5) return true;
+    if (x.kind == 7) return isPureExpr(program, x.left);
+    if (x.kind == 6) return isPureExpr(program, x.left) && isPureExpr(program, x.right);
+    if (x.kind == 9) return isPureExpr(program, x.left);
+    if (x.kind == 10) return isPureExpr(program, x.left) && isPureExpr(program, x.right);
+    return false;
 }
 
 function emitExpr(state: Ref<EmitState>, program: Ref<Program>, id: i64) -> string {
@@ -132,11 +144,47 @@ function emitExpr(state: Ref<EmitState>, program: Ref<Program>, id: i64) -> stri
         return t;
     }
     if (x.kind == 6) {
+        // Logical operators are control flow, not eager binary operators.
+        // Evaluating the RHS unconditionally can read invalid indexes in guards
+        // such as `i == 0 || text[i - 1] == ...`.
+        if (x.op == "&&" || x.op == "||") {
+            let left: string = emitExpr(state, program, x.left);
+            let result: string = newTemp(state);
+            let rhsLabel: string = newLabel(state, "sc_rhs");
+            let shortLabel: string = newLabel(state, "sc_short");
+            let endLabel: string = newLabel(state, "sc_end");
+            if (x.op == "&&") emitLine(state, "    branch " + left + " ? " + rhsLabel + " : " + shortLabel);
+            else emitLine(state, "    branch " + left + " ? " + shortLabel + " : " + rhsLabel);
+            emitLine(state, shortLabel + ":");
+            if (x.op == "&&") emitLine(state, "    " + result + " = const bool false");
+            else emitLine(state, "    " + result + " = const bool true");
+            emitLine(state, "    jump " + endLabel);
+            emitLine(state, rhsLabel + ":");
+            let right: string = emitExpr(state, program, x.right);
+            emitLine(state, "    " + result + " = copy " + right);
+            emitLine(state, "    jump " + endLabel);
+            emitLine(state, endLabel + ":");
+            return result;
+        }
         let a: string = emitExpr(state, program, x.left);
         let b: string = emitExpr(state, program, x.right);
         let t: string = newTemp(state);
         emitLine(state, "    " + t + " = " + canonicalBinary(x.op) + " " + a + ", " + b);
         return t;
+    }
+    if (x.kind == 14) {
+        let args: string = "";
+        let i: i64 = 0;
+        while (i < listLength(x.args)) {
+            if (i > 0) args = args + ", ";
+            // Without an external signature, pass lvalues as lvalues: this is
+            // valid for by-value C++ parameters and preserves native references.
+            if (isLValue(program, x.args[i])) args = args + emitPlace(state, program, x.args[i]);
+            else args = args + emitExpr(state, program, x.args[i]);
+            i = i + 1;
+        }
+        // The native compiler infers the return type and validates the symbol.
+        return x.text + "(" + args + ")";
     }
     if (x.kind == 8) {
         let callee: string = program.exprs[x.left].text;
@@ -144,7 +192,7 @@ function emitExpr(state: Ref<EmitState>, program: Ref<Program>, id: i64) -> stri
         let i: i64 = 0;
         while (i < listLength(x.args)) {
             if (i > 0) args = args + ", ";
-            if (callNeedsRef(program, callee, i)) {
+            if (callNeedsRef(program, callee, i) && isLValue(program, x.args[i])) {
                 args = args + emitPlace(state, program, x.args[i]);
             } else {
                 args = args + emitExpr(state, program, x.args[i]);
@@ -153,7 +201,7 @@ function emitExpr(state: Ref<EmitState>, program: Ref<Program>, id: i64) -> stri
         }
         let fi: i64 = functionIndex(program, callee);
         let returnType: string = "";
-        if (callee == "print" || callee == "writeFile" || callee == "push") returnType = "void";
+        if (callee == "push") returnType = "void";
         else if (fi >= 0) returnType = program.functions[fi].returnType;
         if (returnType == "void") {
             emitLine(state, "    call " + callee + "(" + args + ")");
@@ -170,7 +218,12 @@ function emitExpr(state: Ref<EmitState>, program: Ref<Program>, id: i64) -> stri
         return t;
     }
     if (x.kind == 10) {
-        let base: string = emitExpr(state, program, x.left);
+        let base: string = "";
+        if (isLValue(program, x.left) && isPureExpr(program, x.right)) {
+            base = emitPlace(state, program, x.left);
+        } else {
+            base = emitExpr(state, program, x.left);
+        }
         let idx: string = emitExpr(state, program, x.right);
         let t: string = newTemp(state);
         emitLine(state, "    " + t + " = index " + base + "[" + idx + "]");
@@ -205,7 +258,8 @@ function emitStmt(state: Ref<EmitState>, program: Ref<Program>, id: i64) {
     let s: Stmt = program.stmts[id];
     if (s.kind == 1) {
         let v: string = emitExpr(state, program, s.expr);
-        emitLine(state, "    local " + s.type + " " + s.name);
+        if (s.isTypeExplicit) emitLine(state, "    local " + s.type + " " + s.name);
+        else emitLine(state, "    local-auto " + s.type + " " + s.name);
         emitLine(state, "    store " + s.name + ", " + v);
         return;
     }
@@ -215,7 +269,8 @@ function emitStmt(state: Ref<EmitState>, program: Ref<Program>, id: i64) {
         return;
     }
     if (s.kind == 3) {
-        emitExpr(state, program, s.expr);
+        if (program.exprs[s.expr].kind == 14) emitLine(state, "    native-call " + emitExpr(state, program, s.expr));
+        else emitExpr(state, program, s.expr);
         return;
     }
     if (s.kind == 4) {
@@ -296,7 +351,6 @@ function emitProgram(program: Ref<Program>) -> string {
     let i: i64 = 0;
     while (i < listLength(program.uses)) {
         if (starts(program.uses[i], "quoted:")) emitLine(state, "use-quoted " + slice(program.uses[i], 7, length(program.uses[i])));
-        else emitLine(state, "use-bare " + slice(program.uses[i], 5, length(program.uses[i])));
         i = i + 1;
     }
 
@@ -304,7 +358,13 @@ function emitProgram(program: Ref<Program>) -> string {
     while (i < listLength(program.topStmts)) {
         let sid: i64 = program.topStmts[i];
         let ts: Stmt = program.stmts[sid];
-        if (ts.kind == 1) emitLine(state, "global " + ts.type + " " + ts.name);
+        if (ts.kind == 1) {
+            let initName: string = "raz_global_init_" + ts.name;
+            if (ts.isConst && !ts.isTypeExplicit) emitLine(state, "global-const-auto " + ts.type + " " + ts.name + " " + initName);
+            else if (ts.isConst) emitLine(state, "global-const " + ts.type + " " + ts.name + " " + initName);
+            else if (!ts.isTypeExplicit) emitLine(state, "global-auto " + ts.type + " " + ts.name + " " + initName);
+            else emitLine(state, "global " + ts.type + " " + ts.name);
+        }
         i = i + 1;
     }
 
@@ -322,9 +382,29 @@ function emitProgram(program: Ref<Program>) -> string {
 
     emitLine(state, "function main() -> i64");
     emitLine(state, "entry:");
+    // Phase 1: initialize mutable module globals in entry after process argc/argv
+    // is set. Const globals already use static C++ const initializers.
     i = 0;
     while (i < listLength(program.topStmts)) {
-        emitTopStmt(state, program, program.topStmts[i]);
+        let sid: i64 = program.topStmts[i];
+        if (program.stmts[sid].kind == 1 && !program.stmts[sid].isConst) emitTopStmt(state, program, sid);
+        i = i + 1;
+    }
+    // Phase 2: run any source module startup hooks. The compiler core only
+    // defines the naming/signature contract; modules own their implementation.
+    i = 0;
+    while (i < listLength(program.functions)) {
+        let f: FunctionDef = program.functions[i];
+        if (starts(f.name, "raz_module_init_") && length(f.name) > 16) {
+            emitLine(state, "    call " + f.name + "()");
+        }
+        i = i + 1;
+    }
+    // Phase 3: execute ordinary top-level statements in source order.
+    i = 0;
+    while (i < listLength(program.topStmts)) {
+        let sid: i64 = program.topStmts[i];
+        if (program.stmts[sid].kind != 1) emitTopStmt(state, program, sid);
         i = i + 1;
     }
     emitLine(state, "    %t" + int_to_string(state.temp) + " = const i64 0");
@@ -351,6 +431,33 @@ function emitProgram(program: Ref<Program>) -> string {
             j = j + 1;
         }
         emitLine(state, "endfunction");
+        i = i + 1;
+    }
+
+    // Give each const global a function that computes its initializer. The C++
+    // target calls this from the const object's definition, preserving runtime
+    // initialization (for example osName()) without a later mutable store.
+    i = 0;
+    while (i < listLength(program.topStmts)) {
+        let sid: i64 = program.topStmts[i];
+        let ts: Stmt = program.stmts[sid];
+        if (ts.kind == 1 && (ts.isConst || !ts.isTypeExplicit)) {
+            let initName: string = "raz_global_init_" + ts.name;
+            let initState: EmitState = new EmitState();
+            initState.lines = [];
+            initState.temp = 0;
+            initState.label = 0;
+            let value: string = emitExpr(initState, program, ts.expr);
+            emitLine(state, "function " + initName + "() -> " + ts.type);
+            emitLine(state, "entry:");
+            let j: i64 = 0;
+            while (j < listLength(initState.lines)) {
+                emitLine(state, initState.lines[j]);
+                j = j + 1;
+            }
+            emitLine(state, "    return " + value);
+            emitLine(state, "endfunction");
+        }
         i = i + 1;
     }
 

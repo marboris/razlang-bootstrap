@@ -2,23 +2,11 @@
   "name": "raz-compiler-bootstrap",
   "private": true,
   "type": "module",
+  "description": "Legacy bootstrap entry points only; native development and tests use CMake, Ninja, and CTest.",
   "scripts": {
-    "test": "node tests/run-tests.mjs",
-    "test:bootstrap": "node tests/run-tests.mjs --bootstrap",
-    "test:backend": "node tests/run-tests.mjs --backend",
-    "test:host": "node tests/run-tests.mjs --host",
-    "test:full": "node tests/run-tests.mjs --bootstrap --host",
-    "bootstrap": "node scripts/bootstrap.mjs",
-    "build:native": "node scripts/build-native.mjs",
-    "self-host:native": "node scripts/self-host-native.mjs",
-    "check": "npm test && npm run test:backend && npm run test:full",
-    "test:gen1:fast": "node scripts/test-gen1-fast.mjs",
+    "build:gen0": "node scripts/build-native.mjs",
     "build:gen1": "node scripts/build-gen1.mjs",
-    "build:gen1:fast": "node scripts/build-gen1-fast.mjs",
-    "test:gen1:example": "node scripts/test-gen1-example.mjs",
     "build:gen2": "node scripts/build-gen2.mjs",
-    "test:gen2:fast": "node scripts/test-gen2-fast.mjs",
-    "check:gen2:source": "node scripts/build-gen2.mjs --bundle-only && node scripts/check-gen2-source.mjs",
-    "test:gen2:driver-fast": "node scripts/test-gen2-driver-fast.mjs"
+    "build:gen2:bundle": "node scripts/build-gen2.mjs --bundle-only"
   }
 }

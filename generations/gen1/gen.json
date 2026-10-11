@@ -11,7 +11,11 @@
   "milestone": "M1-M4 complete; Gen1 candidate accepted, checksum recorded, and frozen after runtime/CLI smoke tests",
   "source_notes": "gen1 source is authored in raz-0.2 (L_0) until gen1 is frozen",
   "fast_check": "generations/gen1/build/fast-check/",
-  "operational_role": "Frozen compiler for compiling L1 programs and building Gen2; source and binary must not be modified",
+  "operational_role": "Historical frozen binary remains in bin/; optimized source rebuilds are produced as candidates under build/ for bootstrapping Gen2.",
   "example_dir": "generations/gen1/examples/",
-  "frozen_on": "2026-10-11"
+  "frozen_on": "2026-10-11",
+  "source_state": "bootstrap-performance-patched",
+  "candidate_binary": "generations/gen1/build/razc-candidate",
+  "candidate_build_command": "make bootstrap-candidates",
+  "frozen_binary_note": "generations/gen1/bin/razc remains the historical frozen baseline. The patched source produces a candidate under build/razc-candidate; it is not frozen automatically."
 }

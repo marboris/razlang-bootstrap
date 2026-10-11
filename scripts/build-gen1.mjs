@@ -12,23 +12,35 @@ const FRONTEND = path.join(GEN, 'src', 'frontend', 'compiler.raz');
 const BACKEND = path.join(GEN, 'src', 'backend', 'cpp_backend.raz');
 const RUNTIME = path.join(ROOT, 'runtime', 'raz_runtime.hpp');
 const GEN0 = path.join(ROOT, 'generations', 'gen0');
-const SEED_CANDIDATE = path.join(GEN0, 'bin', 'razc');
-const CHECKSUM = path.join(GEN0, 'bin', 'razc.sha256');
+const FROZEN_SEED = path.join(GEN0, 'bin', 'razc');
+const FROZEN_CHECKSUM = path.join(GEN0, 'bin', 'razc.sha256');
+const NATIVE_SEED_CANDIDATE = path.join(GEN0, 'build', process.platform === 'win32' ? 'razc-candidate.exe' : 'razc-candidate');
+const USE_BOOTSTRAP_CANDIDATES = process.env.RAZ_BOOTSTRAP_USE_CANDIDATES === '1';
+const SEED_CANDIDATE = USE_BOOTSTRAP_CANDIDATES && fs.existsSync(NATIVE_SEED_CANDIDATE) ? NATIVE_SEED_CANDIDATE : FROZEN_SEED;
 const BUNDLE = path.join(GEN, 'final', 'compiler.raz');
 const CPP = path.join(BUILD, 'compiler.cpp');
 const BINARY = path.join(BUILD, process.platform === 'win32' ? 'razc-candidate.exe' : 'razc-candidate');
 
 function run(command, args, options = {}) {
+  const timeout = options.timeout ?? Number(process.env.RAZ_STAGE_TIMEOUT_MS ?? 180000);
+  const started = Date.now();
   const result = spawnSync(command, args, {
     cwd: options.cwd ?? ROOT,
     encoding: 'utf8',
+    timeout,
+    killSignal: 'SIGKILL',
     stdio: options.capture ? ['inherit', 'pipe', 'pipe'] : 'inherit',
   });
+  const elapsed = ((Date.now() - started) / 1000).toFixed(1);
+  if (result.error?.code === 'ETIMEDOUT') {
+    throw new Error(`${command} timed out after ${elapsed}s (limit ${timeout}ms); set RAZ_STAGE_TIMEOUT_MS to adjust`);
+  }
   if (result.error) throw result.error;
   if (result.status !== 0) {
     const detail = options.capture ? `\n${result.stdout ?? ''}\n${result.stderr ?? ''}` : '';
-    throw new Error(`${command} failed with ${result.status}${detail}`);
+    throw new Error(`${command} failed with ${result.status} after ${elapsed}s${detail}`);
   }
+  console.log(`[gen1] ${path.basename(command)} completed in ${elapsed}s`);
   return result;
 }
 
@@ -139,8 +151,12 @@ function main() -> i64 {
 `;
 fs.writeFileSync(BUNDLE, `${frontend}\n${renameIdentifiers(backend, renames)}\n${wrapper}`, 'utf8');
 
-console.log('[gen1] verify frozen Gen0 checksum');
-run('sha256sum', ['-c', CHECKSUM], { cwd: path.dirname(CHECKSUM) });
+if (SEED_CANDIDATE === FROZEN_SEED) {
+  console.log('[gen1] verify frozen Gen0 checksum');
+  run('sha256sum', ['-c', FROZEN_CHECKSUM], { cwd: path.dirname(FROZEN_CHECKSUM) });
+} else {
+  console.log('[gen1] bootstrap with rebuilt Gen0 candidate (frozen binary remains untouched)');
+}
 
 fs.rmSync(WORK, { recursive: true, force: true });
 fs.mkdirSync(path.join(WORK, 'frontend'), { recursive: true });
@@ -148,10 +164,16 @@ fs.mkdirSync(path.join(WORK, 'backend'), { recursive: true });
 fs.copyFileSync(BUNDLE, path.join(WORK, 'frontend', 'input.raz'));
 fs.copyFileSync(RUNTIME, path.join(WORK, 'backend', 'raz_runtime.hpp'));
 
-console.log('[gen1] compile final bundle with frozen Gen0');
+console.log(`[gen1] compile final bundle with ${SEED_CANDIDATE === FROZEN_SEED ? 'frozen Gen0' : 'rebuilt Gen0 candidate'}`);
 run(SEED_CANDIDATE, [], { cwd: WORK });
-console.log('[gen1] build native candidate');
-run(process.env.CXX ?? 'c++', ['-std=c++17', '-O2', path.join(WORK, 'backend', 'output.cpp'), '-I', path.join(WORK, 'backend'), '-o', BINARY]);
+const optimization = process.env.RAZ_BUILD_OPT ?? '-O0';
+const nativeFlags = ['-std=c++17', optimization];
+if (process.env.RAZ_GLIBCXX_ASSERTIONS === '1') {
+  nativeFlags.push('-D_GLIBCXX_ASSERTIONS');
+  console.log('[gen1] libstdc++ assertions enabled for bootstrap validation');
+}
+console.log(`[gen1] build native candidate (${optimization}; set RAZ_BUILD_OPT=-O2 for an optimized freeze build)`);
+run(process.env.CXX ?? 'g++', [...nativeFlags, path.join(WORK, 'backend', 'output.cpp'), '-I', path.join(WORK, 'backend'), '-o', BINARY]);
 fs.chmodSync(BINARY, 0o755);
 fs.copyFileSync(path.join(WORK, 'backend', 'output.cpp'), CPP);
 console.log(`[gen1] candidate ready: ${BINARY}`);

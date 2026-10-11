@@ -1,0 +1,183 @@
+// Module resolution is part of the Gen2 compiler and implemented in Raz.
+// module.json is optional documentation; source paths define the lookup contract.
+struct ModuleResolveState {
+    roots: List<string>;
+    seenModules: List<string>;
+    activeModules: List<string>;
+    seenIncludes: List<string>;
+    failed: bool;
+}
+
+struct ModuleScanState { blockComment: bool; }
+
+function trimModuleLine(line: string) -> string {
+    let a: i64 = 0;
+    let b: i64 = length(line);
+    let leftDone: bool = false;
+    while (a < b && !leftDone) {
+        if (isSpace(line[a])) a = a + 1;
+        else leftDone = true;
+    }
+    let rightDone: bool = false;
+    while (b > a && !rightDone) {
+        if (isSpace(line[b - 1])) b = b - 1;
+        else rightDone = true;
+    }
+    return slice(line, a, b);
+}
+
+function validRazModuleName(name: string) -> bool {
+    if (length(name) < 3 || findText(name, ".", 0) < 1) return false;
+    let i: i64 = 0;
+    let start: bool = true;
+    while (i < length(name)) {
+        let c: i64 = charCodeAt(name, i);
+        if (c == 46) {
+            if (start || i + 1 == length(name)) return false;
+            start = true;
+        } else {
+            if (start && !isAlpha(c)) return false;
+            if (!isAlphaNum(c)) return false;
+            start = false;
+        }
+        i = i + 1;
+    }
+    return !start;
+}
+
+function moduleUseOnLine(line: string) -> string {
+    let clean: string = trimModuleLine(line);
+    if (!starts(clean, "use ")) return "";
+    let semi: i64 = findText(clean, ";", 4);
+    if (semi < 0) return "";
+    let tail: string = trimModuleLine(slice(clean, semi + 1, length(clean)));
+    if (tail != "" && !starts(tail, "//")) return "";
+    let name: string = trimModuleLine(slice(clean, 4, semi));
+    if (name == "") return "";
+    if (charCodeAt(name, 0) == 34 || charCodeAt(name, 0) == 39) return "";
+    if (!validRazModuleName(name)) return "";
+    return name;
+}
+
+function updateModuleComments(line: string, scan: Ref<ModuleScanState>) {
+    let open: i64 = findText(line, "/*", 0);
+    let close: i64 = findText(line, "*/", 0);
+    if (scan.blockComment) {
+        if (close >= 0) scan.blockComment = false;
+        if (open > close && close >= 0) scan.blockComment = true;
+    } else if (open >= 0 && (close < 0 || open > close)) {
+        scan.blockComment = true;
+    }
+}
+
+function moduleRelativePath(name: string) -> string {
+    let out: string = "";
+    let i: i64 = 0;
+    while (i < length(name)) {
+        if (charCodeAt(name, i) == 46) out = out + "/";
+        else out = out + slice(name, i, i + 1);
+        i = i + 1;
+    }
+    return out;
+}
+
+function locateRazModule(state: Ref<ModuleResolveState>, name: string) -> string {
+    let relative: string = moduleRelativePath(name);
+    let dot: i64 = length(name) - 1;
+    let foundDot: bool = false;
+    while (dot >= 0 && !foundDot) {
+        if (charCodeAt(name, dot) == 46) foundDot = true;
+        else dot = dot - 1;
+    }
+    if (dot < 0) return "";
+    let leaf: string = slice(name, dot + 1, length(name));
+    let i: i64 = 0;
+    while (i < listLength(state.roots)) {
+        let nested: string = joinPath(state.roots[i], relative + "/" + leaf + ".raz");
+        if (readFile(nested) != "") return nested;
+        let flat: string = joinPath(state.roots[i], relative + ".raz");
+        if (readFile(flat) != "") return flat;
+        i = i + 1;
+    }
+    return "";
+}
+
+function dropLastModuleName(values: List<string>) -> List<string> {
+    let out: List<string> = [];
+    let i: i64 = 0;
+    while (i + 1 < listLength(values)) {
+        push(out, values[i]);
+        i = i + 1;
+    }
+    return out;
+}
+
+function moduleResolveFail(state: Ref<ModuleResolveState>, message: string) {
+    if (!state.failed) {
+        state.failed = true;
+        print("razc: " + message);
+    }
+}
+
+function expandResolvedModules(state: Ref<ModuleResolveState>, source: string, filePath: string) -> string {
+    let out: string = "";
+    let cursor: i64 = 0;
+    let scan: ModuleScanState = new ModuleScanState();
+    scan.blockComment = false;
+    while (cursor < length(source) && !state.failed) {
+        let next: i64 = findText(source, "\n", cursor);
+        let end: i64 = next;
+        if (end < 0) end = length(source);
+        let line: string = slice(source, cursor, end);
+        let consumed: i64 = end;
+        if (next >= 0) consumed = next + 1;
+        let name: string = "";
+        if (!scan.blockComment) name = moduleUseOnLine(line);
+        if (name == "") {
+            out = out + line;
+            if (next >= 0) out = out + "\n";
+        } else if (containsText(state.activeModules, name)) {
+            moduleResolveFail(state, "module dependency cycle involving " + name);
+        } else if (!containsText(state.seenModules, name)) {
+            let modulePath: string = locateRazModule(state, name);
+            if (modulePath == "") {
+                moduleResolveFail(state, "cannot resolve module " + name);
+            } else {
+                let moduleSource: string = readFile(modulePath);
+                moduleSource = expandIncludes(moduleSource, modulePath, state.seenIncludes, "");
+                if (moduleSource == "") {
+                    moduleResolveFail(state, "cannot read or expand module " + name);
+                } else {
+                    push(state.activeModules, name);
+                    let resolvedModule: string = expandResolvedModules(state, moduleSource, modulePath);
+                    state.activeModules = dropLastModuleName(state.activeModules);
+                    if (!state.failed) {
+                        push(state.seenModules, name);
+                        out = out + resolvedModule;
+                    }
+                }
+            }
+        }
+        updateModuleComments(line, scan);
+        cursor = consumed;
+    }
+    return out;
+}
+
+function resolveRazModules(source: string, entryPath: string, roots: List<string>) -> string {
+    let state: ModuleResolveState = new ModuleResolveState();
+    state.roots = roots;
+    state.seenModules = [];
+    state.activeModules = [];
+    state.seenIncludes = [];
+    state.failed = false;
+    // std.core is an implicit prelude: it owns the native headers needed by
+    // Raz's built-in numeric, string, and List representations. Users depend
+    // on the Raz language surface, not on C++ header names.
+    let sourceWithPrelude: string = "use std.core;\n" + source;
+    let expanded: string = expandIncludes(sourceWithPrelude, entryPath, state.seenIncludes, "");
+    if (expanded == "") return "";
+    let result: string = expandResolvedModules(state, expanded, entryPath);
+    if (state.failed) return "";
+    return result;
+}

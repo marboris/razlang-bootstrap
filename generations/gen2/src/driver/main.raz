@@ -1,25 +1,27 @@
-// Gen2 command-line entry point.
-// These uses are intentionally explicit: the native compiler's headers are
-// declared by the compiler program, not silently injected by the backend.
-use cstdint;
-use cstddef;
-use string;
-use vector;
-use "raz_runtime.hpp";
+// Gen2 compiler entry point. User module resolution is implemented in Raz in
+// src/source/modules.raz. JavaScript build scripts assemble/bootstrap only.
+use std.io;
+use std.text;
+use std.containers;
+use "cstdint";
+use "cstddef";
+use "string";
+use "vector";
 
 // Gen1 bootstrap workaround: the frozen backend infers some local string loads as i64.
-// These CLI string slots are explicit globals until the new Gen2 backend replaces it.
 let gInputPath: string = "";
 let gOutputPath: string = "";
 let gOption: string = "";
 let gSource: string = "";
+let gResolvedSource: string = "";
 let gRir: string = "";
 let gCpp: string = "";
+let gDefaultModuleRoot: string = "";
 
 function printUsage() {
     print("Raz Gen2 compiler preview");
     print("Usage: razc <input.raz> [--emit-cpp <output.cpp>]");
-    print("Options: --help, --version, -o <output.cpp>, --emit-cpp <output.cpp>");
+    print("Options: --help, --version, -o <output.cpp>, --emit-cpp <output.cpp>, -L <module-root>");
 }
 
 function runCompiler() -> i64 {
@@ -35,9 +37,16 @@ function runCompiler() -> i64 {
         return 0;
     }
     if (gInputPath == "--version" || gInputPath == "-V") {
-        print("razc Gen2 preview 0.1.0");
+        print("razc Gen2 preview 0.3.0");
         return 0;
     }
+
+    // The source standard library is located beside the candidate by default.
+    // `-L` and `--module-path` append caller-supplied library roots.
+    gDefaultModuleRoot = pathDir(pathDir(argAt(0)));
+    if (gDefaultModuleRoot == "") gDefaultModuleRoot = "generations/gen2";
+    let moduleRoots: List<string> = [];
+    push(moduleRoots, gDefaultModuleRoot);
 
     gOutputPath = gInputPath + ".cpp";
     let i: i64 = 2;
@@ -50,6 +59,13 @@ function runCompiler() -> i64 {
                 return 2;
             }
             gOutputPath = argAt(i);
+        } else if (gOption == "-L" || gOption == "--module-path" || gOption == "--std-path") {
+            i = i + 1;
+            if (i >= argc) {
+                print("razc: missing path after " + gOption);
+                return 2;
+            }
+            push(moduleRoots, argAt(i));
         } else {
             print("razc: unknown argument: " + gOption);
             printUsage();
@@ -63,7 +79,12 @@ function runCompiler() -> i64 {
         print("razc: cannot read input: " + gInputPath);
         return 1;
     }
-    gRir = compileSourceAt(gSource, gInputPath);
+    gResolvedSource = resolveRazModules(gSource, gInputPath, moduleRoots);
+    if (gResolvedSource == "") {
+        print("razc: source/module resolution failed");
+        return 1;
+    }
+    gRir = compileSourceAt(gResolvedSource, gInputPath);
     if (gRir == "") {
         print("razc: compilation failed");
         return 1;
@@ -73,7 +94,10 @@ function runCompiler() -> i64 {
         print("razc: C++ generation failed");
         return 1;
     }
-    writeFile(gOutputPath, gCpp);
+    if (!writeFile(gOutputPath, gCpp)) {
+        print("razc: cannot write output: " + gOutputPath);
+        return 1;
+    }
     print("razc: wrote " + gOutputPath);
     return 0;
 }

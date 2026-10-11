@@ -1,10 +1,10 @@
 {
-  "schema": "raz-module-0",
+  "schema": "raz-module-metadata-1",
   "name": "std.io",
-  "version": "0.1.0-preview",
-  "status": "planned",
-  "description": "Standard I/O module metadata placeholder; not yet resolved by razc Gen2.",
+  "version": "0.2.0-preview",
+  "status": "source-backed-preview",
+  "description": "Human/tooling metadata only. The Gen2 compiler does not read this file; use std.io resolves to io.raz by module path convention.",
   "source": "io.raz",
-  "native_headers": ["raz_runtime.hpp"],
+  "native_bridge": "io_native.hpp",
   "exports": ["print", "readFile", "writeFile", "argCount", "argAt"]
 }

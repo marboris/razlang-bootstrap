@@ -1,77 +1,76 @@
 # کامپایلر Raz
 
-هدف پروژه ساخت کامپایلری برای زبان Raz است که سورس را تحلیل کند، RIR مستقل از مقصد بسازد و در نهایت C++17 تولید و کامپایل کند. نسخه‌ی JavaScript در `generations/gen0/seed/` فقط ریشه‌ی bootstrap است. بعد از ساخته‌شدن هر نسل، آن باینری برای ساخت نسل بعدی استفاده می‌شود و نسل جدید برای کار روزمره از نسل قبلی مستقل است.
+Raz سورس زبان خود را تحلیل می‌کند، RIR می‌سازد و در Gen2 به C++17 تبدیل می‌کند. سپس GNU C++ (`g++`) خروجی را به اسمبلی، آبجکت یا باینری تبدیل می‌کند. مسیر روزمره‌ی build و تست بومی است: **CMake + Ninja (در صورت نصب) + CTest**.
 
-## وضعیت فعلی
+## شروع سریع
 
-JavaScript seed نسل صفر را می‌سازد. سپس `gen0` فقط سازنده‌ی Gen1 است: `gen0 → S1 → gen1`. بعد از freeze شدن Gen1، مسیر توسعه‌ی نسل بعد `gen1 → S2 → gen2` است و `gen0` دیگر compiler عملیاتی آن مسیر نیست. در Gen1، frontend، RIR verifier و backend بومی توسعه داده شده‌اند و سطح زبان شامل top-level بدون `main`، globals، `include`/`use`، CLI runtime و مرز `unsafe` است. self-compile شدن همان نسل شرط اعتبار نسل نیست.
-
-`src/` در ریشه‌ی پروژه ابزارهای host/قدیمی و کدهای bootstrap است؛ **source of truth نسل‌ها `generations/` است**.
-
-## ساختار
-
-- `generations/gen0/seed/`: JavaScript seed یک‌باره‌ی bootstrap.
-- `generations/gen0/`: compiler منجمد نسل صفر.
-- `generations/gen1/`: source/final/examples/build نسل یک؛ این نسل با Gen0 ساخته می‌شود و سپس compiler نسل بعد است.
-- `src/host/` و `scripts/`: orchestration و ابزارهای host؛ این‌ها عضو زبان نسل‌ها نیستند.
-- `config/`: مشخصات زبان و targetها.
-- `runtime/`: runtime مورد نیاز کد C++ تولیدشده.
-- `tests/`: تست‌های رفتاری، منفی، RIR، bootstrap و backend.
-- `.build/` و `tests/.tmp/`: خروجی‌های تولیدی؛ نباید ورودی یا سورس اصلی باشند.
-
-## کامپایلر Native
-
-برای ساخت یک باینری واحد که frontend و backend نوشته‌شده با Raz را در خود دارد:
+نیازمندی‌ها: CMake 3.20+، یک کامپایلر C++17 (پیش‌فرض `g++`) و ترجیحاً Ninja. Node.js فقط برای ساخت نسل‌های bootstrap فعلی لازم است؛ تست‌های بومی و build درایور به آن وابسته نیستند.
 
 ```sh
-npm run build:native
-npm run self-host:native
-npm run test:gen1:fast
-npm run build:gen1
+make                 # ساخت درایور native: build/native/bin/razc
+make test            # build و CTest؛ نیازی به ساخت Gen2 ندارد
+make build-gen2      # مرحله‌ی جداگانه و کند: ساخت frontend کامپایلر Gen2
 ```
 
-این فرمان bundle را با seed جاوااسکریپتی می‌سازد و باینری را در `.build/native/razc` قرار می‌دهد. باینری سورس را از `.build/native/work/frontend/input.raz` می‌خواند و C++ را در `.build/native/work/backend/output.cpp` می‌نویسد:
+اگر Ninja نصب نباشد، Makefile از Unix Makefiles استفاده می‌کند. برای انتخاب دستی:
 
 ```sh
-cp tests/cases/arithmetic.raz .build/native/work/frontend/input.raz
-cd .build/native/work
-../razc
-c++ -std=c++17 backend/output.cpp -o backend/program
-backend/program
+make GENERATOR='Unix Makefiles'
 ```
 
-فرمان `self-host:native` ابزار bootstrap قدیمی Gen0 را اعتبارسنجی می‌کند؛ این فرمان تعریف نسل‌های بعدی نیست. ساخت Gen1 با `npm run build:gen1` از `generations/gen0/bin/razc` استفاده می‌کند و نتیجه باید در `generations/gen1/bin/razc` freeze شود. پس از freeze، مثال‌های `generations/gen1/examples/` باید با خود Gen1 اجرا شوند. مقایسه‌ی دوباره‌ی Gen1 با خودش فقط یک check اختیاری reproducibility است و شرط تولید Gen2 نیست.
+## استفاده از razc
 
-## اجرا
+پس از ساخت candidate مربوط به Gen2:
 
 ```sh
-npm test
-npm run test:backend
-npm run test:host
-npm run test:full
-npm run bootstrap
-npm run build:native
-npm run check
+build/native/bin/razc generations/gen2/examples/hello.raz -O2 -g -march=native -o build/native/hello
+./build/native/hello
 ```
 
-تست‌ها در workspace موقت اجرا می‌شوند و نباید فایل‌های سورس را جایگزین کنند. برای bootstrap بومی به Node.js و کامپایلر C++17 مانند `c++` نیاز است.
+`razc` یک درایور C++ بومی است. گزینه‌های کامپایل بومی را تحلیل نمی‌کند یا بازنویسی نمی‌کند؛ آن‌ها را به کامپایلر C++ می‌سپارد. مثلاً `-march=native`، `-mtune=native`، `-O3`، `-g`، `-I`، `-L`، `-l`، `-pthread`، `-fPIC` و `-Wl,...` به `g++` منتقل می‌شوند. متغیر محیطی `CXX` کامپایلر نهایی را عوض می‌کند.
 
-## مسیر توسعه
+```sh
+# فقط C++ تولیدشده را ذخیره کن
+build/native/bin/razc generations/gen2/examples/hello.raz --emit-cpp build/native/hello.cpp
 
-1. تکمیل surface و pipeline Gen1 و نگه‌داشتن `gen0` کاملاً ثابت.
-2. تست‌های سریع و deterministic بعد از هر تغییر؛ buildهای سنگین فقط در milestone ساخت نسل. Gen1 یک مسیر سریع مستقل (`npm run test:gen1:fast`) دارد.
-3. `npm run build:gen1`، سپس `scripts/freeze.sh 1` و ثبت checksum Gen1.
-4. بعد از freeze، `gen1` compiler عملیاتی نسل بعد است: `S2` و برنامه‌های L1 از جمله `generations/gen1/examples/` با `gen1` کامپایل می‌شوند.
-5. self-compile شدن `S1` توسط `gen1` فقط یک آزمون اختیاری است و جزو acceptance نسل نیست.
+# اسمبلی تولید کن (مثل g++)
+build/native/bin/razc generations/gen2/examples/hello.raz -S -g -o build/native/hello.s
 
-در این مدل «مرغ و تخم‌مرغ» با یک seed کوچک حل می‌شود: JavaScript نخستین frontend بومی را می‌سازد؛ پس از آن هر نسل باید بتواند نسل بعدی را بسازد و خروجی‌ها با تست‌های مستقل سنجیده شوند.
+# آبجکت بساز
+build/native/bin/razc generations/gen2/examples/hello.raz -c -O2 -o build/native/hello.o
 
-## مطالعه
+# مسیر جست‌وجوی ماژول Raz، جدا از -L بومی GNU
+build/native/bin/razc app.raz --module-path ./vendor/raz -O2 -L ./lib -lmathx -o app
 
-- [Compiler](https://en.wikipedia.org/wiki/Compiler)
-- [Bootstrapping compilers](https://en.wikipedia.org/wiki/Bootstrapping_(compilers))
-- [Self-hosting](https://en.wikipedia.org/wiki/Self-hosting)
-- [Intermediate representation](https://en.wikipedia.org/wiki/Intermediate_representation)
-- [LLVM documentation](https://llvm.org/docs/)
-- [MLIR documentation](https://mlir.llvm.org/docs/)
-- [Chicken or the egg](https://en.wikipedia.org/wiki/Chicken_or_the_egg)
+# مشاهده‌ی فرمان‌های دقیق بدون اجرای compiler frontend یا g++
+build/native/bin/razc --dry-run generations/gen2/examples/hello.raz -O2 -g -march=native -o build/native/hello
+
+# اشکال‌زدایی
+build/native/bin/razc generations/gen2/examples/hello.raz -O0 -g -o build/native/hello
+gdb --args build/native/hello
+```
+
+`-L` معنای استاندارد GNU را دارد: مسیر جست‌وجوی کتابخانه‌های native برای linker. برای ریشه‌ی ماژول‌های Raz از `--module-path` یا `--std-path` استفاده کنید. برای انتخاب candidate دیگر می‌توان `RAZ_FRONTEND=/path/to/razc-candidate` تنظیم کرد؛ `RAZ_ROOT` نیز ریشه‌ی مخزن را به‌صورت صریح مشخص می‌کند.
+
+## تست‌ها
+
+تست‌های روزمره با CTest اجرا می‌شوند و فقط رفتار درایور، parsing گزینه‌ها و انتقال flagها را بررسی می‌کنند. بنابراین حتی اگر `generations/gen2/build/razc-candidate` هنوز ساخته نشده باشد، تست‌ها قابل اجرا هستند:
+
+```sh
+make test
+ctest --test-dir build/native --output-on-failure
+```
+
+اگر candidate Gen2 هنگام configure موجود باشد، CMake یک smoke test اختیاری اضافه می‌کند که مسیر Raz → C++ → `g++` را واقعاً اجرا می‌کند. تست‌های بومی عمداً به‌صورت ضمنی کامپایلر Gen2 را bootstrap نمی‌کنند؛ ساخت آن مرحله‌ای جداگانه و آشکار است.
+
+## نسل‌های تاریخی
+
+- `generations/gen0/seed/`: JavaScript seed اولیه‌ی bootstrap.
+- `generations/gen0/`: compiler تاریخی نسل صفر.
+- `generations/gen1/`: source و compiler تاریخی نسل یک؛ با Gen0 ساخته می‌شود.
+- `generations/gen2/`: نسل در حال توسعه؛ سورس ماژولار آن منبع اصلی کامپایلر فعلی است.
+- `src/host/raz_driver.cpp`: درایور native برای ترجمه‌ی فایل Raz به C++ و اجرای GNU C++.
+- `CMakeLists.txt` و `Makefile`: build و تست بومی.
+- `scripts/build-gen1.mjs` و `scripts/build-gen2.mjs`: مسیر bootstrap نسل‌ها؛ این اسکریپت‌های JS بخشی از ساخت تاریخی‌اند، نه framework تست روزمره.
+
+Gen0 و Gen1 تست‌سویۀ مستقل ندارند. فرمان‌های `make build-gen0` و `make build-gen1` فقط مسیرهای تاریخی build را اجرا می‌کنند. `scripts/freeze.sh` باینری candidate را به نسل موردنظر کپی و checksum آن را ثبت می‌کند؛ freeze دیگر تست‌ها را اجرا نمی‌کند.
