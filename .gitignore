@@ -13,6 +13,7 @@ yarn-error.log*
 # Compiler/build artifacts
 .bootstrap/
 .build/
+/build
 .cache/
 .tmp/
 **/.cache/
