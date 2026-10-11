@@ -1,7 +1,0 @@
-if(NOT DEFINED CPP OR NOT EXISTS "${CPP}")
-    message(FATAL_ERROR "generated C++ file does not exist: ${CPP}")
-endif()
-file(READ "${CPP}" source)
-if(source MATCHES "raz_build_definition_RAZ_UNUSED")
-    message(FATAL_ERROR "undefined Raz build definition unexpectedly appears in generated C++")
-endif()

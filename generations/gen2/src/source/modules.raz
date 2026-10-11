@@ -1,5 +1,5 @@
-// Module resolution is part of the Gen2 compiler and implemented in Raz.
-// module.json is optional documentation; source paths define the lookup contract.
+
+
 struct ModuleResolveState {
     roots: List<string>;
     seenModules: List<string>;
@@ -86,9 +86,9 @@ function noModuleNames() -> List<string> {
     return names;
 }
 
-// A module-directive line is one or more `use dotted.name;` directives.
-// Comments have already been masked, so whitespace from comments is accepted
-// between directives while strings remain intact and cannot become directives.
+
+
+
 function moduleUsesOnLine(line: string) -> List<string> {
     let names: List<string> = [];
     let cursor: i64 = 0;
@@ -230,9 +230,9 @@ function expandResolvedModules(state: Ref<ModuleResolveState>, source: string, f
                 i = i + 1;
             }
         }
-        // Removing a `use` line must not remove an open trailing block comment.
-        // Emit a comment opener in its place so following source remains masked
-        // until the matching `*/` is encountered on a later line.
+        
+        
+        
         if (listLength(names) > 0 && scan.blockComment) out = out + "\n/*";
         cursor = consumed;
     }
@@ -251,9 +251,9 @@ function resolveRazModules(source: string, entryPath: string, roots: List<string
     state.activeModules = [];
     state.seenIncludes = [];
     state.failed = false;
-    // No implicit prelude: each program and each Raz library declares its own
-    // source-module and native-header dependencies with `use`. In particular,
-    // std.core is available as an explicit module but is never injected here.
+    
+    
+    
     let expanded: string = expandIncludes(source, entryPath, state.seenIncludes, "");
     if (expanded == "") return "";
     let result: string = expandResolvedModules(state, expanded, entryPath);

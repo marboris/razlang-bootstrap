@@ -1,11 +1,11 @@
-// G2-012: token-aware source define expansion with direct-call syntax.
-// Syntax:
-//   define twice(x) { x + x }
-//   let value: i64 = twice(4);
-// Expansion happens after module resolution and before build-definition
-// rewriting, parsing, and semantic validation. It is deliberately not a C
-// preprocessor: there is no stringification, token-pasting, or conditional
-// compilation in this first milestone.
+
+
+
+
+
+
+
+
 
 struct RazMacroDefinition {
     name: string;

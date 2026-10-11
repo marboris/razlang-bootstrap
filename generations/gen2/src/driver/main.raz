@@ -1,5 +1,5 @@
-// Gen2 compiler entry point. User module resolution is implemented in Raz in
-// src/source/modules.raz. JavaScript build scripts assemble/bootstrap only.
+
+
 use std.io;
 use std.text;
 use std.containers;
@@ -8,8 +8,8 @@ use "cstddef";
 use "string";
 use "vector";
 
-// Gen1 bootstrap workaround: the frozen backend infers some local string loads as i64.
-// The compiler executable explicitly imports every header required by its own implementation.
+
+
 let gInputPath: string = "";
 let gOutputPath: string = "";
 let gOption: string = "";
@@ -49,8 +49,8 @@ function validBuildDefinitionValue(value: string) -> bool {
         let kind: i64 = tokens[0].kind;
         if (kind == 2 || kind == 3 || kind == 4 || kind == 17 || kind == 18) return true;
     }
-    // Signed decimal numeric literals are also accepted; arbitrary expressions
-    // are intentionally not accepted as build-time values in G2-010.
+    
+    
     if (length(value) > 1 && charCodeAt(value, 0) == 45) {
         let magnitude: string = slice(value, 1, length(value));
         let signedTokens: List<Token> = lex(magnitude);
@@ -121,8 +121,8 @@ function applyBuildDefinitions(source: string, definitions: string) -> string {
     let declarations: string = "";
     let rewritten: string = source;
 
-    // Target metadata is a read-only compile-time constant, added only when
-    // referenced so programs with no imports remain header-free.
+    
+    
     if (sourceUsesIdentifier(rewritten, "RAZ_TARGET_OS")) declarations = declarations + "const RAZ_TARGET_OS: string = \"" + gTargetOS + "\";\n";
     if (sourceUsesIdentifier(rewritten, "RAZ_TARGET_ARCH")) declarations = declarations + "const RAZ_TARGET_ARCH: string = \"" + gTargetArch + "\";\n";
     if (sourceUsesIdentifier(rewritten, "RAZ_TARGET_COMPILER")) declarations = declarations + "const RAZ_TARGET_COMPILER: string = \"" + gTargetCompiler + "\";\n";
@@ -170,8 +170,8 @@ function runCompiler() -> i64 {
         return 0;
     }
 
-    // The source standard library is located beside the candidate by default.
-    // `-L` and `--module-path` append caller-supplied library roots.
+    
+    
     gDefaultModuleRoot = pathDir(pathDir(argAt(0)));
     if (gDefaultModuleRoot == "") gDefaultModuleRoot = "generations/gen2";
     let moduleRoots: List<string> = [];

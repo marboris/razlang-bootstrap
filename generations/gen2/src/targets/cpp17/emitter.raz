@@ -13,10 +13,10 @@ function cppLiteral(rest: string, type: string) -> string {
     return rest;
 }
 
-// Native `name!(...)` expressions are emitted inline in RIR rather than as a
-// normal `call` instruction. Parse their argument list structurally so every
-// temp is resolved through cppArgs/cppValue (including Ref<T> aliases) instead
-// of leaking a raw `%tN` token into the generated C++.
+
+
+
+
 function cppInlineCall(module: Ref<BackendModule>, state: Ref<BackendState>, expression: string) -> string {
     let call: string = trim(expression);
     let open: i64 = findText(call, "(", 0);
@@ -37,8 +37,8 @@ function emitFunction(module: Ref<BackendModule>, f: Ref<FunctionMeta>, state: R
     }
 
     emitLine(state, cppType(f.returnType) + " " + cppFunctionName(f.name) + "(" + params + ") {");
-    // Temps are declared before local-auto storage so decltype(ttN) is always
-    // available. Runtime initialization remains at the original store site.
+    
+    
     i = 0;
     while (i < listLength(state.temps)) {
         if (!starts(state.tempTypes[i], "Ref<")) emitLine(state, "    " + cppType(state.tempTypes[i]) + " " + state.temps[i] + "{};");
@@ -199,9 +199,9 @@ function generate(rir: string) -> string {
     let state: BackendState = new BackendState();
     state.lines = [];
 
-    // This is a compiler primitive mapping, not a library include. GCC and
-    // Clang expose the exact underlying signed 64-bit type as a predefined
-    // macro, allowing programs with no `use` directives to remain header-free.
+    
+    
+    
     emitLine(state, "using raz_i64 = __INT64_TYPE__;");
     emitLine(state, "static_assert(sizeof(raz_i64) == 8, \"Raz i64 requires a 64-bit target type\");");
     emitLine(state, "");
@@ -216,8 +216,8 @@ function generate(rir: string) -> string {
         }
         i = i + 1;
     }
-    // Generic process context is part of the generated program ABI. Libraries
-    // may read it, but the backend does not know or care which library uses it.
+    
+    
     emitLine(state, "namespace raz_internal_process { int argc = 0; char** argv = nullptr; }");
     emitLine(state, "");
 
@@ -235,8 +235,8 @@ function generate(rir: string) -> string {
         i = i + 1;
     }
 
-    // Declare every function before globals because a const global may use a
-    // generated runtime initializer such as osName().
+    
+    
     i = 0;
     while (i < listLength(module.functions)) {
         let f: FunctionMeta = module.functions[i];

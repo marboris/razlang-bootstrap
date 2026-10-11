@@ -82,10 +82,10 @@ function semanticFail(state: Ref<SemanticState>, message: string) -> string {
     return "";
 }
 
-// The current RIR flattens all branches into one C++ function scope and does
-// not yet carry Symbol IDs. Until that representation is upgraded, reject
-// same-spelled locals anywhere in one function rather than silently aliasing
-// distinct Raz declarations to one C++ object.
+
+
+
+
 function collectUniqueLocalNames(program: Ref<Program>, ids: List<i64>, names: Ref<List<string>>, state: Ref<SemanticState>) {
     let i: i64 = 0;
     while (i < listLength(ids) && state.ok) {
@@ -222,8 +222,8 @@ function checkExpr(program: Ref<Program>, state: Ref<SemanticState>, scope: Ref<
             if (!state.ok) return "";
             i = i + 1;
         }
-        // No Raz signature is required: the native compiler validates symbol,
-        // arity and C++ types after an explicit native header is included.
+        
+        
         return "Native";
     }
     if (x.kind == 8) {

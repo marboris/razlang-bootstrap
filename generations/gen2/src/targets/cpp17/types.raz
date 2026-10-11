@@ -1,8 +1,8 @@
-// Raz declarations are never emitted with their source spelling. Encode each
-// ASCII identifier as length + decimal character codes. This is deterministic,
-// injective for the lexer's identifier alphabet, valid in C++, and deliberately
-// keeps the source name opaque to the C++ layer. Native `name!(...)` calls are
-// the only exception because they explicitly name an external C++ API.
+
+
+
+
+
 function cppMangledName(prefix: string, name: string) -> string {
     let out: string = prefix + "_n" + int_to_string(length(name));
     let i: i64 = 0;
@@ -29,9 +29,9 @@ function cppFieldName(name: string) -> string {
     return cppMangledName("raz_field", name);
 }
 
-// Calls that bind to a Raz function are mangled. Calls provided by an
-// explicitly imported C++ library (including current generic container
-// templates) keep their native spelling; no library names are hard-coded.
+
+
+
 function cppCallName(module: Ref<BackendModule>, name: string) -> string {
     let i: i64 = 0;
     while (i < listLength(module.functions)) {
@@ -43,10 +43,10 @@ function cppCallName(module: Ref<BackendModule>, name: string) -> string {
 
 function cppType(t: string) -> string {
     if (t == "void") return "void";
-    // Use GCC/Clang's predefined underlying type so the Raz primitive i64 does
-    // not force an implicit <cstdint> include into every generated program.
-    // The build target is the GNU-compatible C++ toolchain; the static assertion
-    // emitted by generate() verifies that this target provides an exact 64-bit type.
+    
+    
+    
+    
     if (t == "i64") return "raz_i64";
     if (t == "f64") return "double";
     if (t == "bool") return "bool";
@@ -371,8 +371,8 @@ function inferRhsType(module: Ref<BackendModule>, f: Ref<FunctionMeta>, state: R
             return leftType;
         }
     }
-    // Gen2 correctly propagates the type of a plain variable RHS. Gen1's backend
-    // defaulted such values to i64, which broke strings, structs, and collections.
+    
+    
     return valueType(module, f, state, rhs);
 }
 

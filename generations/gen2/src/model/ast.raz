@@ -1,14 +1,14 @@
-// Native frontend, written in Raz.
-//
-// Important implementation rule:
-// Compiler state is explicit and passed as Ref<T>. There is no JS/OOP state.
-// Mutable lists use push() so compiler state is updated without copying the full list.
-//
-// Pipeline implemented here:
-//   source -> lexer -> AST -> RIR
-//
-// RIR is intentionally target-independent and textual in this bootstrap stage.
-// Semantic/type checking and a native RIR backend are later stages.
+
+
+
+
+
+
+
+
+
+
+
 
 struct Token {
     kind: i64;

@@ -1,6 +1,6 @@
-// Standard text utilities. The native bridge is explicitly imported by this module.
-// These APIs are normal Raz functions; their native implementation is optional only
-// at source-analysis time and must be present when the C++ output is compiled.
+
+
+
 use "std/text/text_native.hpp";
 
 function length(value: string) -> i64 {

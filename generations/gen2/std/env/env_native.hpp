@@ -1,6 +1,6 @@
 #pragma once
-// Native boundary for std.env. This module only exposes process/environment
-// information; importing it does not pull in the legacy Raz runtime.
+
+
 #include <cstdlib>
 #include <string>
 

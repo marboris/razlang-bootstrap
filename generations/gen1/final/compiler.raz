@@ -1,14 +1,14 @@
-// Native frontend, written in Raz.
-//
-// Important implementation rule:
-// Compiler state is explicit and passed as Ref<T>. There is no JS/OOP state.
-// Mutable lists use push() so compiler state is updated without copying the full list.
-//
-// Pipeline implemented here:
-//   source -> lexer -> AST -> RIR
-//
-// RIR is intentionally target-independent and textual in this bootstrap stage.
-// Semantic/type checking and a native RIR backend are later stages.
+
+
+
+
+
+
+
+
+
+
+
 
 struct Token {
     kind: i64;
@@ -1433,9 +1433,9 @@ function emitExpr(state: Ref<EmitState>, program: Ref<Program>, id: i64) -> stri
         return t;
     }
     if (x.kind == 6) {
-        // Logical operators must preserve source-language short-circuit
-        // semantics. Eagerly lowering both operands can evaluate an invalid
-        // expression such as s[b - 1] even when b > a is false (e.g. in trim).
+        
+        
+        
         if (x.op == "&&" || x.op == "||") {
             let left: string = emitExpr(state, program, x.left);
             let result: string = newTemp(state);
@@ -1706,8 +1706,8 @@ function compileSource(source: string) -> string {
 
 
 
-// Experimental Raz backend: RIR text -> C++17 text.
-// The backend accepts the RIR-1 subset produced by the native frontend.
+
+
 
 struct FunctionMeta {
     name: string;

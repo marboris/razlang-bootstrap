@@ -1,6 +1,6 @@
-// std.io public API. The implementation lives in Raz wrappers; only the OS/native
-// boundary is provided by the module-owned C++ bridge header. Native calls use !;
-// there are no Raz-side extern declarations or duplicated native signatures.
+
+
+
 use "std/io/io_native.hpp";
 
 function print(value: string) {

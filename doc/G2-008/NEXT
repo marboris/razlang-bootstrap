@@ -1,16 +1,3 @@
-## وضعیت توسعه‌ی Gen2 (به‌روزرسانی 2026-10-11)
-
-انجام‌شده و بررسی‌شده:
-- lowerer نسل‌های 0 و 1 برای `&&` و `||` از RIR branch/label استفاده می‌کند تا RHS فقط در صورت نیاز اجرا شود.
-- باینری‌های frozen نسل‌های 0 و 1 از candidateهای تازه بازسازی و freeze شده‌اند؛ checksum و تاریخچه‌ی قبلی/جدید در `generations/gen{0,1}/gen.json` ثبت شده است. Gen1 نهایی با `-O2` ساخته شده و build assertion-enabled نیز پیش از freeze تأیید شده است.
-- بهینه‌سازی‌های lowering در `findText`، `length`، `listLength` و index، هزینه‌ی bootstrap را از چند دقیقه/timeout به چند ثانیه کاهش داده‌اند.
-- candidate نسل 2 از **Gen1 frozen جدید** ساخته شده است و مسیر Raz → C++ → `g++` → اجرا موفق است.
-- resolver در `generations/gen2/src/source/modules.raz` comment/string-aware است: markerهای comment در string و quote escapeشده نادیده گرفته می‌شوند؛ کامنت‌های قبل/بعد از `use` و trailing block comment چندخطی حفظ می‌شوند؛ import تکراری deduplicate می‌شود؛ cycle و module مفقود با مسیر فایل و شماره خط خطای تشخیصی می‌دهند.
-- یک خط می‌تواند چند directive ماژول مانند `use std.io; use app.config;` داشته باشد؛ خط‌های کد عادی که صرفاً شامل کلمه‌ی `use` هستند به‌اشتباه به‌عنوان directive حذف نمی‌شوند. خطاهای چرخه/ماژول مفقود مسیر فایل و شماره خط دارند؛ کامنت بلوکی بسته‌نشده محل شروع خود را گزارش می‌کند.
-- `module.json` همچنان metadata راهنماست و resolver آن را نمی‌خواند.
-- CTest با candidate Gen2 حاضر: **۲۰ از ۲۰ تست موفق**، شامل regression کوتاه‌مدار و integration واقعی ماژول‌ها.
-
-محدودیت‌های باقی‌مانده: resolver هنوز مبتنی بر نام‌های نقطه‌دار و مسیر سورس است؛ mapping شماره‌خط به فایل اصلی پس از گسترش `include`، package manifest، dependency versioning و caching پیاده‌سازی نشده‌اند. گام بعدی: تعریف ماکروهای Raz و متغیرهای build-time/environment/platform در driver با قرارداد صریح، تست‌پذیر و مستقل از backend.
 
 ---
 

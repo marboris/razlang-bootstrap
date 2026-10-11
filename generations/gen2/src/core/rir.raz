@@ -144,9 +144,9 @@ function emitExpr(state: Ref<EmitState>, program: Ref<Program>, id: i64) -> stri
         return t;
     }
     if (x.kind == 6) {
-        // Logical operators are control flow, not eager binary operators.
-        // Evaluating the RHS unconditionally can read invalid indexes in guards
-        // such as `i == 0 || text[i - 1] == ...`.
+        
+        
+        
         if (x.op == "&&" || x.op == "||") {
             let left: string = emitExpr(state, program, x.left);
             let result: string = newTemp(state);
@@ -177,13 +177,13 @@ function emitExpr(state: Ref<EmitState>, program: Ref<Program>, id: i64) -> stri
         let i: i64 = 0;
         while (i < listLength(x.args)) {
             if (i > 0) args = args + ", ";
-            // Without an external signature, pass lvalues as lvalues: this is
-            // valid for by-value C++ parameters and preserves native references.
+            
+            
             if (isLValue(program, x.args[i])) args = args + emitPlace(state, program, x.args[i]);
             else args = args + emitExpr(state, program, x.args[i]);
             i = i + 1;
         }
-        // The native compiler infers the return type and validates the symbol.
+        
         return x.text + "(" + args + ")";
     }
     if (x.kind == 8) {
@@ -382,16 +382,16 @@ function emitProgram(program: Ref<Program>) -> string {
 
     emitLine(state, "function main() -> i64");
     emitLine(state, "entry:");
-    // Phase 1: initialize mutable module globals in entry after process argc/argv
-    // is set. Const globals already use static C++ const initializers.
+    
+    
     i = 0;
     while (i < listLength(program.topStmts)) {
         let sid: i64 = program.topStmts[i];
         if (program.stmts[sid].kind == 1 && !program.stmts[sid].isConst) emitTopStmt(state, program, sid);
         i = i + 1;
     }
-    // Phase 2: run any source module startup hooks. The compiler core only
-    // defines the naming/signature contract; modules own their implementation.
+    
+    
     i = 0;
     while (i < listLength(program.functions)) {
         let f: FunctionDef = program.functions[i];
@@ -400,7 +400,7 @@ function emitProgram(program: Ref<Program>) -> string {
         }
         i = i + 1;
     }
-    // Phase 3: execute ordinary top-level statements in source order.
+    
     i = 0;
     while (i < listLength(program.topStmts)) {
         let sid: i64 = program.topStmts[i];
@@ -434,9 +434,9 @@ function emitProgram(program: Ref<Program>) -> string {
         i = i + 1;
     }
 
-    // Give each const global a function that computes its initializer. The C++
-    // target calls this from the const object's definition, preserving runtime
-    // initialization (for example osName()) without a later mutable store.
+    
+    
+    
     i = 0;
     while (i < listLength(program.topStmts)) {
         let sid: i64 = program.topStmts[i];

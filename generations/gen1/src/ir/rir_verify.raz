@@ -1,11 +1,11 @@
-// RIR-1 structural parser and verifier, written in Raz.
-//
-// The purpose of this stage is to make the textual IR a real compiler
-// contract instead of an informal string convention used by the backend.
-//
-// Input:  ir/input.rir
-// Output: ir/verification.txt
-// Return value: 0 when valid, 1 when invalid.
+
+
+
+
+
+
+
+
 
 struct RirFunction {
     name: string;

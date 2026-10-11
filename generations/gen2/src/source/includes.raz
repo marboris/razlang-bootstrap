@@ -21,9 +21,9 @@ function dropLastIncludeSegment(values: List<string>) -> List<string> {
     return out;
 }
 
-// Lexically normalize paths so aliases such as a/./b and a/x/../b share one
-// identity for include de-duplication and cycle detection. This intentionally
-// avoids filesystem-dependent canonicalization so the compiler stays portable.
+
+
+
 function normalizeIncludePath(path: string) -> string {
     let size: i64 = length(path);
     if (size == 0) return "";
@@ -36,7 +36,7 @@ function normalizeIncludePath(path: string) -> string {
         prefix = "/";
         cursor = 1;
         if (cursor < size && isPathSeparator(charCodeAt(path, cursor))) {
-            prefix = "//";
+            prefix = "
             while (cursor < size && isPathSeparator(charCodeAt(path, cursor))) cursor = cursor + 1;
         }
     } else if (size >= 2 && isAlpha(charCodeAt(path, 0)) && charCodeAt(path, 1) == 58) {
@@ -113,7 +113,7 @@ function expandIncludes(source: string, filePath: string, seen: Ref<List<string>
     while (scan < length(source)) {
         let nextScan: i64 = scan + 1;
 
-        // Ignore directive-like text inside line and block comments.
+        
         if (charCodeAt(source, scan) == 47 && scan + 1 < length(source) && charCodeAt(source, scan + 1) == 47) {
             nextScan = scan + 2;
             while (nextScan < length(source) && charCodeAt(source, nextScan) != 10) nextScan = nextScan + 1;
@@ -136,8 +136,8 @@ function expandIncludes(source: string, filePath: string, seen: Ref<List<string>
             if (nextScan < length(source)) nextScan = nextScan + 1;
         } else {
             let tokenOk: bool = scan + 7 <= length(source) && slice(source, scan, scan + 7) == "include";
-            // Keep potentially invalid indices out of boolean expressions. This
-            // also makes the bootstrap source safe with older eager emitters.
+            
+            
             let beforeOk: bool = true;
             if (scan > 0) beforeOk = !isAlphaNum(charCodeAt(source, scan - 1));
             let afterOk: bool = true;

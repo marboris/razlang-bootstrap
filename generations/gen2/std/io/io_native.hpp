@@ -1,14 +1,14 @@
 #pragma once
-// Small native boundary for std.io. This is a module-owned implementation, not a
-// compiler-wide runtime header; only importing std.io pulls it into generated C++.
+
+
 #include <cstdint>
 #include <fstream>
 #include <iostream>
 #include <iterator>
 #include <string>
 
-// Defined by the generic C++ program entry point emitted by any Raz target.
-// The standard library reads process context; it does not initialize it itself.
+
+
 namespace raz_internal_process {
 extern int argc;
 extern char** argv;

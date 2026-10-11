@@ -1,5 +1,5 @@
-// Experimental Raz backend: RIR text -> C++17 text.
-// The backend accepts the RIR-1 subset produced by the native frontend.
+
+
 
 struct FunctionMeta {
     name: string;
