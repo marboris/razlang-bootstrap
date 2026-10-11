@@ -96,6 +96,67 @@ if(BUILD_TESTING)
         set_tests_properties(razc_gen2_cpp_and_gnu_smoke_run PROPERTIES
             DEPENDS razc_gen2_cpp_and_gnu_smoke_build)
 
+        # G2-009: there is no implicit std.core prelude. A program with no
+        # imports must generate header-free C++ and still compile; importing
+        # std.core or a quoted C++ header must add only explicitly requested
+        # headers / the dependencies owned by that module.
+        set(RAZ_NO_CORE_CPP "${CMAKE_BINARY_DIR}/raz-no-implicit-core.cpp")
+        set(RAZ_NO_CORE_BIN "${CMAKE_BINARY_DIR}/raz-no-implicit-core")
+        add_test(NAME razc_no_implicit_core_emit
+            COMMAND "${RAZ_GEN2_CANDIDATE}"
+                "${CMAKE_SOURCE_DIR}/tests/fixtures/no-implicit-core.raz"
+                --emit-cpp "${RAZ_NO_CORE_CPP}")
+        add_test(NAME razc_no_implicit_core_include_contract
+            COMMAND "${CMAKE_COMMAND}" -DCPP=${RAZ_NO_CORE_CPP}
+                -P "${CMAKE_SOURCE_DIR}/tests/cmake/assert_no_includes.cmake")
+        set_tests_properties(razc_no_implicit_core_include_contract PROPERTIES
+            DEPENDS razc_no_implicit_core_emit)
+        add_test(NAME razc_no_implicit_core_native_build
+            COMMAND "${CMAKE_CXX_COMPILER}" -std=c++17 "${RAZ_NO_CORE_CPP}" -o "${RAZ_NO_CORE_BIN}")
+        set_tests_properties(razc_no_implicit_core_native_build PROPERTIES
+            DEPENDS razc_no_implicit_core_include_contract)
+        add_test(NAME razc_no_implicit_core_native_run COMMAND "${RAZ_NO_CORE_BIN}")
+        set_tests_properties(razc_no_implicit_core_native_run PROPERTIES
+            DEPENDS razc_no_implicit_core_native_build)
+
+        set(RAZ_EXPLICIT_CORE_CPP "${CMAKE_BINARY_DIR}/raz-explicit-core.cpp")
+        set(RAZ_EXPLICIT_CORE_BIN "${CMAKE_BINARY_DIR}/raz-explicit-core")
+        add_test(NAME razc_explicit_core_emit
+            COMMAND "${RAZ_GEN2_CANDIDATE}"
+                "${CMAKE_SOURCE_DIR}/tests/fixtures/explicit-core.raz"
+                --emit-cpp "${RAZ_EXPLICIT_CORE_CPP}")
+        add_test(NAME razc_explicit_core_include_contract
+            COMMAND "${CMAKE_COMMAND}" -DCPP=${RAZ_EXPLICIT_CORE_CPP}
+                -P "${CMAKE_SOURCE_DIR}/tests/cmake/assert_core_includes.cmake")
+        set_tests_properties(razc_explicit_core_include_contract PROPERTIES
+            DEPENDS razc_explicit_core_emit)
+        add_test(NAME razc_explicit_core_native_build
+            COMMAND "${CMAKE_CXX_COMPILER}" -std=c++17 "${RAZ_EXPLICIT_CORE_CPP}" -o "${RAZ_EXPLICIT_CORE_BIN}")
+        set_tests_properties(razc_explicit_core_native_build PROPERTIES
+            DEPENDS razc_explicit_core_include_contract)
+        add_test(NAME razc_explicit_core_native_run COMMAND "${RAZ_EXPLICIT_CORE_BIN}")
+        set_tests_properties(razc_explicit_core_native_run PROPERTIES
+            DEPENDS razc_explicit_core_native_build)
+
+        set(RAZ_EXPLICIT_HEADER_CPP "${CMAKE_BINARY_DIR}/raz-explicit-native-header.cpp")
+        set(RAZ_EXPLICIT_HEADER_BIN "${CMAKE_BINARY_DIR}/raz-explicit-native-header")
+        add_test(NAME razc_explicit_native_header_emit
+            COMMAND "${RAZ_GEN2_CANDIDATE}"
+                "${CMAKE_SOURCE_DIR}/tests/fixtures/explicit-native-header.raz"
+                --emit-cpp "${RAZ_EXPLICIT_HEADER_CPP}")
+        add_test(NAME razc_explicit_native_header_include_contract
+            COMMAND "${CMAKE_COMMAND}" -DCPP=${RAZ_EXPLICIT_HEADER_CPP}
+                -P "${CMAKE_SOURCE_DIR}/tests/cmake/assert_single_native_header.cmake")
+        set_tests_properties(razc_explicit_native_header_include_contract PROPERTIES
+            DEPENDS razc_explicit_native_header_emit)
+        add_test(NAME razc_explicit_native_header_native_build
+            COMMAND "${CMAKE_CXX_COMPILER}" -std=c++17 "${RAZ_EXPLICIT_HEADER_CPP}" -o "${RAZ_EXPLICIT_HEADER_BIN}")
+        set_tests_properties(razc_explicit_native_header_native_build PROPERTIES
+            DEPENDS razc_explicit_native_header_include_contract)
+        add_test(NAME razc_explicit_native_header_native_run COMMAND "${RAZ_EXPLICIT_HEADER_BIN}")
+        set_tests_properties(razc_explicit_native_header_native_run PROPERTIES
+            DEPENDS razc_explicit_native_header_native_build)
+
         # Regression: generated Gen2 code must preserve short-circuit semantics.
         # _GLIBCXX_ASSERTIONS makes evaluating s[i - 1] for an empty string fail.
         set(RAZ_SHORT_CIRCUIT_OUTPUT "${CMAKE_BINARY_DIR}/raz-short-circuit")

@@ -1257,17 +1257,14 @@ function resolveRazModules(source: string, entryPath: string, roots: List<string
     state.activeModules = [];
     state.seenIncludes = [];
     state.failed = false;
-    // std.core is an implicit prelude: it owns the native headers needed by
-    // Raz's built-in numeric, string, and List representations. Resolve it as
-    // a module rather than prefixing a synthetic source line, so diagnostics
-    // in the user's file retain their original line numbers.
-    let prelude: string = resolveOneModule(state, "std.core", entryPath, 1);
-    if (state.failed) return "";
+    // No implicit prelude: each program and each Raz library declares its own
+    // source-module and native-header dependencies with `use`. In particular,
+    // std.core is available as an explicit module but is never injected here.
     let expanded: string = expandIncludes(source, entryPath, state.seenIncludes, "");
     if (expanded == "") return "";
     let result: string = expandResolvedModules(state, expanded, entryPath);
     if (state.failed) return "";
-    return prelude + result;
+    return result;
 }
 
 
@@ -2574,7 +2571,11 @@ function cppCallName(module: Ref<BackendModule>, name: string) -> string {
 
 function cppType(t: string) -> string {
     if (t == "void") return "void";
-    if (t == "i64") return "std::int64_t";
+    // Use GCC/Clang's predefined underlying type so the Raz primitive i64 does
+    // not force an implicit <cstdint> include into every generated program.
+    // The build target is the GNU-compatible C++ toolchain; the static assertion
+    // emitted by generate() verifies that this target provides an exact 64-bit type.
+    if (t == "i64") return "raz_i64";
     if (t == "f64") return "double";
     if (t == "bool") return "bool";
     if (t == "char") return "char";
@@ -3193,6 +3194,13 @@ function generate(rir: string) -> string {
     let state: BackendState = new BackendState();
     state.lines = [];
 
+    // This is a compiler primitive mapping, not a library include. GCC and
+    // Clang expose the exact underlying signed 64-bit type as a predefined
+    // macro, allowing programs with no `use` directives to remain header-free.
+    cpp17_emitLine(state, "using raz_i64 = __INT64_TYPE__;");
+    cpp17_emitLine(state, "static_assert(sizeof(raz_i64) == 8, \"Raz i64 requires a 64-bit target type\");");
+    cpp17_emitLine(state, "");
+
     let i: i64 = 0;
     while (i < listLength(module.uses)) {
         let u: string = module.uses[i];
@@ -3285,6 +3293,7 @@ use "string";
 use "vector";
 
 // Gen1 bootstrap workaround: the frozen backend infers some local string loads as i64.
+// The compiler executable explicitly imports every header required by its own implementation.
 let gInputPath: string = "";
 let gOutputPath: string = "";
 let gOption: string = "";

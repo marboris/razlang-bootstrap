@@ -199,6 +199,13 @@ function generate(rir: string) -> string {
     let state: BackendState = new BackendState();
     state.lines = [];
 
+    // This is a compiler primitive mapping, not a library include. GCC and
+    // Clang expose the exact underlying signed 64-bit type as a predefined
+    // macro, allowing programs with no `use` directives to remain header-free.
+    emitLine(state, "using raz_i64 = __INT64_TYPE__;");
+    emitLine(state, "static_assert(sizeof(raz_i64) == 8, \"Raz i64 requires a 64-bit target type\");");
+    emitLine(state, "");
+
     let i: i64 = 0;
     while (i < listLength(module.uses)) {
         let u: string = module.uses[i];

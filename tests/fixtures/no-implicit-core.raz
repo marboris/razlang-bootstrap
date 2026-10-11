@@ -1,0 +1,2 @@
+// This integer-only program intentionally imports no Raz modules or native headers.
+return 0;

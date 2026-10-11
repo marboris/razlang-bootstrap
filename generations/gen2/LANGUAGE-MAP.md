@@ -78,7 +78,7 @@
 
 | نوع Raz | معنا | C++17 | RIR / محدودیت |
 |---|---|---|---|
-| `i64` | عدد صحیح ۶۴ بیتی | `std::int64_t` | `i64` |
+| `i64` | عدد صحیح دقیقاً ۶۴ بیتی | `raz_i64` با alias به `__INT64_TYPE__` از GCC/Clang و `static_assert(sizeof(...) == 8)` | `i64` |
 | `f64` | ممیز شناور ۶۴ بیتی | `double` | `f64` |
 | `bool` | بولی | `bool` | `bool` |
 | `char` | کد کاراکتر محدود | `char` | فعلاً قرارداد بایت/کد کاراکتر ساده |
@@ -93,7 +93,7 @@
 
 | عبارت | resolver | نیاز به config جداگانه | خروجی/اثر |
 |---|---|---|---|
-| prelude ضمنی `std.core` | resolver پیش از سورس کاربر یک‌بار وارد می‌کند | خیر | `std/core/core.raz` مالک headerهای لازم برای `i64`، `string` و `List<T>` است: `cstdint`, `cstddef`, `string`, `vector` |
+| `use std.core` صریح | resolver فقط در صورت درخواست کاربر آن را وارد می‌کند | بله | `std/core/core.raz` فقط headerهای پایهٔ نمایش `string` و `List<T>` را وارد می‌کند: `string`, `vector`؛ برای `i64` از نوع ۶۴ بیتی predefined توسط GNU-compatible C++ compiler استفاده می‌شود |
 | `use "cstdint";` | ندارد؛ header صریح C++ | فقط برای نوشتن native bridge/headerهای C++ | `#include <cstdint>`؛ برنامه‌ی عادی Raz نیازی به آن ندارد |
 | `use "path/header.hpp";` | ندارد؛ مسیر header صریح | برای FFI/native bridge | `#include "path/header.hpp"` |
 | `use std.io;` | جست‌وجوی ریشه‌های source با نام dotted | خیر برای هر API؛ مسیرهای root از driver/config CLI می‌آیند | گسترش `std/io/io.raz` و headerهایی که خود ماژول وارد می‌کند |

@@ -251,15 +251,12 @@ function resolveRazModules(source: string, entryPath: string, roots: List<string
     state.activeModules = [];
     state.seenIncludes = [];
     state.failed = false;
-    // std.core is an implicit prelude: it owns the native headers needed by
-    // Raz's built-in numeric, string, and List representations. Resolve it as
-    // a module rather than prefixing a synthetic source line, so diagnostics
-    // in the user's file retain their original line numbers.
-    let prelude: string = resolveOneModule(state, "std.core", entryPath, 1);
-    if (state.failed) return "";
+    // No implicit prelude: each program and each Raz library declares its own
+    // source-module and native-header dependencies with `use`. In particular,
+    // std.core is available as an explicit module but is never injected here.
     let expanded: string = expandIncludes(source, entryPath, state.seenIncludes, "");
     if (expanded == "") return "";
     let result: string = expandResolvedModules(state, expanded, entryPath);
     if (state.failed) return "";
-    return prelude + result;
+    return result;
 }

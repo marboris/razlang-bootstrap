@@ -9,6 +9,7 @@ use "string";
 use "vector";
 
 // Gen1 bootstrap workaround: the frozen backend infers some local string loads as i64.
+// The compiler executable explicitly imports every header required by its own implementation.
 let gInputPath: string = "";
 let gOutputPath: string = "";
 let gOption: string = "";

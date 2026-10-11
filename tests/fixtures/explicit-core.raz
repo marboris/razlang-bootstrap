@@ -1,0 +1,4 @@
+use std.core;
+let message: string = "explicit-core-ok";
+let values: List<i64> = [1, 2];
+return 0;

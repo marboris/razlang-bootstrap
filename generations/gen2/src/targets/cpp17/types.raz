@@ -43,7 +43,11 @@ function cppCallName(module: Ref<BackendModule>, name: string) -> string {
 
 function cppType(t: string) -> string {
     if (t == "void") return "void";
-    if (t == "i64") return "std::int64_t";
+    // Use GCC/Clang's predefined underlying type so the Raz primitive i64 does
+    // not force an implicit <cstdint> include into every generated program.
+    // The build target is the GNU-compatible C++ toolchain; the static assertion
+    // emitted by generate() verifies that this target provides an exact 64-bit type.
+    if (t == "i64") return "raz_i64";
     if (t == "f64") return "double";
     if (t == "bool") return "bool";
     if (t == "char") return "char";
