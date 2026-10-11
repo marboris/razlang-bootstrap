@@ -1,0 +1,6 @@
+use std.io;
+function marker() -> string { return "escaped quote: \" /*"; }
+use test.message;
+print(message());
+print(marker());
+return 0;

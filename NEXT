@@ -1,14 +1,15 @@
 ## وضعیت توسعه‌ی Gen2 (به‌روزرسانی 2026-10-11)
 
-انجام‌شده در سورس (بدون build کامل یا self-host):
-- فراخوانی تابع native با `name!(...)`؛ اعلان‌های `extern function` از AST، RIR و Backend نسل 2 حذف شده‌اند.
-- `std.io` از `!` برای پل native استفاده می‌کند؛ خطای نماد/امضای ناموجود باید در کامپایل C++ آشکار شود.
-- `length`، `slice` و `int_to_string` به `std.text` منتقل شده‌اند و نگاشت ثابت آن‌ها به `raz::...` از Backend حذف شده است.
-- خود سورس canonical کامپایلر `use std.io;`، `use std.text;` و `use std.containers;` را اعلام می‌کند؛ adapter موقت Gen1 این importها را فقط از ورودی bootstrap حذف می‌کند.
+انجام‌شده و بررسی‌شده:
+- lowerer نسل‌های 0 و 1 برای `&&` و `||` از RIR branch/label استفاده می‌کند تا RHS فقط در صورت نیاز اجرا شود.
+- باینری‌های frozen نسل‌های 0 و 1 از candidateهای تازه بازسازی و freeze شده‌اند؛ checksum و تاریخچه‌ی قبلی/جدید در `generations/gen{0,1}/gen.json` ثبت شده است. Gen1 نهایی با `-O2` ساخته شده و build assertion-enabled نیز پیش از freeze تأیید شده است.
+- بهینه‌سازی‌های lowering در `findText`، `length`، `listLength` و index، هزینه‌ی bootstrap را از چند دقیقه/timeout به چند ثانیه کاهش داده‌اند.
+- candidate نسل 2 از **Gen1 frozen جدید** ساخته شده است و مسیر Raz → C++ → `g++` → اجرا موفق است.
+- resolver در `generations/gen2/src/source/modules.raz` اکنون comment/string-aware است: markerهای comment در string و quote escapeشده نادیده گرفته می‌شوند؛ کامنت‌های قبل/بعد از `use` و trailing block comment چندخطی حفظ می‌شوند؛ import تکراری deduplicate می‌شود؛ cycle و module مفقود خطای تشخیصی می‌دهند.
 - `module.json` همچنان metadata راهنماست و resolver آن را نمی‌خواند.
-- بررسی سورس و تست‌های سریع پایه موفق‌اند؛ candidate جدید Gen2 پس از این تغییرات build نشده و هنوز تأیید اجرایی نشده است.
+- CTest با candidate Gen2 حاضر: **۲۰ از ۲۰ تست موفق**، شامل regression کوتاه‌مدار و integration واقعی ماژول‌ها.
 
-گام‌های بعدی منطبق با این یادداشت: طراحی قرارداد ماکروها و متغیرهای جهانی/محیطی/پلتفرم در لایه‌ی driver؛ سپس تکمیل generics و حذف تدریجی قواعد ویژه‌ی نوع‌دهی برای عملیات کتابخانه‌ای. نگاشت‌های C++ مربوط به `append`، `push` و `listLength` دیگر hard-coded نیستند، اما checker هنوز semantics اختصاصی آن‌ها را دارد.
+محدودیت‌های باقی‌مانده: resolver هنوز مبتنی بر نام‌های نقطه‌دار و مسیر سورس است؛ package manifest، dependency versioning/caching و چند `use` در یک خط پیاده‌سازی نشده‌اند. گام بعدی منطقی، کامل‌کردن قرارداد خطا/مسیر ماژول‌ها و سپس طراحی ماکروها و متغیرهای build-time/environment/platform در driver است.
 
 ---
 

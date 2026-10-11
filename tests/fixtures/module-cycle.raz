@@ -1,0 +1,3 @@
+use std.io;
+use cycle.a;
+return 0;

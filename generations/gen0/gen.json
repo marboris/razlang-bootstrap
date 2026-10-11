@@ -8,8 +8,18 @@
   "binary": "generations/gen0/bin/razc",
   "checksum": "generations/gen0/bin/razc.sha256",
   "build_dir": "generations/gen0/build/",
-  "source_state": "bootstrap-performance-patched",
+  "source_state": "bootstrap-performance-and-short-circuit-patched",
   "candidate_binary": "generations/gen0/build/razc-candidate",
   "candidate_build_command": "make build-gen0",
-  "frozen_binary_note": "generations/gen0/bin/razc remains the historical frozen baseline; source fixes are built into build/razc-candidate and do not overwrite bin/razc."
+  "frozen_binary_note": "Frozen binary refreshed from the JavaScript-seed candidate after bootstrap performance and short-circuit fixes; see freeze_history for checksums and provenance.",
+  "freeze_history": [
+    {
+      "date": "2026-10-11",
+      "action": "replace-frozen",
+      "candidate_binary": "generations/gen0/build/razc-candidate",
+      "sha256": "e0b0a84c6d0151905b2a8cf87a69f0cc49ac808adf8b7cb5426d6430d6823c8a",
+      "previous_sha256": "fea705b44a705752fc797584b97cc12709f174816f778dc0cf0dd8a1c1d3cbd2"
+    }
+  ],
+  "frozen_on": "2026-10-11"
 }

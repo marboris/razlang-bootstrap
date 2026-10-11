@@ -9,7 +9,7 @@ Raz سورس زبان خود را تحلیل می‌کند، RIR می‌سازد
 ```sh
 make                 # ساخت درایور native: build/native/bin/razc
 make test            # build و CTest؛ نیازی به ساخت Gen2 ندارد
-make build-gen2      # مرحله‌ی جداگانه و کند: ساخت frontend کامپایلر Gen2
+make build-gen2      # ساخت candidate کامپایلر Gen2 با Gen1 frozen
 ```
 
 اگر Ninja نصب نباشد، Makefile از Unix Makefiles استفاده می‌کند. برای انتخاب دستی:
@@ -62,6 +62,19 @@ ctest --test-dir build/native --output-on-failure
 ```
 
 اگر candidate Gen2 هنگام configure موجود باشد، CMake یک smoke test اختیاری اضافه می‌کند که مسیر Raz → C++ → `g++` را واقعاً اجرا می‌کند. تست‌های بومی عمداً به‌صورت ضمنی کامپایلر Gen2 را bootstrap نمی‌کنند؛ ساخت آن مرحله‌ای جداگانه و آشکار است.
+
+## ماژول‌ها و تست‌های رگرسیون Gen2
+
+Resolver در `generations/gen2/src/source/modules.raz` دستورهای `use dotted.name;` را به‌صورت بومی در Raz پردازش می‌کند. مسیر `test.message` در ریشهٔ جست‌وجو به `test/message.raz` یا `test/message/message.raz` نگاشت می‌شود. اسکنر resolver کامنت‌های `//` و `/* ... */` را نادیده می‌گیرد، اما markerهای کامنت داخل string و character literal یا quoteهای escapeشده را به‌عنوان کامنت نمی‌شناسد. importهای تکراری deduplicate می‌شوند؛ وابستگی چرخه‌ای و ماژول گم‌شده پیش از تولید C++ خطای صریح می‌دهند.
+
+برای اجرای تست‌های یکپارچهٔ resolver و semantics، ابتدا candidate نسل 2 باید ساخته شده باشد:
+
+```sh
+make build-gen2
+make test
+```
+
+وقتی candidate حاضر است، CTest علاوه بر تست‌های درایور، رشته‌های دارای `/*`، کامنت‌های قبل/بعد از import، import تکراری، ماژول گم‌شده، چرخهٔ وابستگی و guard کوتاه‌مدار `&&` را از مسیر واقعی `razc -> C++ -> g++ -> اجرا` بررسی می‌کند. بدون candidate، تست‌های بومی درایور همچنان مستقل و سریع اجرا می‌شوند.
 
 ## نسل‌های تاریخی
 

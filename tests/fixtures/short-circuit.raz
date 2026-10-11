@@ -1,0 +1,8 @@
+use std.io;
+let s: string = "";
+let i: i64 = 0;
+if (i > 0 && s[i - 1] == 120) {
+    print("short-circuit-broken");
+}
+print("short-circuit-ok");
+return 0;

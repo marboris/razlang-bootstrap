@@ -21,13 +21,13 @@ generations/
     bin/razc.sha256        checksum باینری
     build/                 فایل‌های موقت ساخت (در git نیست)
     gen.json               توصیف نسل
-  gen1/                    نسل یک (در حال توسعه؛ سازنده‌ی Gen2 پس از freeze)
+  gen1/                    نسل یک (منجمد؛ سازنده‌ی Gen2)
     src/  final/  bin/  build/  gen.json
 src/
   host/                    درایور بومی C++ (ابزار، نه نسل)
 config/                    تعریف زبان و target
 runtime/                   هدر runtime
-tests/                     harness قدیمی JavaScript (حذف‌شده؛ CTest فعال است)
+tests/                     fixtureها و تست‌های native؛ harness قدیمی JavaScript حذف شده است
 scripts/                   اسکریپت‌های ساخت
 ```
 
@@ -37,13 +37,13 @@ scripts/                   اسکریپت‌های ساخت
 - `make build-gen0`: ساخت candidate نسل صفر از seed و سورس Gen0؛ `bin/` منجمد دست‌نخورده می‌ماند.
 - `make build-gen1`: ساخت candidate تاریخی Gen1 با Gen0.
 - `make build-gen2`: bootstrap سنگین frontend Gen2 با Gen1 منجمد.
-- `scripts/freeze.sh <N>`: کاندید نسل `N` را کپی، checksum را ثبت و `gen.json` را به `frozen` تغییر می‌دهد؛ این فرمان suite تست اجرا نمی‌کند. اگر `bin/razc` از قبل باشد، فقط با `--replace-pending` و metadata در وضعیت pending جایگزین می‌شود.
+- `scripts/freeze.sh <N>`: کاندید نسل `N` را کپی، checksum را ثبت و `gen.json` را به `frozen` تغییر می‌دهد؛ این فرمان suite تست اجرا نمی‌کند. overwrite عادی ممنوع است؛ `--replace-pending` فقط برای نسل pending است و `--replace-frozen` برای به‌روزرسانی آگاهانهٔ باینری frozen، همراه با rollback backup در `build/` استفاده می‌شود.
 - `scripts/bootstrap-gen.sh <N> <source.raz> <out>`: کامپایل سورس با باینری نسل `N` بدون Node.
   نمونه‌ی قدیمی bootstrap-gen برای اجرای compiler نسل مشخص، خارج از workflow تست فعلی است.
 
 ## وضعیت فعلی
-- `gen0` بازسازی شد و باینری آن بایت‌به‌بایت با نسخه‌ی قبلی یکسان است (`fea705b4…`).
-- baseline اولیه‌ی پروژه پیش از شروع Gen1: تست‌های سریع ۱۵ مورد مثبت/منفی و baseline bootstrap/self-host طبق snapshot اولیه پاس شده بودند؛ تست‌های سنگین در طول توسعه‌ی Gen1 تکرار نمی‌شوند.
+- در 2026-10-11 باینری‌های frozen Gen0 و Gen1 بعد از اصلاح lowering/short-circuit به‌روزرسانی شدند. checksum فعلی و checksum قبلی در `gen.json` هر نسل ثبت شده‌اند.
+- candidate تازهٔ Gen2 با Gen1 frozen جدید ساخته شده است. با حضور candidate، `make test` اکنون ۲۰ تست CTest را اجرا می‌کند؛ بدون candidate، تست‌های پایهٔ درایور همچنان سریع و مستقل هستند.
 - `scripts/bootstrap-gen.sh 0`: بدون Node، `arithmetic.raz` کد خروج `207` داد.
 
 ## محدودیت‌های `gen0` که در `gen1` باید رفع شوند

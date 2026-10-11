@@ -16,11 +16,12 @@ Gen1 سورس Raz خود را از `generations/gen1/src/` و bundle قابل‌
 
 ```sh
 make build-gen1
-scripts/freeze.sh 1 --replace-pending   # فقط اگر gen.json هنوز وضعیت pending داشته باشد
+# برای ارتقای عمدی یک باینری که از قبل frozen شده است:
+scripts/freeze.sh 1 --replace-frozen
 ```
 
-`make build-gen1` candidate را در `generations/gen1/build/razc-candidate` می‌سازد. اسکریپت freeze فقط artifact و checksum را ثبت می‌کند؛ تست خودکار Gen1 اجرا نمی‌کند و باینری freeze‌شده را بدون مجوز بازنویسی نمی‌کند.
+`make build-gen1` candidate را در `generations/gen1/build/razc-candidate` می‌سازد. اسکریپت freeze فقط artifact و checksum را ثبت می‌کند؛ تست خودکار Gen1 اجرا نمی‌کند و به‌صورت پیش‌فرض باینری frozen را بازنویسی نمی‌کند. گزینهٔ `--replace-frozen` برای ارتقای عمدی، checksum جدید را ثبت می‌کند و نسخهٔ قبلی را به‌عنوان rollback در `generations/gen1/build/previous-frozen/` نگه می‌دارد.
 
 ## مثال‌ها
 
-فایل‌های `examples/` برای نگهداری نمونه‌های سازگار با L1 هستند. Gen1 frozen یک قرارداد توسعه‌ی فعال ندارد؛ برای کامپایل برنامه‌های Gen2 باید از درایور `build/native/bin/razc` استفاده کرد. تست‌های روزمره‌ی درایور با CMake/CTest اجرا می‌شوند و به rebuild Gen1/Gen2 وابسته نیستند.
+فایل‌های `examples/` برای نگهداری نمونه‌های سازگار با L1 هستند. Gen1 frozen یک قرارداد توسعه‌ی فعال ندارد؛ برای کامپایل برنامه‌های Gen2 باید از درایور `build/native/bin/razc` استفاده کرد. تست‌های پایه‌ی درایور با CMake/CTest به rebuild Gen1/Gen2 وابسته نیستند. اگر candidate نسل 2 از قبل ساخته شده باشد، CTest تست‌های integration اضافی برای resolver و مسیر کامل Raz → C++ → GNU C++ را هم اجرا می‌کند.

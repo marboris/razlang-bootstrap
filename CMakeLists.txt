@@ -95,5 +95,82 @@ if(BUILD_TESTING)
             COMMAND "${RAZ_INTEGRATION_OUTPUT}")
         set_tests_properties(razc_gen2_cpp_and_gnu_smoke_run PROPERTIES
             DEPENDS razc_gen2_cpp_and_gnu_smoke_build)
+
+        # Regression: generated Gen2 code must preserve short-circuit semantics.
+        # _GLIBCXX_ASSERTIONS makes evaluating s[i - 1] for an empty string fail.
+        set(RAZ_SHORT_CIRCUIT_OUTPUT "${CMAKE_BINARY_DIR}/raz-short-circuit")
+        add_test(NAME razc_short_circuit_guard_build
+            COMMAND $<TARGET_FILE:razc>
+                "${CMAKE_SOURCE_DIR}/tests/fixtures/short-circuit.raz"
+                -D_GLIBCXX_ASSERTIONS -O0 -o "${RAZ_SHORT_CIRCUIT_OUTPUT}")
+        add_test(NAME razc_short_circuit_guard_run
+            COMMAND "${RAZ_SHORT_CIRCUIT_OUTPUT}")
+        set_tests_properties(razc_short_circuit_guard_run PROPERTIES
+            DEPENDS razc_short_circuit_guard_build
+            PASS_REGULAR_EXPRESSION "short-circuit-ok")
+
+        # Real module-resolution integration: comment markers in strings, leading
+        # and trailing block comments, hidden imports inside comments, and de-duping.
+        set(RAZ_MODULE_FIXTURE_ROOT "${CMAKE_SOURCE_DIR}/tests/fixtures/modules")
+        set(RAZ_MODULE_STRING_OUTPUT "${CMAKE_BINARY_DIR}/raz-module-string-comment")
+        add_test(NAME razc_module_string_comment_build
+            COMMAND $<TARGET_FILE:razc>
+                "${CMAKE_SOURCE_DIR}/tests/fixtures/module-string-comment.raz"
+                --module-path "${RAZ_MODULE_FIXTURE_ROOT}"
+                -o "${RAZ_MODULE_STRING_OUTPUT}")
+        add_test(NAME razc_module_string_comment_run
+            COMMAND "${RAZ_MODULE_STRING_OUTPUT}")
+        set_tests_properties(razc_module_string_comment_run PROPERTIES
+            DEPENDS razc_module_string_comment_build
+            PASS_REGULAR_EXPRESSION "module-loaded")
+
+        set(RAZ_MODULE_COMMENTS_OUTPUT "${CMAKE_BINARY_DIR}/raz-module-comments")
+        add_test(NAME razc_module_import_comments_build
+            COMMAND $<TARGET_FILE:razc>
+                "${CMAKE_SOURCE_DIR}/tests/fixtures/module-import-comments.raz"
+                --module-path "${RAZ_MODULE_FIXTURE_ROOT}"
+                -o "${RAZ_MODULE_COMMENTS_OUTPUT}")
+        add_test(NAME razc_module_import_comments_run
+            COMMAND "${RAZ_MODULE_COMMENTS_OUTPUT}")
+        set_tests_properties(razc_module_import_comments_run PROPERTIES
+            DEPENDS razc_module_import_comments_build
+            PASS_REGULAR_EXPRESSION "module-loaded")
+
+        # Module sources themselves use the same scanner recursively.
+        set(RAZ_MODULE_NESTED_OUTPUT "${CMAKE_BINARY_DIR}/raz-module-nested-comments")
+        add_test(NAME razc_module_nested_comments_build
+            COMMAND $<TARGET_FILE:razc>
+                "${CMAKE_SOURCE_DIR}/tests/fixtures/module-nested-comments.raz"
+                --module-path "${RAZ_MODULE_FIXTURE_ROOT}"
+                -o "${RAZ_MODULE_NESTED_OUTPUT}")
+        add_test(NAME razc_module_nested_comments_run
+            COMMAND "${RAZ_MODULE_NESTED_OUTPUT}")
+        set_tests_properties(razc_module_nested_comments_run PROPERTIES
+            DEPENDS razc_module_nested_comments_build
+            PASS_REGULAR_EXPRESSION "module-loaded")
+
+        # Expected diagnostics are checked by matching the resolver's own error.
+        add_test(NAME razc_module_cycle_diagnostic
+            COMMAND $<TARGET_FILE:razc>
+                "${CMAKE_SOURCE_DIR}/tests/fixtures/module-cycle.raz"
+                --module-path "${RAZ_MODULE_FIXTURE_ROOT}"
+                -o "${CMAKE_BINARY_DIR}/should-not-build-cycle")
+        set_tests_properties(razc_module_cycle_diagnostic PROPERTIES
+            PASS_REGULAR_EXPRESSION "module dependency cycle involving cycle.a")
+        add_test(NAME razc_module_missing_diagnostic
+            COMMAND $<TARGET_FILE:razc>
+                "${CMAKE_SOURCE_DIR}/tests/fixtures/module-missing.raz"
+                --module-path "${RAZ_MODULE_FIXTURE_ROOT}"
+                -o "${CMAKE_BINARY_DIR}/should-not-build-missing")
+        set_tests_properties(razc_module_missing_diagnostic PROPERTIES
+            PASS_REGULAR_EXPRESSION "cannot resolve module missing.module")
+
+        add_test(NAME razc_module_unclosed_comment_diagnostic
+            COMMAND $<TARGET_FILE:razc>
+                "${CMAKE_SOURCE_DIR}/tests/fixtures/module-unclosed-comment.raz"
+                --module-path "${RAZ_MODULE_FIXTURE_ROOT}"
+                -o "${CMAKE_BINARY_DIR}/should-not-build-unclosed-comment")
+        set_tests_properties(razc_module_unclosed_comment_diagnostic PROPERTIES
+            PASS_REGULAR_EXPRESSION "unterminated block comment")
     endif()
 endif()

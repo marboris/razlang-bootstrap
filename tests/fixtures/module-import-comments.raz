@@ -1,0 +1,7 @@
+use std.io;
+/* leading comment */ use test.message; /* trailing block comment
+use test.missing;
+*/
+use test.message; // duplicate imports are deduplicated
+print(message());
+return 0;

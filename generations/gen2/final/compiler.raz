@@ -1014,23 +1014,7 @@ struct ModuleResolveState {
     failed: bool;
 }
 
-struct ModuleScanState { blockComment: bool; }
-
-function trimModuleLine(line: string) -> string {
-    let a: i64 = 0;
-    let b: i64 = length(line);
-    let leftDone: bool = false;
-    while (a < b && !leftDone) {
-        if (isSpace(line[a])) a = a + 1;
-        else leftDone = true;
-    }
-    let rightDone: bool = false;
-    while (b > a && !rightDone) {
-        if (isSpace(line[b - 1])) b = b - 1;
-        else rightDone = true;
-    }
-    return slice(line, a, b);
-}
+struct ModuleScanState { blockComment: bool; quote: i64; escaped: bool; }
 
 function validRazModuleName(name: string) -> bool {
     if (length(name) < 3 || findText(name, ".", 0) < 1) return false;
@@ -1051,29 +1035,81 @@ function validRazModuleName(name: string) -> bool {
     return !start;
 }
 
-function moduleUseOnLine(line: string) -> string {
-    let clean: string = trimModuleLine(line);
-    if (!starts(clean, "use ")) return "";
-    let semi: i64 = findText(clean, ";", 4);
-    if (semi < 0) return "";
-    let tail: string = trimModuleLine(slice(clean, semi + 1, length(clean)));
-    if (tail != "" && !starts(tail, "//")) return "";
-    let name: string = trimModuleLine(slice(clean, 4, semi));
-    if (name == "") return "";
-    if (charCodeAt(name, 0) == 34 || charCodeAt(name, 0) == 39) return "";
-    if (!validRazModuleName(name)) return "";
-    return name;
+function maskModuleComments(line: string, scan: Ref<ModuleScanState>) -> string {
+    let out: string = "";
+    let i: i64 = 0;
+    while (i < length(line)) {
+        let c: i64 = charCodeAt(line, i);
+        if (scan.blockComment) {
+            let closes: bool = false;
+            if (i + 1 < length(line)) {
+                if (c == 42 && charCodeAt(line, i + 1) == 47) closes = true;
+            }
+            if (closes) {
+                scan.blockComment = false;
+                out = out + "  ";
+                i = i + 2;
+            } else {
+                out = out + " ";
+                i = i + 1;
+            }
+        } else if (scan.quote != 0) {
+            out = out + slice(line, i, i + 1);
+            if (scan.escaped) scan.escaped = false;
+            else if (c == 92) scan.escaped = true;
+            else if (c == scan.quote) scan.quote = 0;
+            i = i + 1;
+        } else if (c == 34 || c == 39) {
+            scan.quote = c;
+            scan.escaped = false;
+            out = out + slice(line, i, i + 1);
+            i = i + 1;
+        } else {
+            let nextIsSlash: bool = false;
+            let nextIsStar: bool = false;
+            if (i + 1 < length(line)) {
+                nextIsSlash = charCodeAt(line, i + 1) == 47;
+                nextIsStar = charCodeAt(line, i + 1) == 42;
+            }
+            if (c == 47 && nextIsSlash) {
+                return out;
+            } else if (c == 47 && nextIsStar) {
+                scan.blockComment = true;
+                out = out + "  ";
+                i = i + 2;
+            } else {
+                out = out + slice(line, i, i + 1);
+                i = i + 1;
+            }
+        }
+    }
+    return out;
 }
 
-function updateModuleComments(line: string, scan: Ref<ModuleScanState>) {
-    let open: i64 = findText(line, "/*", 0);
-    let close: i64 = findText(line, "*/", 0);
-    if (scan.blockComment) {
-        if (close >= 0) scan.blockComment = false;
-        if (open > close && close >= 0) scan.blockComment = true;
-    } else if (open >= 0 && (close < 0 || open > close)) {
-        scan.blockComment = true;
+function moduleUseOnLine(line: string) -> string {
+    let cursor: i64 = 0;
+    while (cursor < length(line) && isSpace(charCodeAt(line, cursor))) cursor = cursor + 1;
+    if (cursor + 3 > length(line)) return "";
+    if (slice(line, cursor, cursor + 3) != "use") return "";
+    cursor = cursor + 3;
+    if (cursor < length(line) && !isSpace(charCodeAt(line, cursor))) return "";
+    while (cursor < length(line) && isSpace(charCodeAt(line, cursor))) cursor = cursor + 1;
+    let start: i64 = cursor;
+    let nameDone: bool = false;
+    while (cursor < length(line) && !nameDone) {
+        let c: i64 = charCodeAt(line, cursor);
+        if (isAlphaNum(c) || c == 46) cursor = cursor + 1;
+        else nameDone = true;
     }
+    let name: string = slice(line, start, cursor);
+    if (name == "") return "";
+    while (cursor < length(line) && isSpace(charCodeAt(line, cursor))) cursor = cursor + 1;
+    if (cursor >= length(line) || charCodeAt(line, cursor) != 59) return "";
+    cursor = cursor + 1;
+    while (cursor < length(line) && isSpace(charCodeAt(line, cursor))) cursor = cursor + 1;
+    if (cursor != length(line)) return "";
+    if (!validRazModuleName(name)) return "";
+    return name;
 }
 
 function moduleRelativePath(name: string) -> string {
@@ -1130,6 +1166,8 @@ function expandResolvedModules(state: Ref<ModuleResolveState>, source: string, f
     let cursor: i64 = 0;
     let scan: ModuleScanState = new ModuleScanState();
     scan.blockComment = false;
+    scan.quote = 0;
+    scan.escaped = false;
     while (cursor < length(source) && !state.failed) {
         let next: i64 = findText(source, "\n", cursor);
         let end: i64 = next;
@@ -1137,8 +1175,8 @@ function expandResolvedModules(state: Ref<ModuleResolveState>, source: string, f
         let line: string = slice(source, cursor, end);
         let consumed: i64 = end;
         if (next >= 0) consumed = next + 1;
-        let name: string = "";
-        if (!scan.blockComment) name = moduleUseOnLine(line);
+        let cleanLine: string = maskModuleComments(line, scan);
+        let name: string = moduleUseOnLine(cleanLine);
         if (name == "") {
             out = out + line;
             if (next >= 0) out = out + "\n";
@@ -1164,8 +1202,14 @@ function expandResolvedModules(state: Ref<ModuleResolveState>, source: string, f
                 }
             }
         }
-        updateModuleComments(line, scan);
+        // Removing a `use` line must not remove an open trailing block comment.
+        // Emit a comment opener in its place so following source remains masked
+        // until the matching `*/` is encountered on a later line.
+        if (name != "" && scan.blockComment) out = out + "\n/*";
         cursor = consumed;
+    }
+    if (!state.failed && scan.blockComment) {
+        moduleResolveFail(state, "unterminated block comment in " + filePath);
     }
     return out;
 }

@@ -1,0 +1,5 @@
+function moduleMarker() -> string { return "/*"; }
+use test.message; /* nested trailing comment
+use test.missing;
+*/
+function wrapper() -> string { return message(); }

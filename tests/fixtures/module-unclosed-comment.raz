@@ -1,0 +1,4 @@
+use std.io;
+use test.message; /* comment is intentionally left open
+print("unreachable");
+return 0;

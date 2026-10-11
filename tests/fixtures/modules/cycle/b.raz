@@ -1,0 +1,2 @@
+use cycle.a;
+function cycleB() -> i64 { return 2; }

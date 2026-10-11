@@ -28,7 +28,7 @@
 make bootstrap-candidates
 ```
 
-این هدف Gen0 candidate را از JS seed می‌سازد، سپس همان candidate را برای ساخت Gen1 استفاده می‌کند و Gen1 candidate را برای ساخت Gen2 به‌کار می‌برد. candidateها در `generations/<gen>/build/razc-candidate` قرار می‌گیرند. باینری‌های frozen و checksumهای آن‌ها دست‌نخورده باقی می‌مانند.
+این هدف Gen0 candidate را از JS seed می‌سازد، سپس همان candidate را برای ساخت Gen1 استفاده می‌کند و Gen1 candidate را برای ساخت Gen2 به‌کار می‌برد. candidateها در `generations/<gen>/build/razc-candidate` قرار می‌گیرند. باینری‌های frozen و checksumهای آن‌ها دست‌نخورده باقی می‌مانند؛ این هدف صرفاً candidate می‌سازد و freeze را جداگانه باید اجرا کرد.
 
 برای ساخت Gen2 جداگانه با Gen1 candidate موجود:
 
@@ -44,7 +44,7 @@ RAZ_BOOTSTRAP_USE_CANDIDATES=1 npm run build:gen2
 - کامپایل C++ candidate با `g++ -O0`: `2.7 s`
 - کامپایل bundle Gen2 با Gen1 candidate: `2.8 s`
 - ساخت Gen2 native candidate با `g++ -O0`: `3.1 s`
-- `make test`: ۹ تست CTest موفق، کل تست‌ها `0.59 s`
+- `make test`: پس از ساخت candidate واقعی Gen2، ۲۰ تست CTest موفق؛ کل تست‌ها حدود `2.05 s`
 
 این زمان‌ها اندازه‌گیری محیط بررسی هستند، نه تضمین برای همهٔ سخت‌افزارها. تست یکپارچهٔ `generations/gen2/examples/hello.raz` نیز با درایور native، C++ تولیدشده و `g++` اجرا شد.
 
@@ -60,5 +60,13 @@ lowerer هر دو نسل 0 و 1 اکنون برای `&&` و `||` از label/bran
 RAZ_GLIBCXX_ASSERTIONS=1 make bootstrap-candidates
 ```
 
-این حالت فقط candidate نسل 1 را با `-D_GLIBCXX_ASSERTIONS` می‌سازد؛ مرحلهٔ ساخت Gen2 سپس همان candidate assertion-enabled را اجرا می‌کند. در بررسی محلی، این زنجیره با assertionها فعال موفق شد و تست‌های native CTest نیز ۹ از ۹ گذراندند.
+این حالت فقط candidate نسل 1 را با `-D_GLIBCXX_ASSERTIONS` می‌سازد؛ مرحلهٔ ساخت Gen2 سپس همان candidate assertion-enabled را اجرا می‌کند. در بررسی محلی، ساخت Gen1 با assertionها فعال موفق شد و از باینری frozen جدید Gen1 نیز Gen2 بدون crash ساخته شد. تست‌های native CTest حالا ۲۰ از ۲۰ مورد را می‌گذرانند؛ زمان کل دور اخیر حدود `2.05 s` بود.
 
+
+## به‌روزرسانی باینری‌های frozen در 2026-10-11
+
+پس از اصلاح کوتاه‌مدار، candidate تازهٔ Gen0 و Gen1 از سورس ساخته شد. باینری‌های `generations/gen0/bin/razc` و `generations/gen1/bin/razc` اکنون با checksumهای تازه freeze شده‌اند؛ Gen1 نسخهٔ نهایی `-O2` است و پیش از freeze با یک candidate دارای `_GLIBCXX_ASSERTIONS` اعتبارسنجی شد. سابقهٔ checksum قبلی/جدید در `gen.json` ثبت شده و `scripts/freeze.sh N --replace-frozen` هنگام ارتقای آگاهانه، rollback backup را زیر `generations/genN/build/previous-frozen/` نگه می‌دارد.
+
+## Resolver Gen2
+
+Resolver از اسکنر line-based ساده به اسکنر quote-aware تغییر کرده است. اسکنر comment markerها را فقط بیرون از string/character literal تفسیر می‌کند، leading/trailing block comment اطراف `use` را می‌پذیرد، importهای تکراری را deduplicate می‌کند و تشخیص cycle و ماژول گم‌شده را حفظ می‌کند. تست‌های native جدید این موارد را از مسیر درایور و frontend واقعی آزمایش می‌کنند.
