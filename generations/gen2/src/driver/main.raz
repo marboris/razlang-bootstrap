@@ -18,11 +18,102 @@ let gResolvedSource: string = "";
 let gRir: string = "";
 let gCpp: string = "";
 let gDefaultModuleRoot: string = "";
+let gDefinitions: string = "";
 
 function printUsage() {
     print("Raz Gen2 compiler preview");
     print("Usage: razc <input.raz> [--emit-cpp <output.cpp>]");
-    print("Options: --help, --version, -o <output.cpp>, --emit-cpp <output.cpp>, -L <module-root>");
+    print("Options: --help, --version, -o <output.cpp>, --emit-cpp <output.cpp>, -L <module-root>, --define NAME=VALUE");
+}
+
+
+function buildDefinitionName(spec: string) -> string {
+    let equal: i64 = findText(spec, "=", 0);
+    if (equal <= 0) return "";
+    return slice(spec, 0, equal);
+}
+
+function validBuildDefinitionName(name: string) -> bool {
+    let tokens: List<Token> = lex(name);
+    if (listLength(tokens) != 2) return false;
+    return tokens[0].kind == 1 && tokens[0].text == name;
+}
+
+function validBuildDefinitionValue(value: string) -> bool {
+    let tokens: List<Token> = lex(value);
+    if (listLength(tokens) == 2) {
+        let kind: i64 = tokens[0].kind;
+        if (kind == 2 || kind == 3 || kind == 4 || kind == 17 || kind == 18) return true;
+    }
+    // Signed decimal numeric literals are also accepted; arbitrary expressions
+    // are intentionally not accepted as build-time values in G2-010.
+    if (length(value) > 1 && charCodeAt(value, 0) == 45) {
+        let magnitude: string = slice(value, 1, length(value));
+        let signedTokens: List<Token> = lex(magnitude);
+        if (listLength(signedTokens) == 2 && signedTokens[0].kind == 2) return true;
+    }
+    return false;
+}
+
+function addBuildDefinition(spec: string) -> bool {
+    let name: string = buildDefinitionName(spec);
+    let cursor: i64 = 0;
+    while (cursor < length(gDefinitions)) {
+        let next: i64 = findText(gDefinitions, "\n", cursor);
+        let end: i64 = next;
+        if (end < 0) end = length(gDefinitions);
+        let oldSpec: string = slice(gDefinitions, cursor, end);
+        if (oldSpec != "" && buildDefinitionName(oldSpec) == name) return false;
+        if (next < 0) cursor = length(gDefinitions);
+        else cursor = next + 1;
+    }
+    gDefinitions = gDefinitions + spec + "\n";
+    return true;
+}
+
+function rewriteBuildDefinitionReferences(source: string, name: string, alias: string) -> string {
+    let tokens: List<Token> = lex(source);
+    let out: string = "";
+    let cursor: i64 = 0;
+    let i: i64 = 0;
+    while (i < listLength(tokens)) {
+        let t: Token = tokens[i];
+        if (t.kind == 1 && t.text == name) {
+            out = out + slice(source, cursor, t.pos) + alias;
+            cursor = t.pos + length(name);
+        }
+        i = i + 1;
+    }
+    return out + slice(source, cursor, length(source));
+}
+
+function applyBuildDefinitions(source: string, definitions: string) -> string {
+    let declarations: string = "";
+    let rewritten: string = source;
+    let cursor: i64 = 0;
+    while (cursor < length(definitions)) {
+        let next: i64 = findText(definitions, "\n", cursor);
+        let end: i64 = next;
+        if (end < 0) end = length(definitions);
+        let spec: string = slice(definitions, cursor, end);
+        if (spec != "") {
+            let name: string = buildDefinitionName(spec);
+            let equal: i64 = findText(spec, "=", 0);
+            let value: string = slice(spec, equal + 1, length(spec));
+            if (!validBuildDefinitionName(name)) {
+                print("razc: note: -D" + name + " is passed to GNU C++ but is not exposed as a Raz global");
+            } else if (!validBuildDefinitionValue(value)) {
+                print("razc: note: -D" + name + " has a non-literal value; it remains a GNU C++ macro only");
+            } else {
+                let alias: string = "raz_build_definition_" + name;
+                rewritten = rewriteBuildDefinitionReferences(rewritten, name, alias);
+                declarations = declarations + "const " + alias + " = " + value + ";\n";
+            }
+        }
+        if (next < 0) cursor = length(definitions);
+        else cursor = next + 1;
+    }
+    return declarations + rewritten;
 }
 
 function runCompiler() -> i64 {
@@ -67,6 +158,31 @@ function runCompiler() -> i64 {
                 return 2;
             }
             push(moduleRoots, argAt(i));
+        } else if (gOption == "--define") {
+            i = i + 1;
+            if (i >= argc) {
+                print("razc: missing NAME=VALUE after --define");
+                return 2;
+            }
+            let spec: string = argAt(i);
+            if (buildDefinitionName(spec) == "") {
+                print("razc: invalid build definition; expected NAME=VALUE");
+                return 2;
+            }
+            if (!addBuildDefinition(spec)) {
+                print("razc: duplicate --define for " + buildDefinitionName(spec));
+                return 2;
+            }
+        } else if (starts(gOption, "--define=")) {
+            let spec: string = slice(gOption, 9, length(gOption));
+            if (buildDefinitionName(spec) == "") {
+                print("razc: invalid build definition; expected NAME=VALUE");
+                return 2;
+            }
+            if (!addBuildDefinition(spec)) {
+                print("razc: duplicate --define for " + buildDefinitionName(spec));
+                return 2;
+            }
         } else {
             print("razc: unknown argument: " + gOption);
             printUsage();
@@ -85,6 +201,8 @@ function runCompiler() -> i64 {
         print("razc: source/module resolution failed");
         return 1;
     }
+    gResolvedSource = applyBuildDefinitions(gResolvedSource, gDefinitions);
+    if (gResolvedSource == "") return 2;
     gRir = compileSourceAt(gResolvedSource, gInputPath);
     if (gRir == "") {
         print("razc: compilation failed");

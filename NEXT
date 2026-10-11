@@ -1,4 +1,4 @@
-G2-009: explicit dependency contract / no implicit std.core prelude
+G2-009: explicit dependency contract / no implicit std.core prelude (completed)
 - Remove automatic `std.core` resolution from the user-source resolver.
 - Keep standard C++ dependencies owned by explicit source modules and quoted `use` directives.
 - Add native integration tests for header-free programs, explicit `std.core`, and `use "cstdint"`.
@@ -6,7 +6,14 @@ G2-009: explicit dependency contract / no implicit std.core prelude
 - Keep `std.core` minimal: it imports only `<string>` and `<vector>`; users opt into `<cstdint>` or other native headers separately when needed.
 - Preserve the frozen Gen0/Gen1 compiler chain; Gen2 remains the actively developed compiler.
 
+G2-010: build-time definitions (implemented; macro expansion still out of scope)
+- GNU `-D` / `-U` are forwarded in order to the native compiler and exposed to Raz as global constants when the value is a supported scalar literal.
+- A bare `-DNAME` maps to `true` for Raz and macro value `1` for GNU C++; non-literal values remain GNU-only macros.
+- The final effective definition per name is passed to the frontend; `-U` removes a previous Raz definition.
+- Native CTest covers bool, integer, string, duplicate/last-definition behavior, `-U`, and non-literal native-only macros.
+
 Next:
-- Add semantic diagnostics when code uses string/List representations without importing a library that provides their C++ dependencies.
-- Decide whether `std.core` should remain a small target-representation module or be split into more focused `std.text` / `std.containers` dependencies.
-- Continue build-time definitions and macro design only after the dependency contract is covered.
+- Define a formal macro expansion stage and distinguish it from build-time globals. Add compile-time conditionals only after token-based expansion and source-location preservation are designed.
+- Add semantic diagnostics when `string` / `List<T>` are used without a module that provides required C++ dependencies.
+- Decide whether `std.core` should remain a target-representation module or split into focused `std.text` / `std.containers` modules.
+- Track target OS/architecture and runtime environment reads as three distinct contracts; expose stable target variables independently of `std.env` runtime APIs.

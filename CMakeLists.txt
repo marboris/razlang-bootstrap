@@ -37,6 +37,13 @@ if(BUILD_TESTING)
     set_tests_properties(razc_forwards_cpu_optimization_and_debug_flags PROPERTIES
         PASS_REGULAR_EXPRESSION "-O2.*-g.*-march=native.*-mtune=native")
 
+    add_test(NAME razc_forwards_and_exposes_build_definitions
+        COMMAND $<TARGET_FILE:razc>
+            --dry-run "${CMAKE_SOURCE_DIR}/generations/gen2/examples/hello.raz"
+            -DRAZ_BUILD_TEST=17 -march=native)
+    set_tests_properties(razc_forwards_and_exposes_build_definitions PROPERTIES
+        PASS_REGULAR_EXPRESSION "Raz frontend:.*--define RAZ_BUILD_TEST=17.*GNU C\\+\\+:.*-DRAZ_BUILD_TEST=17")
+
     add_test(NAME razc_forwards_gnu_linker_flags
         COMMAND $<TARGET_FILE:razc>
             --dry-run "${CMAKE_SOURCE_DIR}/generations/gen2/examples/hello.raz"
@@ -100,6 +107,31 @@ if(BUILD_TESTING)
         # imports must generate header-free C++ and still compile; importing
         # std.core or a quoted C++ header must add only explicitly requested
         # headers / the dependencies owned by that module.
+        # G2-010: command-line -D/-U definitions are available as baked Raz
+        # global constants and remain forwarded to GNU C++ for native headers.
+        set(RAZ_BUILD_DEFINITIONS_OUTPUT "${CMAKE_BINARY_DIR}/raz-build-definitions")
+        add_test(NAME razc_build_definitions_build
+            COMMAND $<TARGET_FILE:razc>
+                "${CMAKE_SOURCE_DIR}/tests/fixtures/build-definitions.raz"
+                -DRAZ_FEATURE=false -DRAZ_FEATURE -DRAZ_LEVEL=7 -DRAZ_NEGATIVE=-4 "-DRAZ_LABEL=\"nightly\""
+                -DRAZ_NATIVE_ONLY=enabled -DRAZ_EMPTY= -O0 -o "${RAZ_BUILD_DEFINITIONS_OUTPUT}")
+        add_test(NAME razc_build_definitions_run
+            COMMAND "${RAZ_BUILD_DEFINITIONS_OUTPUT}")
+        set_tests_properties(razc_build_definitions_run PROPERTIES
+            DEPENDS razc_build_definitions_build
+            PASS_REGULAR_EXPRESSION "build-definitions-ok")
+
+        set(RAZ_UNDEF_CPP "${CMAKE_BINARY_DIR}/raz-build-definition-undef.cpp")
+        add_test(NAME razc_undef_removes_raz_definition_emit
+            COMMAND $<TARGET_FILE:razc>
+                "${CMAKE_SOURCE_DIR}/tests/fixtures/no-implicit-core.raz"
+                -DRAZ_UNUSED=1 -URAZ_UNUSED --emit-cpp "${RAZ_UNDEF_CPP}")
+        add_test(NAME razc_undef_removes_raz_definition_contract
+            COMMAND "${CMAKE_COMMAND}" -DCPP=${RAZ_UNDEF_CPP}
+                -P "${CMAKE_SOURCE_DIR}/tests/cmake/assert_no_build_definition.cmake")
+        set_tests_properties(razc_undef_removes_raz_definition_contract PROPERTIES
+            DEPENDS razc_undef_removes_raz_definition_emit)
+
         set(RAZ_NO_CORE_CPP "${CMAKE_BINARY_DIR}/raz-no-implicit-core.cpp")
         set(RAZ_NO_CORE_BIN "${CMAKE_BINARY_DIR}/raz-no-implicit-core")
         add_test(NAME razc_no_implicit_core_emit

@@ -1,0 +1,11 @@
+use std.io;
+
+if (RAZ_FEATURE && RAZ_LEVEL == 7 && RAZ_NEGATIVE == -4 && RAZ_LABEL == "nightly") {
+    print("build-definitions-ok");
+} else {
+    print("build-definitions-failed");
+}
+
+// A build definition changes identifiers in code, not text inside string literals.
+print("RAZ_FEATURE");
+return 0;

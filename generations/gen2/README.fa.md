@@ -2,7 +2,7 @@
 
 Gen2 در حال توسعه است و هنوز stable یا frozen نیست. در این milestone تمرکز روی دو پایه است: جدا کردن سورس به ماژول‌های مستقل‌تر و ساخت یک CLI که با Gen1 کامپایل می‌شود.
 
-## Milestone فعلی: G2-009 — وابستگی‌های صریح و حذف prelude ضمنی
+## Milestone پایدارشده: G2-009 — وابستگی‌های صریح و حذف prelude ضمنی
 
 - سورس بر اساس نقش‌ها تقسیم شده است: مدل AST، lexer، parser، تحلیل معنایی، تولید RIR، مدیریت includeهای سورس و target مربوط به C++17.
 - فایل `src/driver/main.raz` نقطه‌ی ورود CLI است و خودش نیز در سورس canonical از `use std.io;` استفاده می‌کند. فقط adapter موقت bootstrap این directive را برای کامپایلر منجمد Gen1 حذف می‌کند.
@@ -17,6 +17,30 @@ Gen2 در حال توسعه است و هنوز stable یا frozen نیست. در
 - قرارداد startup ماژول‌ها عمومی است: یک ماژول می‌تواند `function raz_module_init_<name>() { ... }` تعریف کند. Core این hookها را پس از مقداردهی globalهای Raz و پیش از اجرای statementهای سطح فایل فراخوانی می‌کند؛ hook باید بدون پارامتر و با نوع بازگشت `void` باشد. این قرارداد در backend به `std.io` یا نام یک کتابخانه‌ی خاص وابسته نیست.
 - آرگومان‌های فرایند از ABI عمومی `raz_internal_process` در entry point تولیدشده فراهم می‌شوند؛ `std.io` فقط این context را می‌خواند و دیگر نیازی به `std_io_set_cli` یا تشخیص ویژه در C++ emitter ندارد.
 - resolver، گسترش `include` و تشخیص چرخه‌ها در خود سورس Raz اجرا می‌شوند. درایور native در `src/host/raz_driver.cpp` candidate را برای تولید C++ اجرا می‌کند و سپس flagهای GNU را به کامپایلر نهایی C++ می‌دهد.
+
+
+## Milestone فعلی: G2-010 — build-time definitions و اطلاعات build
+
+- گزینه‌های GNU `-D` و `-U` همچنان با همان ترتیب اصلی به کامپایلر native منتقل می‌شوند.
+- تعریف‌هایی که مقدارشان یک literal معتبر Raz باشد، پیش از تحلیل معنایی به صورت global `const` در برنامه وارد می‌شوند؛ ارجاع به نام تعریف‌شده به یک شناسهٔ داخلی نگاشت می‌شود تا macro هم‌نام C++، کد C++ تولیدشده را خراب نکند.
+- `-DNAME` بدون مقدار برای Raz به `true` تبدیل می‌شود و برای GNU C++ همچنان به معنای macro مقدار `1` است. با `-DNAME=VALUE` می‌توان مقدار صریح داد؛ انواع پشتیبانی‌شده برای نمایش در Raz عبارت‌اند از literal عددی ده‌دهی، `true`/`false`، character literal و string literal داخل کوتیشن.
+- گزینه‌هایی مانند `-DNAME=ON`، `-DNAME=SOME_TOKEN` یا `-DNAME=` که مقدارشان literal Raz نیستند، بدون خطا به GNU C++ منتقل می‌شوند ولی به global Raz تبدیل نمی‌شوند. اگر چنین نامی در سورس Raz استفاده شود، semantic checker آن را به‌عنوان نام ناشناخته گزارش می‌کند. این تصمیم سازگاری driver با macroهای متعارف C/C++ را حفظ می‌کند.
+- `-Uname` یک تعریف قبلی هم‌نام را برای Raz نیز حذف می‌کند؛ تعریف بعدی همان نام دوباره آن را فعال می‌کند. وقتی چند `-D` برای یک نام داده شود، آخرین تعریف مؤثر است.
+- این قابلیت **macro expansion یا شرط‌کامپایل نیست**. مقدار در هنگام کامپایل انتخاب می‌شود و به‌صورت global `const` در سورس Raz قابل استفاده است، اما backend فعلی هنوز `constexpr` یا ارزیاب عمومی عبارت‌های زمان‌کامپایل ندارد؛ `if` همچنان یک شرط عادی زبان است. مرحلهٔ macro system و شاخه‌بندی compile-time جداگانه طراحی خواهد شد.
+- مقادیر string از نوع `string` هستند و همچنان به کتابخانه‌ای نیاز دارند که وابستگی C++ مربوطه را صریحاً با `use` وارد کند؛ `-D` هیچ هدر استانداردی را به طور ضمنی اضافه نمی‌کند.
+- تست‌های native، انتقال `-D` به frontend و GNU C++، مقدارهای bool/عدد/string، آخرین تعریف مؤثر، `-U` و macro بومی C++ با مقدار غیر literal را بررسی می‌کنند.
+
+نمونه:
+
+```sh
+build/native/bin/razc app.raz \
+  -DRAZ_DEBUG \
+  -DRAZ_LEVEL=7 \
+  '-DRAZ_CHANNEL="nightly"' \
+  -O2 -g -march=native -o build/app
+```
+
+در سورس Raz می‌توان از `RAZ_DEBUG`، `RAZ_LEVEL` و `RAZ_CHANNEL` استفاده کرد. `RAZ_DEBUG` در Raz مقدار `true` دارد؛ `RAZ_LEVEL` یک عدد است و `RAZ_CHANNEL` یک string literal است.
 
 ## Build و تست native
 

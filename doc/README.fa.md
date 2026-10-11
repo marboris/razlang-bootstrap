@@ -29,6 +29,12 @@ build/native/bin/razc generations/gen2/examples/hello.raz -O2 -g -march=native -
 
 `razc` یک درایور C++ بومی است. گزینه‌های کامپایل بومی را تحلیل نمی‌کند یا بازنویسی نمی‌کند؛ آن‌ها را به کامپایلر C++ می‌سپارد. مثلاً `-march=native`، `-mtune=native`، `-O3`، `-g`، `-I`، `-L`، `-l`، `-pthread`، `-fPIC` و `-Wl,...` به `g++` منتقل می‌شوند. متغیر محیطی `CXX` کامپایلر نهایی را عوض می‌کند.
 
+برای build-time definitions در G2-010، گزینه‌های `-D` و `-U` هم به GNU C++ منتقل می‌شوند. مقدارهای `-D` که literal معتبر Raz باشند (عدد، `true`/`false`، کاراکتر یا رشتهٔ کوتیشن‌دار) علاوه بر macro بومی، به‌صورت global `const` در سورس Raz هم قابل استفاده‌اند. `-DNAME` بدون مقدار در Raz برابر `true` و برای GNU C++ برابر macro مقدار `1` است. مقدار غیر literal یا خالی مانند `-DNAME=ON` یا `-DNAME=` فقط macro بومی است و به‌عنوان متغیر Raz تعریف نمی‌شود. این قابلیت globalهای build-time است، نه هنوز macro expansion، `constexpr` یا شرط‌کامپایل.
+
+```sh
+build/native/bin/razc app.raz -DRAZ_DEBUG -DRAZ_LEVEL=7 '-DRAZ_CHANNEL="nightly"' -O2 -march=native -o build/app
+```
+
 ```sh
 # فقط C++ تولیدشده را ذخیره کن
 build/native/bin/razc generations/gen2/examples/hello.raz --emit-cpp build/native/hello.cpp

@@ -42,6 +42,7 @@ struct Options {
     std::string cppOutput;
     std::string frontendOverride;
     std::vector<std::string> moduleRoots;
+    std::vector<std::string> razDefinitions;
     std::vector<std::string> nativeArgs;
 };
 
@@ -180,6 +181,34 @@ std::string frontendPath(const fs::path& root, const Options& options) {
 #endif
 }
 
+
+bool isCIdentifier(const std::string& name) {
+    if (name.empty()) return false;
+    const auto first = static_cast<unsigned char>(name.front());
+    if (!((first >= 'a' && first <= 'z') || (first >= 'A' && first <= 'Z') || first == '_')) return false;
+    for (unsigned char ch : name) {
+        if (!((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+              (ch >= '0' && ch <= '9') || ch == '_')) return false;
+    }
+    return true;
+}
+
+void updateRazDefinition(Options& options, const std::string& arg, bool define) {
+    const std::size_t equal = arg.find('=');
+    const std::string name = equal == std::string::npos ? arg : arg.substr(0, equal);
+    if (!isCIdentifier(name)) throw std::runtime_error("invalid build-definition name in -D/-U: " + name);
+
+    auto existing = std::find_if(options.razDefinitions.begin(), options.razDefinitions.end(),
+        [&](const std::string& item) { return item.substr(0, item.find('=')) == name; });
+    if (existing != options.razDefinitions.end()) options.razDefinitions.erase(existing);
+    if (define) {
+        const std::string value = equal == std::string::npos ? "true" : arg.substr(equal + 1);
+        // Empty and non-literal replacements are legal GNU macros. The Gen2
+        // frontend simply leaves them native-only instead of blocking the build.
+        options.razDefinitions.push_back(name + "=" + value);
+    }
+}
+
 bool nativeOptionConsumesNext(const std::string& arg) {
     static const std::set<std::string> options = {
         "-I", "-L", "-l", "-D", "-U", "-o", "-include", "-imacros",
@@ -255,6 +284,20 @@ Options parseOptions(int argc, char** argv) {
             continue;
         }
 
+        if (!endOfOptions && (arg == "-D" || arg == "-U")) {
+            if (i + 1 >= argc) throw std::runtime_error("missing argument after " + arg);
+            const std::string definition = argv[++i];
+            updateRazDefinition(options, definition, arg == "-D");
+            options.nativeArgs.push_back(arg);
+            options.nativeArgs.push_back(definition);
+            continue;
+        }
+        if (!endOfOptions && arg.size() > 2 && (startsWith(arg, "-D") || startsWith(arg, "-U"))) {
+            updateRazDefinition(options, arg.substr(2), arg[1] == 'D');
+            options.nativeArgs.push_back(arg);
+            continue;
+        }
+
         if (!endOfOptions && nativeOptionConsumesNext(arg)) {
             if (i + 1 >= argc) throw std::runtime_error("missing argument after " + arg);
             options.nativeArgs.push_back(arg);
@@ -309,6 +352,8 @@ void printHelp() {
         "Raz-specific options:\n"
         "  --module-path DIR   Add a Raz module search root (repeatable)\n"
         "  --std-path DIR      Add a Raz standard-library search root\n"
+        "  -DNAME=VALUE       Define a Raz build-time scalar and pass the macro to GNU C++\n"
+        "  -UNAME             Undefine a prior -D for Raz and pass it to GNU C++\n"
         "  --frontend PATH     Use a specific Gen2 C++-emitting compiler\n"
         "  --keep-cpp PATH     Keep generated C++ and continue native compilation\n"
         "  --emit-cpp PATH     Emit generated C++ only; do not invoke g++\n"
@@ -410,6 +455,10 @@ std::vector<std::string> makeFrontendCommand(
     for (const auto& moduleRoot : options.moduleRoots) {
         command.push_back("-L");
         command.push_back(moduleRoot);
+    }
+    for (const auto& definition : options.razDefinitions) {
+        command.push_back("--define");
+        command.push_back(definition);
     }
     (void)root;
     return command;
