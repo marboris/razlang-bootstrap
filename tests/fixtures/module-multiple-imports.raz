@@ -1,0 +1,4 @@
+use std.io; use test.message; use test.wrapper;
+print(message());
+print(wrapper());
+return 0;

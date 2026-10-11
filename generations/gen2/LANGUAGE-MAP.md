@@ -17,7 +17,7 @@
 | `true` | مقدار | مقدار بولی درست | `const bool true` | `true` | پیاده‌سازی‌شده |
 | `false` | مقدار | مقدار بولی نادرست | `const bool false` | `false` | پیاده‌سازی‌شده |
 | `new` | `new S()` | ساخت مقدار نوع | `new S` | `M(raz_ty, S){}` | پیاده‌سازی اولیه؛ heap allocation عمومی نیست |
-| `use` | `use "header";` | افزودن header خارجی یا `use std.mod;` برای ماژول Raz | `use-quoted` یا سورس ماژول resolve‌شده | `#include <header>` / `#include "path"` برای headerهای صریح | پیاده‌سازی‌شده |
+| `use` | `use "header";` یا `use std.mod;`؛ چند import ماژول می‌توانند در یک خط باشند | افزودن header خارجی یا واردکردن ماژول Raz | `use-quoted` یا سورس ماژول resolve‌شده | `#include <header>` / `#include "path"` برای headerهای صریح | پیاده‌سازی‌شده؛ importهای ماژولی deduplicate می‌شوند و خطاهای resolver مسیر/شماره‌خط دارند |
 | `include` | `include "file.raz";` | گسترش فایل Raz قبل از parse | پیش از RIR حذف و گسترش می‌شود | نگاشت مستقیم ندارد | پیاده‌سازی‌شده |
 | `unsafe` | `unsafe { ... }` | اجازه‌ی عملیات pointer محدودشده | wrapper/metadata معنایی | بلوک C++ معمولی، بدون runtime guard | پیاده‌سازی اولیه |
 | `nullptr` | مقدار | اشاره‌گر تهی | `const char* nullptr` | `nullptr` | پیاده‌سازی اولیه |

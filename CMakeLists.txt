@@ -149,6 +149,19 @@ if(BUILD_TESTING)
             DEPENDS razc_module_nested_comments_build
             PASS_REGULAR_EXPRESSION "module-loaded")
 
+        # Multiple source-module imports are accepted on one directive line.
+        set(RAZ_MODULE_MULTIPLE_OUTPUT "${CMAKE_BINARY_DIR}/raz-module-multiple-imports")
+        add_test(NAME razc_module_multiple_imports_build
+            COMMAND $<TARGET_FILE:razc>
+                "${CMAKE_SOURCE_DIR}/tests/fixtures/module-multiple-imports.raz"
+                --module-path "${RAZ_MODULE_FIXTURE_ROOT}"
+                -o "${RAZ_MODULE_MULTIPLE_OUTPUT}")
+        add_test(NAME razc_module_multiple_imports_run
+            COMMAND "${RAZ_MODULE_MULTIPLE_OUTPUT}")
+        set_tests_properties(razc_module_multiple_imports_run PROPERTIES
+            DEPENDS razc_module_multiple_imports_build
+            PASS_REGULAR_EXPRESSION "module-loaded")
+
         # Expected diagnostics are checked by matching the resolver's own error.
         add_test(NAME razc_module_cycle_diagnostic
             COMMAND $<TARGET_FILE:razc>
@@ -156,14 +169,14 @@ if(BUILD_TESTING)
                 --module-path "${RAZ_MODULE_FIXTURE_ROOT}"
                 -o "${CMAKE_BINARY_DIR}/should-not-build-cycle")
         set_tests_properties(razc_module_cycle_diagnostic PROPERTIES
-            PASS_REGULAR_EXPRESSION "module dependency cycle involving cycle.a")
+            PASS_REGULAR_EXPRESSION ":1: module dependency cycle involving cycle.a")
         add_test(NAME razc_module_missing_diagnostic
             COMMAND $<TARGET_FILE:razc>
                 "${CMAKE_SOURCE_DIR}/tests/fixtures/module-missing.raz"
                 --module-path "${RAZ_MODULE_FIXTURE_ROOT}"
                 -o "${CMAKE_BINARY_DIR}/should-not-build-missing")
         set_tests_properties(razc_module_missing_diagnostic PROPERTIES
-            PASS_REGULAR_EXPRESSION "cannot resolve module missing.module")
+            PASS_REGULAR_EXPRESSION ":2: cannot resolve module missing.module")
 
         add_test(NAME razc_module_unclosed_comment_diagnostic
             COMMAND $<TARGET_FILE:razc>
@@ -171,6 +184,6 @@ if(BUILD_TESTING)
                 --module-path "${RAZ_MODULE_FIXTURE_ROOT}"
                 -o "${CMAKE_BINARY_DIR}/should-not-build-unclosed-comment")
         set_tests_properties(razc_module_unclosed_comment_diagnostic PROPERTIES
-            PASS_REGULAR_EXPRESSION "unterminated block comment")
+            PASS_REGULAR_EXPRESSION ":2: unterminated block comment")
     endif()
 endif()

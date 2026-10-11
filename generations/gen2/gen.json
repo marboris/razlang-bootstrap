@@ -8,7 +8,7 @@
   "binary": "generations/gen2/bin/razc",
   "checksum": "generations/gen2/bin/razc.sha256",
   "build_dir": "generations/gen2/build/",
-  "milestone": "G2-007: bootstrap write-check compatibility, independent std.env, source-backed standard modules, and fast-check split",
+  "milestone": "G2-008: resolver multi-use directives, file/line diagnostics, and bootstrap regression tests",
   "operational_role": "Unfrozen development compiler; module resolution runs in Raz; native build orchestration remains a temporary launcher",
   "bootstrap_contract": "Gen1 compiles final/compiler.raz to C++17; native C++ compiler builds the Gen2 candidate",
   "source_modules": [
