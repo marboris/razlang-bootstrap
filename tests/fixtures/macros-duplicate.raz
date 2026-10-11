@@ -1,0 +1,3 @@
+define same(x) { x }
+define same(y) { y }
+return 0;

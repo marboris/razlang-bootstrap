@@ -1,6 +1,6 @@
 # Raz Gen2 — جدول مرجع زبان و نگاشت C++17
 
-نسخه‌ی مرجع فعلی: Gen2 preview 0.3.0. ستون «وضعیت» صریح می‌کند که آیا نگاشت در کد پیاده‌سازی شده یا صرفاً هدف طراحی است.
+نسخه‌ی مرجع فعلی: Gen2 preview 0.4.0-g2-012. ستون «وضعیت» صریح می‌کند که آیا نگاشت در کد پیاده‌سازی شده یا صرفاً هدف طراحی است.
 
 ## ۱. واژه‌های کلیدی
 
@@ -142,7 +142,10 @@
 | `unsafe` | 48 | محدوده‌ی عملیات pointer مجاز | `unsafe` statement و شمارنده‌ی semantic | بلوک C++ معمولی؛ تضمین runtime ایجاد نمی‌کند |
 | `nullptr` | 49 | literal pointer تهی؛ فقط در `unsafe` | `const char* nullptr` | `nullptr` |
 | `const` | 51 | binding غیرقابل‌تغییر در سطح برنامه | `global-const` + initializer | `const T M(raz_v, name) = M(raz_fn, initializer)();` |
+| `define` | 52 | تعریف source define در سطح فایل | پیش‌پردازش توکن‌محور پیش از AST/RIR | تعریف حذف می‌شود؛ فراخوانی مستقیم define گسترش می‌یابد | پیاده‌سازی اولیه؛ بدون hygiene/source map کامل |
 | `extern` | — | پشتیبانی نمی‌شود؛ `!` برای native call | ندارد | ندارد |
+
+`define` یک keyword سطح منبع است که در مرحله‌ی pre-parse جمع‌آوری می‌شود؛ مجاز بودن آن به سطح فایل محدود است.
 
 Keywordها حساس به حروف بزرگ/کوچک هستند. نام نوع‌های `i64`, `f64`, `bool`, `char`, `string`, `List<T>`, `Ref<T>` فعلاً keyword جدا نیستند؛ آن‌ها از مسیر type parser و semantic validator معنا می‌گیرند. `field` هم keyword نیست و صرفاً grammar فیلد struct از identifier در آن موقعیت استفاده می‌کند.
 
@@ -182,7 +185,7 @@ Keywordها حساس به حروف بزرگ/کوچک هستند. نام نوع�
 | قابلیت | قرارداد موردنظر | وضعیت واقعی فعلی | پیش‌نیاز/تبدیل C++ |
 |---|---|---|---|
 | type annotation حذف‌شده | `let x = e` و `const x = e` بدون annotation | **پیاده‌سازی اولیه‌شده برای storage متغیرها**؛ AST و RIR حفظ می‌کنند که annotation غایب است، checker هنوز نوع داخلی را برای اعتبارسنجی استخراج می‌کند | C++ local از `auto` + `decltype(temp)` و global از `auto` + `decltype(init_fn())` استفاده می‌کند تا اثر initializer به محل store اصلی محدود بماند. حذف inference از semantics و `auto` مستقیم با initializer هنوز باقی است؛ return type حذف‌شده‌ی تابع جداگانه طراحی می‌شود |
-| ماکروها | expansion ساختاری قبل از semantic analysis، نه text replacement | پیاده‌سازی نشده | node/phase مستقل AST و expansion diagnostics |
+| defineهای سورس | `define twice(x) { x + x }` و فراخوانی مستقیم `twice(2)` | پیاده‌سازی اولیه‌شده با expansion توکن‌محور، پیش از parse؛ بدون hygiene و source map کامل | تعریف از خروجی حذف و عبارت گسترش‌یافته به RIR/C++ می‌رسد |
 | compile-time constants | مقداردهی قابل ارزیابی در زمان کامپایل | `const` فعلی فقط storage تغییرناپذیر است و می‌تواند runtime initializer داشته باشد | evaluator محدود یا `constexpr` فقط برای عبارت‌های مجاز |
 | generic function | parameterization نوعی و specialization | پیاده‌سازی نشده به‌طور کامل؛ برخی container operations هنوز قواعد خاص checker دارند | generic IR، type substitution و specialization C++ template/instantiation |
 | package/cache | جست‌وجو، نسخه‌بندی، lockfile، cache | فقط source roots و dedup/cycle detection | compiler driver مستقل؛ Makefile کاربر خارج از compiler تولید نمی‌شود |
@@ -191,3 +194,17 @@ Keywordها حساس به حروف بزرگ/کوچک هستند. نام نوع�
 | LLVM IR | backend/target بعدی مبتنی بر LLVM واقعی | فعلاً RIR متنی داخلی و C++17 target | پس از تثبیت language semantics و ABI |
 | self-host | Gen2 همان سورس خودش را به‌صورت قابل‌تکرار کامپایل کند | هنوز تأیید نشده؛ Gen1 bootstrap باقی است | stable candidate، reproducible tests، سپس جداکردن compiler package |
 
+
+## ۹. Source directives و اطلاعات build (G2-012)
+
+| صورت | نقش | زمان اثر | وضعیت |
+|---|---|---|---|
+| `define twice(x) { x + x }` | تعریف source define سطح فایل؛ Token 52 | پیش از parse و semantic analysis | پیاده‌سازی اولیه؛ token-aware expansion |
+| `twice(4)` | فراخوانی مستقیم define شناخته‌شده | pre-parse expansion | پیاده‌سازی؛ اگر نام define با تابع تداخل کند، define غالب است |
+| `@twice(4)` | نحو فراخوانی define نیست | — | پشتیبانی نمی‌شود |
+| `-DNAME=VALUE` | مقدار سفارشی build-time؛ به C++ منتقل می‌شود و literal استفاده‌شده به Raz const تبدیل می‌شود | زمان کامپایل | پیاده‌سازی برای literalهای محدود |
+| `-UNAME` | حذف تعریف سفارشی قبلی و انتقال به C++ | زمان کامپایل | پیاده‌سازی |
+| `RAZ_TARGET_OS` | سیستم‌عامل target تشخیص‌داده‌شده از predefines کامپایلر C++ | build/compile time | فقط‌خواندنی؛ string constant در صورت استفاده |
+| `RAZ_TARGET_ARCH` | معماری target تشخیص‌داده‌شده از predefines کامپایلر C++ | build/compile time | فقط‌خواندنی؛ string constant در صورت استفاده |
+| `RAZ_TARGET_COMPILER` | `gcc`، `clang` یا `unknown` از predefines | build/compile time | فقط‌خواندنی؛ string constant در صورت استفاده |
+| `getEnv("NAME")` | خواندن محیط فرایند | runtime | API جداگانه در `std.env` |

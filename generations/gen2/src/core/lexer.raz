@@ -38,6 +38,7 @@ function keywordKind(word: string) -> i64 {
     if (word == "unsafe") return 48;
     if (word == "nullptr") return 49;
     if (word == "const") return 51;
+    if (word == "define") return 52;
     return 1;
 }
 

@@ -1,0 +1,13 @@
+use std.io;
+
+define identity(x) { x }
+
+// identity(comment_should_not_expand)
+let preserved: string = "identity(string_should_not_expand)";
+if (preserved == "identity(string_should_not_expand)") {
+    print("macro-string-safe");
+} else {
+    print("macro-string-broken");
+}
+print(identity("macro-token-ok"));
+return 0;

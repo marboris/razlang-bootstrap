@@ -1,0 +1,9 @@
+use std.io;
+use std.core;
+
+if (RAZ_TARGET_OS != "" && RAZ_TARGET_ARCH != "" && RAZ_TARGET_COMPILER != "") {
+    print("target-info-ok");
+} else {
+    print("target-info-failed");
+}
+return 0;

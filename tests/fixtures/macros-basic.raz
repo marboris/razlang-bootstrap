@@ -1,0 +1,18 @@
+use std.io;
+
+define twice(x) { x + x }
+define add(a, b) { a + b }
+define identity(x) { x }
+define quadruple(x) { twice(twice(x)) }
+define basePlus(x) { RAZ_BASE + x }
+define truth() { true }
+
+let macro_result: i64 = add(twice(1), identity(2));
+let repeated: i64 = quadruple(2);
+let configured: i64 = basePlus(3);
+if (macro_result == 4 && repeated == 8 && configured == 8 && truth()) {
+    print("macro-basic-ok");
+} else {
+    print("macro-basic-failed");
+}
+return 0;

@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <chrono>
+#include <cstdio>
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
@@ -197,6 +198,9 @@ void updateRazDefinition(Options& options, const std::string& arg, bool define) 
     const std::size_t equal = arg.find('=');
     const std::string name = equal == std::string::npos ? arg : arg.substr(0, equal);
     if (!isCIdentifier(name)) throw std::runtime_error("invalid build-definition name in -D/-U: " + name);
+    if (define && (name == "RAZ_TARGET_OS" || name == "RAZ_TARGET_ARCH" || name == "RAZ_TARGET_COMPILER")) {
+        throw std::runtime_error(name + " is a reserved Raz target-information constant");
+    }
 
     auto existing = std::find_if(options.razDefinitions.begin(), options.razDefinitions.end(),
         [&](const std::string& item) { return item.substr(0, item.find('=')) == name; });
@@ -354,6 +358,7 @@ void printHelp() {
         "  --std-path DIR      Add a Raz standard-library search root\n"
         "  -DNAME=VALUE       Define a Raz build-time scalar and pass the macro to GNU C++\n"
         "  -UNAME             Undefine a prior -D for Raz and pass it to GNU C++\n"
+        "  RAZ_TARGET_OS, RAZ_TARGET_ARCH, RAZ_TARGET_COMPILER are read-only target constants\n"
         "  --frontend PATH     Use a specific Gen2 C++-emitting compiler\n"
         "  --keep-cpp PATH     Keep generated C++ and continue native compilation\n"
         "  --emit-cpp PATH     Emit generated C++ only; do not invoke g++\n"
@@ -448,14 +453,110 @@ TemporaryDirectory makeTemporaryDirectory(bool preserve) {
     throw std::runtime_error("cannot allocate a unique temporary directory");
 }
 
+struct TargetInfo {
+    std::string os = "unknown";
+    std::string arch = "unknown";
+    std::string compiler = "unknown";
+};
+
+bool hasPredefine(const std::string& predefines, const std::string& name) {
+    const std::string needle = "#define " + name;
+    std::size_t position = 0;
+    while ((position = predefines.find(needle, position)) != std::string::npos) {
+        const std::size_t after = position + needle.size();
+        if (after == predefines.size() || predefines[after] == ' ' || predefines[after] == '\t' || predefines[after] == '\r' || predefines[after] == '\n') return true;
+        position = after;
+    }
+    return false;
+}
+
+bool predefineHasValue(const std::string& predefines, const std::string& name, const std::string& value) {
+    const std::string needle = "#define " + name + " " + value;
+    std::size_t position = predefines.find(needle);
+    if (position == std::string::npos) return false;
+    const std::size_t after = position + needle.size();
+    return after == predefines.size() || predefines[after] == '\n' || predefines[after] == '\r';
+}
+
+std::string queryPredefines(const Options& options) {
+    const std::string cxx = envOr("CXX", "g++");
+    auto command = splitCommand(cxx);
+    if (command.empty()) return {};
+
+    // Only forward options that can select the compiler target or ABI. Do not
+    // forward output, source, user -D/-U, or linker options into the probe.
+    for (std::size_t i = 0; i < options.nativeArgs.size(); ++i) {
+        const std::string& arg = options.nativeArgs[i];
+        if (startsWith(arg, "--target=") || startsWith(arg, "-target=") ||
+            startsWith(arg, "--sysroot=") || startsWith(arg, "-march=") ||
+            startsWith(arg, "-mtune=") || startsWith(arg, "-mcpu=") ||
+            startsWith(arg, "-mabi=") || startsWith(arg, "-mfpu=") ||
+            startsWith(arg, "-mfloat-abi=") || arg == "-m32" || arg == "-m64" ||
+            arg == "-mthumb" || arg == "-mno-thumb" || arg == "-mx32") {
+            command.push_back(arg);
+        } else if (arg == "--target" || arg == "-target" || arg == "--sysroot" ||
+                   arg == "-march" || arg == "-mtune" || arg == "-mcpu" ||
+                   arg == "-mabi" || arg == "-mfpu" || arg == "-mfloat-abi") {
+            command.push_back(arg);
+            if (i + 1 < options.nativeArgs.size()) command.push_back(options.nativeArgs[++i]);
+        }
+    }
+    command.insert(command.end(), {"-dM", "-E", "-x", "c++", "-"});
+
+#ifdef _WIN32
+    // The driver currently targets Unix/Linux toolchains. On other hosts,
+    // retain a non-fatal unknown value rather than misreporting the host as target.
+    (void)options;
+    return {};
+#else
+    const std::string shellCommand = displayCommand(command) + " </dev/null 2>/dev/null";
+    FILE* pipe = popen(shellCommand.c_str(), "r");
+    if (!pipe) return {};
+    std::string output;
+    char buffer[4096];
+    while (std::fgets(buffer, sizeof(buffer), pipe)) output += buffer;
+    const int result = pclose(pipe);
+    if (result != 0) return {};
+    return output;
+#endif
+}
+
+TargetInfo detectTargetInfo(const Options& options) {
+    const std::string predefines = queryPredefines(options);
+    TargetInfo target;
+    if (predefines.empty()) return target;
+
+    if (hasPredefine(predefines, "__linux__")) target.os = "linux";
+    else if (hasPredefine(predefines, "__FreeBSD__")) target.os = "freebsd";
+    else if (hasPredefine(predefines, "__APPLE__")) target.os = "darwin";
+    else if (hasPredefine(predefines, "_WIN32")) target.os = "windows";
+    else if (hasPredefine(predefines, "__unix__")) target.os = "unix";
+
+    if (hasPredefine(predefines, "__clang__")) target.compiler = "clang";
+    else if (hasPredefine(predefines, "__GNUC__")) target.compiler = "gcc";
+
+    if (hasPredefine(predefines, "__x86_64__") || hasPredefine(predefines, "_M_X64")) target.arch = "x86_64";
+    else if (hasPredefine(predefines, "__aarch64__") || hasPredefine(predefines, "_M_ARM64")) target.arch = "aarch64";
+    else if (hasPredefine(predefines, "__i386__") || hasPredefine(predefines, "_M_IX86")) target.arch = "x86";
+    else if (hasPredefine(predefines, "__arm__") || hasPredefine(predefines, "_M_ARM")) target.arch = "arm";
+    else if (predefineHasValue(predefines, "__riscv_xlen", "64")) target.arch = "riscv64";
+    else if (predefineHasValue(predefines, "__riscv_xlen", "32")) target.arch = "riscv32";
+    else if (hasPredefine(predefines, "__powerpc64__")) target.arch = "ppc64";
+    else if (hasPredefine(predefines, "__wasm32__")) target.arch = "wasm32";
+    else if (hasPredefine(predefines, "__wasm64__")) target.arch = "wasm64";
+    return target;
+}
+
 std::vector<std::string> makeFrontendCommand(
     const fs::path& root, const Options& options, const std::string& frontend,
-    const fs::path& cppPath) {
+    const fs::path& cppPath, const TargetInfo& target) {
     std::vector<std::string> command = {frontend, options.input, "--emit-cpp", cppPath.string()};
     for (const auto& moduleRoot : options.moduleRoots) {
         command.push_back("-L");
         command.push_back(moduleRoot);
     }
+    command.insert(command.end(), {"--target-os", target.os, "--target-arch", target.arch,
+                                   "--target-compiler", target.compiler});
     for (const auto& definition : options.razDefinitions) {
         command.push_back("--define");
         command.push_back(definition);
@@ -510,7 +611,8 @@ int execute(const Options& options, const fs::path& root) {
     if (options.emitCppOnly || options.keepCpp) cppPath = fs::path(options.cppOutput);
     else cppPath = temp.path / (fs::path(options.input).stem().string() + ".cpp");
 
-    const auto frontendCommand = makeFrontendCommand(root, options, frontend, cppPath);
+    const TargetInfo target = detectTargetInfo(options);
+    const auto frontendCommand = makeFrontendCommand(root, options, frontend, cppPath, target);
     if (options.dryRun) {
         std::cout << "Raz frontend: " << displayCommand(frontendCommand) << "\n";
         if (!options.emitCppOnly) {

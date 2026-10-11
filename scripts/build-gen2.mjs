@@ -118,6 +118,7 @@ const sourceModules = [
   'src/core/text.raz',
   'src/source/includes.raz',
   'src/source/modules.raz',
+  'src/source/macros.raz',
   'src/validation/semantics.raz',
   'src/core/rir.raz',
 ];

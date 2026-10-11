@@ -278,5 +278,86 @@ if(BUILD_TESTING)
                 -o "${CMAKE_BINARY_DIR}/should-not-build-unclosed-comment")
         set_tests_properties(razc_module_unclosed_comment_diagnostic PROPERTIES
             PASS_REGULAR_EXPRESSION ":2: unterminated block comment")
+
+
+        # G2-012: the driver queries the selected C++ compiler's predefined target
+        # macros and exposes read-only RAZ_TARGET_* constants to Raz only on use.
+        set(RAZ_TARGET_INFO_OUTPUT "${CMAKE_BINARY_DIR}/raz-target-info")
+        add_test(NAME razc_target_metadata_build
+            COMMAND $<TARGET_FILE:razc>
+                "${CMAKE_SOURCE_DIR}/tests/fixtures/target-info.raz"
+                -O0 -o "${RAZ_TARGET_INFO_OUTPUT}")
+        add_test(NAME razc_target_metadata_run COMMAND "${RAZ_TARGET_INFO_OUTPUT}")
+        set_tests_properties(razc_target_metadata_run PROPERTIES
+            DEPENDS razc_target_metadata_build
+            PASS_REGULAR_EXPRESSION "target-info-ok")
+        add_test(NAME razc_rejects_reserved_target_override
+            COMMAND "${CMAKE_COMMAND}"
+                -DRAZC=$<TARGET_FILE:razc>
+                -DSOURCE=${CMAKE_SOURCE_DIR}/generations/gen2/examples/hello.raz
+                -P "${CMAKE_SOURCE_DIR}/tests/cmake/assert_driver_rejects_target_override.cmake")
+
+        set(RAZ_UNUSED_BUILD_DEF_CPP "${CMAKE_BINARY_DIR}/raz-unused-build-definition.cpp")
+        add_test(NAME razc_unused_string_build_definition_emit
+            COMMAND $<TARGET_FILE:razc>
+                "${CMAKE_SOURCE_DIR}/tests/fixtures/no-implicit-core.raz"
+                "-DRAZ_UNUSED_LABEL=\"unused\"" --emit-cpp "${RAZ_UNUSED_BUILD_DEF_CPP}")
+        add_test(NAME razc_unused_string_build_definition_has_no_header
+            COMMAND "${CMAKE_COMMAND}" -DCPP=${RAZ_UNUSED_BUILD_DEF_CPP}
+                -P "${CMAKE_SOURCE_DIR}/tests/cmake/assert_no_includes.cmake")
+        set_tests_properties(razc_unused_string_build_definition_has_no_header PROPERTIES
+            DEPENDS razc_unused_string_build_definition_emit)
+
+        # G2-011/012: token-aware source defines are expanded before build-definition
+        # rewriting, parsing, and semantic checking. Direct calls use name(...),
+        # and known define names shadow same-name function calls in this source.
+        set(RAZ_MACRO_BASIC_OUTPUT "${CMAKE_BINARY_DIR}/raz-macro-basic")
+        add_test(NAME razc_macro_basic_build
+            COMMAND $<TARGET_FILE:razc>
+                "${CMAKE_SOURCE_DIR}/tests/fixtures/macros-basic.raz"
+                -DRAZ_BASE=5 -O0 -o "${RAZ_MACRO_BASIC_OUTPUT}")
+        add_test(NAME razc_macro_basic_run COMMAND "${RAZ_MACRO_BASIC_OUTPUT}")
+        set_tests_properties(razc_macro_basic_run PROPERTIES
+            DEPENDS razc_macro_basic_build
+            PASS_REGULAR_EXPRESSION "macro-basic-ok")
+
+        set(RAZ_MACRO_TOKEN_OUTPUT "${CMAKE_BINARY_DIR}/raz-macro-token-safety")
+        add_test(NAME razc_macro_token_safety_build
+            COMMAND $<TARGET_FILE:razc>
+                "${CMAKE_SOURCE_DIR}/tests/fixtures/macros-token-safety.raz"
+                -O0 -o "${RAZ_MACRO_TOKEN_OUTPUT}")
+        add_test(NAME razc_macro_token_safety_run COMMAND "${RAZ_MACRO_TOKEN_OUTPUT}")
+        set_tests_properties(razc_macro_token_safety_run PROPERTIES
+            DEPENDS razc_macro_token_safety_build
+            PASS_REGULAR_EXPRESSION "macro-string-safe")
+
+        add_test(NAME razc_unknown_function_is_not_treated_as_define
+            COMMAND "${CMAKE_COMMAND}"
+                -DFRONTEND=${RAZ_GEN2_CANDIDATE}
+                -DSOURCE=${CMAKE_SOURCE_DIR}/tests/fixtures/macros-unknown.raz
+                -DOUTPUT=${CMAKE_BINARY_DIR}/should-not-build-unknown-macro.cpp
+                -DEXPECTED=unknown\ function\ does_not_exist
+                -P "${CMAKE_SOURCE_DIR}/tests/cmake/assert_compiler_failure.cmake")
+        add_test(NAME razc_macro_bad_arity_diagnostic
+            COMMAND "${CMAKE_COMMAND}"
+                -DFRONTEND=${RAZ_GEN2_CANDIDATE}
+                -DSOURCE=${CMAKE_SOURCE_DIR}/tests/fixtures/macros-bad-arity.raz
+                -DOUTPUT=${CMAKE_BINARY_DIR}/should-not-build-bad-arity.cpp
+                -DEXPECTED=expects\ 2\ argument
+                -P "${CMAKE_SOURCE_DIR}/tests/cmake/assert_compiler_failure.cmake")
+        add_test(NAME razc_macro_duplicate_diagnostic
+            COMMAND "${CMAKE_COMMAND}"
+                -DFRONTEND=${RAZ_GEN2_CANDIDATE}
+                -DSOURCE=${CMAKE_SOURCE_DIR}/tests/fixtures/macros-duplicate.raz
+                -DOUTPUT=${CMAKE_BINARY_DIR}/should-not-build-duplicate.cpp
+                -DEXPECTED=duplicate\ define
+                -P "${CMAKE_SOURCE_DIR}/tests/cmake/assert_compiler_failure.cmake")
+        add_test(NAME razc_macro_recursion_diagnostic
+            COMMAND "${CMAKE_COMMAND}"
+                -DFRONTEND=${RAZ_GEN2_CANDIDATE}
+                -DSOURCE=${CMAKE_SOURCE_DIR}/tests/fixtures/macros-recursive.raz
+                -DOUTPUT=${CMAKE_BINARY_DIR}/should-not-build-recursive.cpp
+                -DEXPECTED=exceeded\ 32\ passes
+                -P "${CMAKE_SOURCE_DIR}/tests/cmake/assert_compiler_failure.cmake")
     endif()
 endif()

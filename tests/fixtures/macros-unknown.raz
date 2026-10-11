@@ -1,0 +1,2 @@
+let value: i64 = does_not_exist(1);
+return 0;
