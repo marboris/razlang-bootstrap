@@ -1,0 +1,359 @@
+❯ make test-all
+cmake -S . -B build/native -G "Ninja" -DCMAKE_CXX_COMPILER="g++" -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON
+-- The CXX compiler identification is GNU 16.2.1
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/g++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Configuring done (0.3s)
+-- Generating done (0.0s)
+-- Build files have been written to: /home/clever/Desktop/mrb/raz-bootstrap/build/native
+cmake --build build/native --parallel
+[4/4] Linking CXX executable bin/razc
+ctest --test-dir build/native --output-on-failure
+Test project /home/clever/Desktop/mrb/raz-bootstrap/build/native
+      Start  1: razc_help
+ 1/52 Test  #1: razc_help ...........................................   Passed    0.00 sec
+      Start  2: razc_version
+ 2/52 Test  #2: razc_version ........................................   Passed    0.00 sec
+      Start  3: razc_forwards_cpu_optimization_and_debug_flags
+ 3/52 Test  #3: razc_forwards_cpu_optimization_and_debug_flags ......   Passed    0.01 sec
+      Start  4: razc_forwards_and_exposes_build_definitions
+ 4/52 Test  #4: razc_forwards_and_exposes_build_definitions .........   Passed    0.01 sec
+      Start  5: razc_forwards_gnu_linker_flags
+ 5/52 Test  #5: razc_forwards_gnu_linker_flags ......................   Passed    0.01 sec
+      Start  6: razc_module_path_is_frontend_option
+ 6/52 Test  #6: razc_module_path_is_frontend_option .................   Passed    0.01 sec
+      Start  7: razc_native_pipeline_fake_frontend_build
+ 7/52 Test  #7: razc_native_pipeline_fake_frontend_build ............   Passed    0.30 sec
+      Start  8: razc_native_pipeline_fake_frontend_run
+ 8/52 Test  #8: razc_native_pipeline_fake_frontend_run ..............   Passed    0.00 sec
+      Start  9: razc_gen2_cpp_and_gnu_smoke_build
+ 9/52 Test  #9: razc_gen2_cpp_and_gnu_smoke_build ...................   Passed    0.39 sec
+      Start 10: razc_gen2_cpp_and_gnu_smoke_run
+10/52 Test #10: razc_gen2_cpp_and_gnu_smoke_run .....................   Passed    0.00 sec
+      Start 11: razc_build_definitions_build
+11/52 Test #11: razc_build_definitions_build ........................   Passed    0.39 sec
+      Start 12: razc_build_definitions_run
+12/52 Test #12: razc_build_definitions_run ..........................   Passed    0.00 sec
+      Start 13: razc_undef_removes_raz_definition_emit
+13/52 Test #13: razc_undef_removes_raz_definition_emit ..............   Passed    0.01 sec
+      Start 14: razc_undef_removes_raz_definition_contract
+14/52 Test #14: razc_undef_removes_raz_definition_contract ..........   Passed    0.01 sec
+      Start 15: razc_no_implicit_core_emit
+15/52 Test #15: razc_no_implicit_core_emit ..........................   Passed    0.00 sec
+      Start 16: razc_no_implicit_core_include_contract
+16/52 Test #16: razc_no_implicit_core_include_contract ..............   Passed    0.01 sec
+      Start 17: razc_no_implicit_core_native_build
+17/52 Test #17: razc_no_implicit_core_native_build ..................   Passed    0.05 sec
+      Start 18: razc_no_implicit_core_native_run
+18/52 Test #18: razc_no_implicit_core_native_run ....................   Passed    0.00 sec
+      Start 19: razc_explicit_core_emit
+19/52 Test #19: razc_explicit_core_emit .............................   Passed    0.01 sec
+      Start 20: razc_explicit_core_include_contract
+20/52 Test #20: razc_explicit_core_include_contract .................   Passed    0.01 sec
+      Start 21: razc_explicit_core_native_build
+21/52 Test #21: razc_explicit_core_native_build .....................   Passed    0.28 sec
+      Start 22: razc_explicit_core_native_run
+22/52 Test #22: razc_explicit_core_native_run .......................   Passed    0.00 sec
+      Start 23: razc_explicit_native_header_emit
+23/52 Test #23: razc_explicit_native_header_emit ....................   Passed    0.00 sec
+      Start 24: razc_explicit_native_header_include_contract
+24/52 Test #24: razc_explicit_native_header_include_contract ........   Passed    0.01 sec
+      Start 25: razc_explicit_native_header_native_build
+25/52 Test #25: razc_explicit_native_header_native_build ............   Passed    0.06 sec
+      Start 26: razc_explicit_native_header_native_run
+26/52 Test #26: razc_explicit_native_header_native_run ..............   Passed    0.00 sec
+      Start 27: razc_short_circuit_guard_build
+27/52 Test #27: razc_short_circuit_guard_build ......................   Passed    0.36 sec
+      Start 28: razc_short_circuit_guard_run
+28/52 Test #28: razc_short_circuit_guard_run ........................   Passed    0.00 sec
+      Start 29: razc_module_string_comment_build
+29/52 Test #29: razc_module_string_comment_build ....................   Passed    0.36 sec
+      Start 30: razc_module_string_comment_run
+30/52 Test #30: razc_module_string_comment_run ......................   Passed    0.00 sec
+      Start 31: razc_module_import_comments_build
+31/52 Test #31: razc_module_import_comments_build ...................   Passed    0.35 sec
+      Start 32: razc_module_import_comments_run
+32/52 Test #32: razc_module_import_comments_run .....................   Passed    0.00 sec
+      Start 33: razc_module_nested_comments_build
+33/52 Test #33: razc_module_nested_comments_build ...................   Passed    0.36 sec
+      Start 34: razc_module_nested_comments_run
+34/52 Test #34: razc_module_nested_comments_run .....................   Passed    0.00 sec
+      Start 35: razc_module_multiple_imports_build
+35/52 Test #35: razc_module_multiple_imports_build ..................   Passed    0.36 sec
+      Start 36: razc_module_multiple_imports_run
+36/52 Test #36: razc_module_multiple_imports_run ....................   Passed    0.00 sec
+      Start 37: razc_module_cycle_diagnostic
+37/52 Test #37: razc_module_cycle_diagnostic ........................   Passed    0.01 sec
+      Start 38: razc_module_missing_diagnostic
+38/52 Test #38: razc_module_missing_diagnostic ......................   Passed    0.01 sec
+      Start 39: razc_module_unclosed_comment_diagnostic
+39/52 Test #39: razc_module_unclosed_comment_diagnostic .............   Passed    0.01 sec
+      Start 40: razc_target_metadata_build
+40/52 Test #40: razc_target_metadata_build ..........................   Passed    0.40 sec
+      Start 41: razc_target_metadata_run
+41/52 Test #41: razc_target_metadata_run ............................   Passed    0.00 sec
+      Start 42: razc_rejects_reserved_target_override
+42/52 Test #42: razc_rejects_reserved_target_override ...............   Passed    0.01 sec
+      Start 43: razc_unused_string_build_definition_emit
+43/52 Test #43: razc_unused_string_build_definition_emit ............   Passed    0.01 sec
+      Start 44: razc_unused_string_build_definition_has_no_header
+44/52 Test #44: razc_unused_string_build_definition_has_no_header ...   Passed    0.01 sec
+      Start 45: razc_macro_basic_build
+45/52 Test #45: razc_macro_basic_build ..............................   Passed    0.38 sec
+      Start 46: razc_macro_basic_run
+46/52 Test #46: razc_macro_basic_run ................................   Passed    0.00 sec
+      Start 47: razc_macro_token_safety_build
+47/52 Test #47: razc_macro_token_safety_build .......................   Passed    0.36 sec
+      Start 48: razc_macro_token_safety_run
+48/52 Test #48: razc_macro_token_safety_run .........................   Passed    0.00 sec
+      Start 49: razc_unknown_function_is_not_treated_as_define
+49/52 Test #49: razc_unknown_function_is_not_treated_as_define ......   Passed    0.01 sec
+      Start 50: razc_macro_bad_arity_diagnostic
+50/52 Test #50: razc_macro_bad_arity_diagnostic .....................   Passed    0.01 sec
+      Start 51: razc_macro_duplicate_diagnostic
+51/52 Test #51: razc_macro_duplicate_diagnostic .....................   Passed    0.01 sec
+      Start 52: razc_macro_recursion_diagnostic
+52/52 Test #52: razc_macro_recursion_diagnostic .....................   Passed    0.01 sec
+
+100% tests passed out of 52
+
+Total Test time (real) =   4.67 sec
+make test-gen2
+make[1]: Entering directory '/home/clever/Desktop/mrb/raz-bootstrap'
+node scripts/check-gen2-source.mjs
+[gen2-source] modular layout, short-circuit RIR, C++ name mangling, immutable Raz metadata, native-call API, stdlib modules, bootstrap contract, and entry-relative includes passed
+node scripts/test-gen2-fast.mjs
+file:///home/clever/Desktop/mrb/raz-bootstrap/scripts/test-gen2-fast.mjs:58
+if (!version.output.includes('razc Gen2 preview 0.4.0-g2-016')) throw new Error('CLI --version output mismatch');
+                                                                      ^
+
+Error: CLI --version output mismatch
+    at file:///home/clever/Desktop/mrb/raz-bootstrap/scripts/test-gen2-fast.mjs:58:71
+    at ModuleJob.run (node:internal/modules/esm/module_job:439:25)
+    at async node:internal/modules/esm/loader:643:26
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)
+
+Node.js v24.19.0
+make[1]: *** [Makefile:46: test-gen2-fast] Error 1
+make[1]: Leaving directory '/home/clever/Desktop/mrb/raz-bootstrap'
+make: *** [Makefile:59: test-all] Error 2
+
+❯ ./build/native/bin/razc -V
+razc driver 0.4.0 (Gen2 preview; GNU C++ toolchain)
+❯ ./build/native/bin/razc --version
+razc driver 0.4.0 (Gen2 preview; GNU C++ toolchain)
+❯ ./compiler/razc/bin/razc --version
+razc Gen2 preview 0.4.0-g2-016
+❯ 
+❯ ./compiler/razc/build/razc-candidate --version
+razc Gen2 preview 0.4.0-g2-015
+❯ make build-gen2-selfhost
+RAZ_BUILD_KIND=gen2-selfhost node scripts/build-gen2.mjs --self-host
+[gen2] stage 1/3: active Gen2 compiles compiler.raz
+[gen2] Gen2 stage 1 emits compiler C++
+razc: wrote /home/clever/Desktop/mrb/raz-bootstrap/compiler/razc/build/native-work/backend/output.cpp
+[gen2] Gen2 stage 1 emits compiler C++ completed in 12.5s
+[gen2] build stage-1 Gen2 candidate
+[gen2] build stage-1 Gen2 candidate completed in 4.7s
+[gen2] stage 2/3: stage-1 Gen2 compiles compiler.raz
+[gen2] Gen2 stage 2 emits compiler C++
+razc: wrote /home/clever/Desktop/mrb/raz-bootstrap/compiler/razc/build/native-work/backend/output.stage2.cpp
+[gen2] Gen2 stage 2 emits compiler C++ completed in 31.6s
+[gen2] build stage-2 Gen2 candidate
+[gen2] build stage-2 Gen2 candidate completed in 4.6s
+[gen2] stage 3/3: stage-2 Gen2 verifies the self-host fixed point
+[gen2] Gen2 stage 3 emits compiler C++
+razc: wrote /home/clever/Desktop/mrb/raz-bootstrap/compiler/razc/build/native-work/backend/output.stage3.cpp
+[gen2] Gen2 stage 3 emits compiler C++ completed in 30.9s
+[gen2] self-host fixed point verified (984,798 C++ characters; stage 2 == stage 3)
+[gen2] verify stage-1 version
+[gen2] verify stage-1 version completed in 0.0s
+[gen2] verify stage-2 version
+[gen2] verify stage-2 version completed in 0.0s
+[gen2] verify final version
+[gen2] verify final version completed in 0.0s
+[gen2] final candidate smoke emit
+razc: wrote /home/clever/Desktop/mrb/raz-bootstrap/compiler/razc/build/native-work/backend/selfhost-smoke.cpp
+[gen2] final candidate smoke emit completed in 0.0s
+[gen2] final candidate smoke build
+[gen2] final candidate smoke build completed in 0.3s
+[gen2] final candidate smoke run
+[gen2] final candidate smoke run completed in 0.0s
+[gen2] three-stage self-host candidate ready: /home/clever/Desktop/mrb/raz-bootstrap/compiler/razc/build/razc-candidate
+❯ ./compiler/razc/bin/razc --version
+razc Gen2 preview 0.4.0-g2-016
+❯ ./compiler/razc/build/razc-candidate --version
+razc Gen2 preview 0.4.0-g2-016
+❯ 
+❯ make test-all
+cmake -S . -B build/native -G "Ninja" -DCMAKE_CXX_COMPILER="g++" -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON
+-- Configuring done (0.0s)
+-- Generating done (0.0s)
+-- Build files have been written to: /home/clever/Desktop/mrb/raz-bootstrap/build/native
+cmake --build build/native --parallel
+ninja: no work to do.
+ctest --test-dir build/native --output-on-failure
+Test project /home/clever/Desktop/mrb/raz-bootstrap/build/native
+      Start  1: razc_help
+ 1/52 Test  #1: razc_help ...........................................   Passed    0.00 sec
+      Start  2: razc_version
+ 2/52 Test  #2: razc_version ........................................   Passed    0.00 sec
+      Start  3: razc_forwards_cpu_optimization_and_debug_flags
+ 3/52 Test  #3: razc_forwards_cpu_optimization_and_debug_flags ......   Passed    0.01 sec
+      Start  4: razc_forwards_and_exposes_build_definitions
+ 4/52 Test  #4: razc_forwards_and_exposes_build_definitions .........   Passed    0.01 sec
+      Start  5: razc_forwards_gnu_linker_flags
+ 5/52 Test  #5: razc_forwards_gnu_linker_flags ......................   Passed    0.01 sec
+      Start  6: razc_module_path_is_frontend_option
+ 6/52 Test  #6: razc_module_path_is_frontend_option .................   Passed    0.01 sec
+      Start  7: razc_native_pipeline_fake_frontend_build
+ 7/52 Test  #7: razc_native_pipeline_fake_frontend_build ............   Passed    0.31 sec
+      Start  8: razc_native_pipeline_fake_frontend_run
+ 8/52 Test  #8: razc_native_pipeline_fake_frontend_run ..............   Passed    0.00 sec
+      Start  9: razc_gen2_cpp_and_gnu_smoke_build
+ 9/52 Test  #9: razc_gen2_cpp_and_gnu_smoke_build ...................   Passed    0.37 sec
+      Start 10: razc_gen2_cpp_and_gnu_smoke_run
+10/52 Test #10: razc_gen2_cpp_and_gnu_smoke_run .....................   Passed    0.00 sec
+      Start 11: razc_build_definitions_build
+11/52 Test #11: razc_build_definitions_build ........................   Passed    0.39 sec
+      Start 12: razc_build_definitions_run
+12/52 Test #12: razc_build_definitions_run ..........................   Passed    0.00 sec
+      Start 13: razc_undef_removes_raz_definition_emit
+13/52 Test #13: razc_undef_removes_raz_definition_emit ..............   Passed    0.01 sec
+      Start 14: razc_undef_removes_raz_definition_contract
+14/52 Test #14: razc_undef_removes_raz_definition_contract ..........   Passed    0.01 sec
+      Start 15: razc_no_implicit_core_emit
+15/52 Test #15: razc_no_implicit_core_emit ..........................   Passed    0.00 sec
+      Start 16: razc_no_implicit_core_include_contract
+16/52 Test #16: razc_no_implicit_core_include_contract ..............   Passed    0.01 sec
+      Start 17: razc_no_implicit_core_native_build
+17/52 Test #17: razc_no_implicit_core_native_build ..................   Passed    0.05 sec
+      Start 18: razc_no_implicit_core_native_run
+18/52 Test #18: razc_no_implicit_core_native_run ....................   Passed    0.00 sec
+      Start 19: razc_explicit_core_emit
+19/52 Test #19: razc_explicit_core_emit .............................   Passed    0.01 sec
+      Start 20: razc_explicit_core_include_contract
+20/52 Test #20: razc_explicit_core_include_contract .................   Passed    0.01 sec
+      Start 21: razc_explicit_core_native_build
+21/52 Test #21: razc_explicit_core_native_build .....................   Passed    0.29 sec
+      Start 22: razc_explicit_core_native_run
+22/52 Test #22: razc_explicit_core_native_run .......................   Passed    0.00 sec
+      Start 23: razc_explicit_native_header_emit
+23/52 Test #23: razc_explicit_native_header_emit ....................   Passed    0.00 sec
+      Start 24: razc_explicit_native_header_include_contract
+24/52 Test #24: razc_explicit_native_header_include_contract ........   Passed    0.01 sec
+      Start 25: razc_explicit_native_header_native_build
+25/52 Test #25: razc_explicit_native_header_native_build ............   Passed    0.06 sec
+      Start 26: razc_explicit_native_header_native_run
+26/52 Test #26: razc_explicit_native_header_native_run ..............   Passed    0.00 sec
+      Start 27: razc_short_circuit_guard_build
+27/52 Test #27: razc_short_circuit_guard_build ......................   Passed    0.36 sec
+      Start 28: razc_short_circuit_guard_run
+28/52 Test #28: razc_short_circuit_guard_run ........................   Passed    0.00 sec
+      Start 29: razc_module_string_comment_build
+29/52 Test #29: razc_module_string_comment_build ....................   Passed    0.35 sec
+      Start 30: razc_module_string_comment_run
+30/52 Test #30: razc_module_string_comment_run ......................   Passed    0.00 sec
+      Start 31: razc_module_import_comments_build
+31/52 Test #31: razc_module_import_comments_build ...................   Passed    0.35 sec
+      Start 32: razc_module_import_comments_run
+32/52 Test #32: razc_module_import_comments_run .....................   Passed    0.00 sec
+      Start 33: razc_module_nested_comments_build
+33/52 Test #33: razc_module_nested_comments_build ...................   Passed    0.36 sec
+      Start 34: razc_module_nested_comments_run
+34/52 Test #34: razc_module_nested_comments_run .....................   Passed    0.00 sec
+      Start 35: razc_module_multiple_imports_build
+35/52 Test #35: razc_module_multiple_imports_build ..................   Passed    0.36 sec
+      Start 36: razc_module_multiple_imports_run
+36/52 Test #36: razc_module_multiple_imports_run ....................   Passed    0.00 sec
+      Start 37: razc_module_cycle_diagnostic
+37/52 Test #37: razc_module_cycle_diagnostic ........................   Passed    0.01 sec
+      Start 38: razc_module_missing_diagnostic
+38/52 Test #38: razc_module_missing_diagnostic ......................   Passed    0.01 sec
+      Start 39: razc_module_unclosed_comment_diagnostic
+39/52 Test #39: razc_module_unclosed_comment_diagnostic .............   Passed    0.01 sec
+      Start 40: razc_target_metadata_build
+40/52 Test #40: razc_target_metadata_build ..........................   Passed    0.40 sec
+      Start 41: razc_target_metadata_run
+41/52 Test #41: razc_target_metadata_run ............................   Passed    0.00 sec
+      Start 42: razc_rejects_reserved_target_override
+42/52 Test #42: razc_rejects_reserved_target_override ...............   Passed    0.01 sec
+      Start 43: razc_unused_string_build_definition_emit
+43/52 Test #43: razc_unused_string_build_definition_emit ............   Passed    0.01 sec
+      Start 44: razc_unused_string_build_definition_has_no_header
+44/52 Test #44: razc_unused_string_build_definition_has_no_header ...   Passed    0.01 sec
+      Start 45: razc_macro_basic_build
+45/52 Test #45: razc_macro_basic_build ..............................   Passed    0.38 sec
+      Start 46: razc_macro_basic_run
+46/52 Test #46: razc_macro_basic_run ................................   Passed    0.00 sec
+      Start 47: razc_macro_token_safety_build
+47/52 Test #47: razc_macro_token_safety_build .......................   Passed    0.36 sec
+      Start 48: razc_macro_token_safety_run
+48/52 Test #48: razc_macro_token_safety_run .........................   Passed    0.00 sec
+      Start 49: razc_unknown_function_is_not_treated_as_define
+49/52 Test #49: razc_unknown_function_is_not_treated_as_define ......   Passed    0.01 sec
+      Start 50: razc_macro_bad_arity_diagnostic
+50/52 Test #50: razc_macro_bad_arity_diagnostic .....................   Passed    0.01 sec
+      Start 51: razc_macro_duplicate_diagnostic
+51/52 Test #51: razc_macro_duplicate_diagnostic .....................   Passed    0.01 sec
+      Start 52: razc_macro_recursion_diagnostic
+52/52 Test #52: razc_macro_recursion_diagnostic .....................   Passed    0.01 sec
+
+100% tests passed out of 52
+
+Total Test time (real) =   4.64 sec
+make test-gen2
+make[1]: Entering directory '/home/clever/Desktop/mrb/raz-bootstrap'
+node scripts/check-gen2-source.mjs
+[gen2-source] modular layout, short-circuit RIR, C++ name mangling, immutable Raz metadata, native-call API, stdlib modules, bootstrap contract, and entry-relative includes passed
+node scripts/test-gen2-fast.mjs
+[gen2-fast] CLI, native headers, module resolver, std.io, C++ output, relative includes, and diagnostics passed
+node scripts/test-gen2-resolver-fast.mjs
+[gen2-resolver-fast] module resolution, lexical include handling, std.io writes, missing modules and cycles passed
+node scripts/test-gen2-io-native-fast.mjs
+[gen2-io-fast] generic process arguments and native file-write success/failure passed
+node scripts/test-gen2-env-native-fast.mjs
+[gen2-env-fast] environment lookup, existence checks, OS and architecture metadata passed
+node scripts/test-gen2-driver-fast.mjs
+[gen2-driver-fast] CLI arguments, version/help, paths, and diagnostics passed
+node scripts/test-gen2-bootstrap-contract.mjs
+[gen2-bootstrap-contract] Gen1 syntax adapter and explicit include validation passed
+node test/gen2/run.mjs
+[PASS] arithmetic-control: generated C++ 2539 bytes/128 lines, native exit=29
+[PASS] struct-ref: generated C++ 1222 bytes/58 lines, native exit=0
+[PASS] short-circuit: generated C++ 1803 bytes/96 lines, native exit=0
+[PASS] text-module: generated C++ 2254 bytes/102 lines, native exit=0
+[PASS] containers: generated C++ 2118 bytes/100 lines, native exit=0
+[PASS] globals: generated C++ 1688 bytes/89 lines, native exit=0
+[PASS] local-scopes: generated C++ 1569 bytes/78 lines, native exit=0
+[PASS] native-call: generated C++ 824 bytes/40 lines, native exit=0
+[PASS] define-macro: generated C++ 1225 bytes/64 lines, native exit=0
+[PASS] unsafe-char-pointer: generated C++ 851 bytes/43 lines, native exit=0
+[PASS] primitive-types: generated C++ 1322 bytes/67 lines, native exit=0
+[PASS] negative/type-mismatch: razc: compilation failed
+[PASS] negative/unresolved-module: razc: source/module resolution failed
+[PASS] negative/unsupported-pointer-type: razc: compilation failed
+[gen2-deep] 14/14 passed; generated C++ total=17415 bytes; C++ optimization=-O2
+[gen2-deep] inspectable generated C++: /home/clever/Desktop/mrb/raz-bootstrap/compiler/razc/build/deep-test
+make[1]: Leaving directory '/home/clever/Desktop/mrb/raz-bootstrap'
+node tests/run-tests.mjs --backend
+[PASS] arithmetic (exit=207)
+[PASS] loop (exit=120)
+[PASS] nested-lvalue (exit=9)
+[PASS] struct (exit=25)
+[PASS] list-generic (exit=32)
+[PASS] short-circuit (exit=0)
+[PASS] string (exit=9)
+[PASS] ref-list-mutation (exit=3)
+[PASS] ref-struct (exit=41)
+[PASS] configurable-syntax (exit=7)
+[PASS] native-frontend (frontend RIR=1936 bytes)
+[PASS] raz-native-cpp-backend (RIR=759 bytes; C++=1278 bytes; exit=46)
+[PASS] rir-verifier (RIR-1 OK; functions=2)
+[PASS] type-error (expected semantic failure)
+[PASS] constructor-type-error (expected semantic failure)
+
+passed=15 failed=0
