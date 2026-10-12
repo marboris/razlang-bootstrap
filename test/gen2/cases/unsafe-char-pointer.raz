@@ -1,0 +1,7 @@
+unsafe {
+    let text: char* = nullptr;
+    if (text == nullptr) {
+        return 0;
+    }
+}
+return 1;

@@ -1,0 +1,12 @@
+struct class {
+    switch: i64;
+}
+
+function increment(box: Ref<class>, by: i64) -> i64 {
+    box.switch = box.switch + by;
+    return box.switch;
+}
+
+let object: class = new class();
+object.switch = 40;
+return increment(object, 2) - 42;

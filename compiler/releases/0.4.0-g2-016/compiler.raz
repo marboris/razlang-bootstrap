@@ -1,0 +1,19 @@
+// Canonical Gen2 compiler entry point.
+// Keep implementation modular; the frozen Gen1 bootstrap builder creates a temporary flat bundle.
+include "src/model/ast.raz";
+include "src/core/lexer.raz";
+include "src/core/parser.raz";
+include "src/core/text.raz";
+include "src/source/includes.raz";
+include "src/source/modules.raz";
+include "src/source/macros.raz";
+include "src/validation/semantics.raz";
+include "src/validation/lowering.raz";
+include "src/validation/rir.raz";
+include "src/core/rir.raz";
+include "src/targets/cpp17/model.raz";
+include "src/targets/cpp17/rir_parser.raz";
+include "src/targets/cpp17/types.raz";
+include "src/targets/cpp17/emitter.raz";
+include "src/targets/cpp17/validate.raz";
+include "src/driver/main.raz";

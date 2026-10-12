@@ -1,0 +1,7 @@
+let ratio: f64 = 1.5;
+let letter: char = 'A';
+let ready: bool = ratio > 1.0 && letter == 'A';
+if (ready) {
+    return 0;
+}
+return 1;

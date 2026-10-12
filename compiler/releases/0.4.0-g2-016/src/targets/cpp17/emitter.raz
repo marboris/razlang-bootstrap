@@ -1,0 +1,242 @@
+function cpp17_emitLine(state: Ref<BackendState>, line: string) {
+    push(state.lines, line);
+}
+
+function resetLines(state: Ref<BackendState>) {
+    state.lines = [];
+}
+
+function cppLiteral(rest: string, type: string) -> string {
+    if (type == "string") return "std::string(" + rest + ")";
+    if (type == "bool") return rest;
+    // The lexer stores character literals as numeric code points. Emitting
+    // that decimal text between single quotes would create a multi-character
+    // C++ literal (e.g. '65'), not the character A. Preserve the value safely.
+    if (type == "char") return "static_cast<char>(" + rest + ")";
+    return rest;
+}
+
+// Native `name!(...)` expressions are emitted inline in RIR rather than as a
+// normal `call` instruction. Parse their argument list structurally so every
+// temp is resolved through cppArgs/cppValue (including Ref<T> aliases) instead
+// of leaking a raw `%tN` token into the generated C++.
+function cppInlineCall(module: Ref<BackendModule>, state: Ref<BackendState>, expression: string) -> string {
+    let call: string = trim(expression);
+    let open: i64 = cpp17_findText(call, "(", 0);
+    if (open < 0 || !endsWith(call, ")")) return cppValue(state, call);
+    let callee: string = trim(slice(call, 0, open));
+    let args: string = slice(call, open + 1, length(call) - 1);
+    return cppCallName(module, callee) + "(" + cppArgs(state, args) + ")";
+}
+
+function emitFunction(module: Ref<BackendModule>, f: Ref<FunctionMeta>, state: Ref<BackendState>) {
+    collectDeclarations(module, f, state);
+    let params: string = "";
+    let i: i64 = 0;
+    while (i < listLength(f.params)) {
+        if (i > 0) params = params + ", ";
+        params = params + cppType(f.paramTypes[i]) + " " + cppVariableName(f.params[i]);
+        i = i + 1;
+    }
+
+    cpp17_emitLine(state, cppType(f.returnType) + " " + cppFunctionName(f.name) + "(" + params + ") {");
+    // Temps are declared before local-auto storage so decltype(ttN) is always
+    // available. Runtime initialization remains at the original store site.
+    i = 0;
+    while (i < listLength(state.temps)) {
+        if (state.tempTypes[i] != "" && !cpp17_starts(state.tempTypes[i], "Ref<")) cpp17_emitLine(state, "    " + cppType(state.tempTypes[i]) + " " + state.temps[i] + "{};");
+        i = i + 1;
+    }
+    i = 0;
+    while (i < listLength(state.locals)) {
+        let variable: string = cppVariableName(state.locals[i]);
+        let declaration: string = "";
+        if (state.localAutos[i] && state.localInitValues[i] != "") {
+            let initializerName: string = valueName(state.localInitValues[i]);
+            let initializerType: string = tempType(state, initializerName);
+            if (!cpp17_starts(initializerType, "Ref<")) declaration = "auto " + variable + " = decltype(" + initializerName + "){};";
+            else declaration = cppType(state.localTypes[i]) + " " + variable + "{};";
+        } else declaration = cppType(state.localTypes[i]) + " " + variable + "{};";
+        cpp17_emitLine(state, "    " + declaration);
+        i = i + 1;
+    }
+    cpp17_emitLine(state, "");
+
+    i = 0;
+    while (i < listLength(f.instructions)) {
+        let ins: RirInstruction = f.instructions[i];
+        if (ins.opcode == "label") {
+            if (ins.name == "entry") cpp17_emitLine(state, "entry:;");
+            else cpp17_emitLine(state, "    " + ins.name + ":;");
+        } else if (ins.opcode == "local" || ins.opcode == "local-auto") {
+            // Local storage is declared in the function preamble.
+        } else if (ins.opcode == "store" || ins.opcode == "store_ref") {
+            cpp17_emitLine(state, "    " + cppValue(state, ins.operands[0]) + " = " + cppValue(state, ins.operands[1]) + ";");
+        } else if (ins.opcode == "jump") {
+            cpp17_emitLine(state, "    goto " + ins.name + ";");
+        } else if (ins.opcode == "branch") {
+            cpp17_emitLine(state, "    if (" + cppValue(state, ins.operands[0]) + ") goto " + ins.operands[1] + "; else goto " + ins.operands[2] + ";");
+        } else if (ins.opcode == "return") {
+            if (listLength(ins.operands) == 0) cpp17_emitLine(state, "    return;");
+            else cpp17_emitLine(state, "    return " + cppInlineCall(module, state, ins.operands[0]) + ";");
+        } else if (ins.opcode == "native-call") {
+            cpp17_emitLine(state, "    " + cppInlineCall(module, state, ins.operands[0]) + ";");
+        } else if (ins.opcode == "call-statement") {
+            cpp17_emitLine(state, "    " + cppCallName(module, ins.name) + "(" + cppRirArgs(state, ins.operands) + ");");
+        } else if (ins.opcode == "field_set") {
+            let target: string = ins.operands[0];
+            let dot: i64 = cpp17_findText(target, ".", 0);
+            let cppTarget: string = target;
+            if (dot >= 0) cppTarget = cppValue(state, trim(slice(target, 0, dot))) + "." + cppFieldName(trim(slice(target, dot + 1, length(target))));
+            cpp17_emitLine(state, "    " + cppTarget + " = " + cppValue(state, ins.operands[1]) + ";");
+        } else {
+            let lhs: string = valueName(ins.result);
+            if (ins.opcode == "const") {
+                cpp17_emitLine(state, "    " + lhs + " = " + cppLiteral(ins.operands[0], ins.type) + ";");
+            } else if (ins.opcode == "load") {
+                let name: string = ins.operands[0];
+                if (cpp17_starts(tempType(state, lhs), "Ref<")) setAlias(state, lhs, cppVariableName(name));
+                else cpp17_emitLine(state, "    " + lhs + " = " + cppValue(state, name) + ";");
+            } else if (ins.opcode == "copy") {
+                cpp17_emitLine(state, "    " + lhs + " = " + cppValue(state, ins.operands[0]) + ";");
+            } else if (ins.opcode == "ref") {
+                setAlias(state, lhs, cppVariableName(ins.operands[0]));
+            } else if (ins.opcode == "ref_field") {
+                setAlias(state, lhs, cppValue(state, ins.operands[0]) + "." + cppFieldName(ins.operands[1]));
+            } else if (ins.opcode == "ref_index") {
+                setAlias(state, lhs, cppValue(state, ins.operands[0]) + "[" + cppValue(state, ins.operands[1]) + "]");
+            } else if (ins.opcode == "new") {
+                cpp17_emitLine(state, "    " + lhs + " = " + cppType(ins.type) + "{};");
+            } else if (ins.opcode == "field") {
+                cpp17_emitLine(state, "    " + lhs + " = " + cppValue(state, ins.operands[0]) + "." + cppFieldName(ins.operands[1]) + ";");
+            } else if (ins.opcode == "index") {
+                cpp17_emitLine(state, "    " + lhs + " = " + cppValue(state, ins.operands[0]) + "[" + cppValue(state, ins.operands[1]) + "];" );
+            } else if (ins.opcode == "call-result") {
+                cpp17_emitLine(state, "    " + lhs + " = " + cppCallName(module, ins.name) + "(" + cppRirArgs(state, ins.operands) + ");");
+            } else if (ins.opcode == "list") {
+                cpp17_emitLine(state, "    " + lhs + " = " + cppType(tempType(state, lhs)) + "{" + cppRirArgs(state, ins.operands) + "};");
+            } else if (ins.opcode == "neg") {
+                cpp17_emitLine(state, "    " + lhs + " = -" + cppValue(state, ins.operands[0]) + ";");
+            } else if (ins.opcode == "not") {
+                cpp17_emitLine(state, "    " + lhs + " = !" + cppValue(state, ins.operands[0]) + ";");
+            } else if (ins.opcode == "pos") {
+                cpp17_emitLine(state, "    " + lhs + " = +" + cppValue(state, ins.operands[0]) + ";");
+            } else {
+                let symbol: string = "";
+                if (ins.opcode == "add") symbol = "+";
+                else if (ins.opcode == "sub") symbol = "-";
+                else if (ins.opcode == "mul") symbol = "*";
+                else if (ins.opcode == "div") symbol = "/";
+                else if (ins.opcode == "mod") symbol = "%";
+                else if (ins.opcode == "eq") symbol = "==";
+                else if (ins.opcode == "ne") symbol = "!=";
+                else if (ins.opcode == "lt") symbol = "<";
+                else if (ins.opcode == "le") symbol = "<=";
+                else if (ins.opcode == "gt") symbol = ">";
+                else if (ins.opcode == "ge") symbol = ">=";
+                else if (ins.opcode == "and") symbol = "&&";
+                else if (ins.opcode == "or") symbol = "||";
+                if (symbol != "") cpp17_emitLine(state, "    " + lhs + " = " + cppValue(state, ins.operands[0]) + " " + symbol + " " + cppValue(state, ins.operands[1]) + ";");
+            }
+        }
+        i = i + 1;
+    }
+    cpp17_emitLine(state, "}");
+    cpp17_emitLine(state, "");
+}
+
+function generate(rir: string) -> string {
+    let module: BackendModule = parseRir(rir);
+    if (module.parseError != "") {
+        print("razc: C++ backend rejected RIR: " + module.parseError);
+        return "";
+    }
+    let state: BackendState = new BackendState();
+    state.lines = [];
+
+    // This is a compiler primitive mapping, not a library include. GCC and
+    // Clang expose the exact underlying signed 64-bit type as a predefined
+    // macro, allowing programs with no `use` directives to remain header-free.
+    cpp17_emitLine(state, "using raz_i64 = __INT64_TYPE__;");
+    cpp17_emitLine(state, "static_assert(sizeof(raz_i64) == 8, \"Raz i64 requires a 64-bit target type\");");
+    cpp17_emitLine(state, "");
+
+    let i: i64 = 0;
+    while (i < listLength(module.uses)) {
+        let u: string = module.uses[i];
+        if (cpp17_starts(u, "quoted:")) {
+            let header: string = slice(u, 7, length(u));
+            if (cpp17_findText(header, "/", 0) < 0 && cpp17_findText(header, "\\", 0) < 0 && cpp17_findText(header, ".", 0) < 0) cpp17_emitLine(state, "#include <" + header + ">");
+            else cpp17_emitLine(state, "#include \"" + header + "\"");
+        }
+        i = i + 1;
+    }
+    // Generic process context is part of the generated program ABI. Libraries
+    // may read it, but the backend does not know or care which library uses it.
+    cpp17_emitLine(state, "namespace raz_internal_process { int argc = 0; char** argv = nullptr; }");
+    cpp17_emitLine(state, "");
+
+    i = 0;
+    while (i < listLength(module.structs)) {
+        let st: StructMeta = module.structs[i];
+        cpp17_emitLine(state, "struct " + cppStructName(st.name) + " {");
+        let j: i64 = 0;
+        while (j < listLength(st.fields)) {
+            cpp17_emitLine(state, "    " + cppType(st.fieldTypes[j]) + " " + cppFieldName(st.fields[j]) + "{};");
+            j = j + 1;
+        }
+        cpp17_emitLine(state, "};");
+        cpp17_emitLine(state, "");
+        i = i + 1;
+    }
+
+    // Declare every function before globals because a const global may use a
+    // generated runtime initializer such as osName().
+    i = 0;
+    while (i < listLength(module.functions)) {
+        let f: FunctionMeta = module.functions[i];
+        let params: string = "";
+        let j: i64 = 0;
+        while (j < listLength(f.params)) {
+            if (j > 0) params = params + ", ";
+            params = params + cppType(f.paramTypes[j]) + " " + cppVariableName(f.params[j]);
+            j = j + 1;
+        }
+        cpp17_emitLine(state, cppType(f.returnType) + " " + cppFunctionName(f.name) + "(" + params + ");");
+        i = i + 1;
+    }
+    cpp17_emitLine(state, "");
+
+    i = 0;
+    while (i < listLength(module.globals)) {
+        let g: GlobalMeta = module.globals[i];
+        let variable: string = cppVariableName(g.name);
+        if (g.isConst && g.isAuto) cpp17_emitLine(state, "const auto " + variable + " = " + cppFunctionName(g.initFunction) + "();");
+        else if (g.isConst) cpp17_emitLine(state, "const " + cppType(g.type) + " " + variable + " = " + cppFunctionName(g.initFunction) + "();");
+        else if (g.isAuto && g.initFunction != "") cpp17_emitLine(state, "auto " + variable + " = decltype(" + cppFunctionName(g.initFunction) + "()){};");
+        else cpp17_emitLine(state, cppType(g.type) + " " + variable + "{};");
+        i = i + 1;
+    }
+    if (listLength(module.globals) > 0) cpp17_emitLine(state, "");
+
+    i = 0;
+    while (i < listLength(module.functions)) {
+        emitFunction(module, module.functions[i], state);
+        i = i + 1;
+    }
+
+    cpp17_emitLine(state, "int main(int argc, char** argv) {");
+    cpp17_emitLine(state, "    raz_internal_process::argc = argc;");
+    cpp17_emitLine(state, "    raz_internal_process::argv = argv;");
+    cpp17_emitLine(state, "    return static_cast<int>(" + cppFunctionName("main") + "());");
+    cpp17_emitLine(state, "}");
+
+    let outputChunks: List<string> = [];
+    i = 0;
+    while (i < listLength(state.lines)) {
+        push(outputChunks, state.lines[i] + "\n");
+        i = i + 1;
+    }
+    return joinTextChunks(outputChunks);
+}
+

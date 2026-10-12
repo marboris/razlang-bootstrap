@@ -1,0 +1,7 @@
+use "native_api.hpp";
+
+function invokeNative(value: i64) -> i64 {
+    return native_add!(value, 2);
+}
+
+return invokeNative(40) - 42;

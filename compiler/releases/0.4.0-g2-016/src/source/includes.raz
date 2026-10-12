@@ -1,0 +1,190 @@
+function pathDir(path: string) -> string {
+    let i: i64 = length(path) - 1;
+    while (i >= 0) {
+        if (charCodeAt(path, i) == 47 || charCodeAt(path, i) == 92) return slice(path, 0, i);
+        i = i - 1;
+    }
+    return "";
+}
+
+function isPathSeparator(c: i64) -> bool {
+    return c == 47 || c == 92;
+}
+
+function dropLastIncludeSegment(values: List<string>) -> List<string> {
+    let out: List<string> = [];
+    let i: i64 = 0;
+    while (i + 1 < listLength(values)) {
+        push(out, values[i]);
+        i = i + 1;
+    }
+    return out;
+}
+
+// Lexically normalize paths so aliases such as a/./b and a/x/../b share one
+// identity for include de-duplication and cycle detection. This intentionally
+// avoids filesystem-dependent canonicalization so the compiler stays portable.
+function normalizeIncludePath(path: string) -> string {
+    let size: i64 = length(path);
+    if (size == 0) return "";
+
+    let prefix: string = "";
+    let absolute: bool = false;
+    let cursor: i64 = 0;
+    if (isPathSeparator(charCodeAt(path, 0))) {
+        absolute = true;
+        prefix = "/";
+        cursor = 1;
+        if (cursor < size && isPathSeparator(charCodeAt(path, cursor))) {
+            prefix = "//";
+            while (cursor < size && isPathSeparator(charCodeAt(path, cursor))) cursor = cursor + 1;
+        }
+    } else if (size >= 2 && isAlpha(charCodeAt(path, 0)) && charCodeAt(path, 1) == 58) {
+        prefix = slice(path, 0, 2);
+        cursor = 2;
+        if (cursor < size && isPathSeparator(charCodeAt(path, cursor))) {
+            absolute = true;
+            prefix = prefix + "/";
+            while (cursor < size && isPathSeparator(charCodeAt(path, cursor))) cursor = cursor + 1;
+        }
+    }
+
+    let segments: List<string> = [];
+    while (cursor < size) {
+        let end: i64 = cursor;
+        while (end < size && !isPathSeparator(charCodeAt(path, end))) end = end + 1;
+        let segment: string = slice(path, cursor, end);
+        if (segment != "" && segment != ".") {
+            if (segment == "..") {
+                let segmentCount: i64 = listLength(segments);
+                let canCollapse: bool = false;
+                if (segmentCount > 0) {
+                    let lastSegment: string = segments[segmentCount - 1];
+                    canCollapse = lastSegment != "..";
+                }
+                if (canCollapse) segments = dropLastIncludeSegment(segments);
+                else if (!absolute) push(segments, segment);
+            } else {
+                push(segments, segment);
+            }
+        }
+        cursor = end;
+        while (cursor < size && isPathSeparator(charCodeAt(path, cursor))) cursor = cursor + 1;
+    }
+
+    let normalized: string = prefix;
+    let i: i64 = 0;
+    while (i < listLength(segments)) {
+        let needsSeparator: bool = false;
+        if (normalized != "") {
+            let lastNormalized: i64 = charCodeAt(normalized, length(normalized) - 1);
+            needsSeparator = lastNormalized != 47;
+        }
+        if (needsSeparator) normalized = normalized + "/";
+        normalized = normalized + segments[i];
+        i = i + 1;
+    }
+    if (normalized == "") return ".";
+    return normalized;
+}
+
+function joinPath(base: string, child: string) -> string {
+    if (child == "") return base;
+    if (isPathSeparator(charCodeAt(child, 0))) return child;
+    if (length(child) >= 2 && isAlpha(charCodeAt(child, 0)) && charCodeAt(child, 1) == 58) return child;
+    if (base == "") return child;
+    return base + "/" + child;
+}
+
+function expandIncludes(source: string, filePath: string, seen: Ref<List<string>>, active: string) -> string {
+    let canonicalFilePath: string = normalizeIncludePath(filePath);
+    let marker: string = "|" + canonicalFilePath + "|";
+    if (findText(active, marker, 0) >= 0) {
+        print("include-error: include cycle detected at " + canonicalFilePath);
+        return "";
+    }
+    if (containsText(seen, canonicalFilePath)) return "";
+    push(seen, canonicalFilePath);
+    let nextActive: string = active + marker;
+
+    let out: string = "";
+    let cursor: i64 = 0;
+    let scan: i64 = 0;
+    while (scan < length(source)) {
+        let nextScan: i64 = scan + 1;
+
+        // Ignore directive-like text inside line and block comments.
+        if (charCodeAt(source, scan) == 47 && scan + 1 < length(source) && charCodeAt(source, scan + 1) == 47) {
+            nextScan = scan + 2;
+            while (nextScan < length(source) && charCodeAt(source, nextScan) != 10) nextScan = nextScan + 1;
+        } else if (charCodeAt(source, scan) == 47 && scan + 1 < length(source) && charCodeAt(source, scan + 1) == 42) {
+            nextScan = scan + 2;
+            while (nextScan + 1 < length(source) && !(charCodeAt(source, nextScan) == 42 && charCodeAt(source, nextScan + 1) == 47)) {
+                nextScan = nextScan + 1;
+            }
+            if (nextScan + 1 < length(source)) nextScan = nextScan + 2;
+            else nextScan = length(source);
+        } else if (charCodeAt(source, scan) == 34 || charCodeAt(source, scan) == 39) {
+            let quote: i64 = charCodeAt(source, scan);
+            let escaped: bool = false;
+            nextScan = scan + 1;
+            while (nextScan < length(source) && (escaped || charCodeAt(source, nextScan) != quote)) {
+                if (escaped) escaped = false;
+                else if (charCodeAt(source, nextScan) == 92) escaped = true;
+                nextScan = nextScan + 1;
+            }
+            if (nextScan < length(source)) nextScan = nextScan + 1;
+        } else {
+            let tokenOk: bool = scan + 7 <= length(source) && slice(source, scan, scan + 7) == "include";
+            // Keep potentially invalid indices out of boolean expressions. This
+            // also makes the bootstrap source safe with older eager emitters.
+            let beforeOk: bool = true;
+            if (scan > 0) beforeOk = !isAlphaNum(charCodeAt(source, scan - 1));
+            let afterOk: bool = true;
+            if (scan + 7 < length(source)) afterOk = !isAlphaNum(charCodeAt(source, scan + 7));
+            if (tokenOk && beforeOk && afterOk) {
+                let q: i64 = scan + 7;
+                while (q < length(source) && isSpace(charCodeAt(source, q))) q = q + 1;
+                if (q < length(source) && charCodeAt(source, q) == 34) {
+                    let endQuote: i64 = q + 1;
+                    let pathEscaped: bool = false;
+                    while (endQuote < length(source) && (pathEscaped || charCodeAt(source, endQuote) != 34)) {
+                        if (pathEscaped) pathEscaped = false;
+                        else if (charCodeAt(source, endQuote) == 92) pathEscaped = true;
+                        endQuote = endQuote + 1;
+                    }
+                    if (endQuote < length(source)) {
+                        let semi: i64 = endQuote + 1;
+                        while (semi < length(source) && isSpace(charCodeAt(source, semi))) semi = semi + 1;
+                        if (semi < length(source) && charCodeAt(source, semi) == 59) {
+                            let includePath: string = slice(source, q + 1, endQuote);
+                            let resolved: string = normalizeIncludePath(joinPath(pathDir(canonicalFilePath), includePath));
+                            let included: string = "";
+                            let resolvedMarker: string = "|" + resolved + "|";
+                            if (findText(nextActive, resolvedMarker, 0) >= 0) {
+                                print("include-error: include cycle detected at " + resolved);
+                                return "";
+                            }
+                            if (!containsText(seen, resolved)) {
+                                included = readFile(resolved);
+                                if (included == "") {
+                                    print("include-error: cannot read " + resolved);
+                                    return "";
+                                }
+                                included = expandIncludes(included, resolved, seen, nextActive);
+                                if (included == "") return "";
+                            }
+                            out = out + slice(source, cursor, scan);
+                            out = out + included;
+                            cursor = semi + 1;
+                            nextScan = cursor;
+                        }
+                    }
+                }
+            }
+        }
+        scan = nextScan;
+    }
+    out = out + slice(source, cursor, length(source));
+    return out;
+}

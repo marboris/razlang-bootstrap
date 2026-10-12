@@ -1,0 +1,19 @@
+function weighted(a: i64, b: i64) -> i64 {
+    return a + b * 3 - 4 / 2;
+}
+
+function sumTo(n: i64) -> i64 {
+    let i: i64 = 0;
+    let total: i64 = 0;
+    while (i <= n) {
+        total = total + i;
+        i = i + 1;
+    }
+    return total;
+}
+
+if (weighted(10, 5) == 23 && sumTo(3) == 6) {
+    return 29;
+} else {
+    return 1;
+}

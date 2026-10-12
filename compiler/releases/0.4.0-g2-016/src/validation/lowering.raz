@@ -1,0 +1,40 @@
+// Target capability checks. Keep these checks before RIR emission so an AST
+// node is never silently translated to an operation the C++17 backend cannot lower.
+
+function gen2SupportsBinaryOperator(op: string) -> bool {
+    return op == "+" || op == "-" || op == "*" || op == "/" || op == "%" ||
+        op == "==" || op == "!=" || op == "<" || op == "<=" || op == ">" ||
+        op == ">=" || op == "&&" || op == "||";
+}
+
+function gen2SupportsUnaryOperator(op: string) -> bool {
+    return op == "+" || op == "-" || op == "!";
+}
+
+function validateCpp17Lowering(program: Ref<Program>) -> string {
+    let i: i64 = 0;
+    while (i < listLength(program.exprs)) {
+        let e: Expr = program.exprs[i];
+        if (e.kind == 6 && !gen2SupportsBinaryOperator(e.op)) {
+            return "C++17 lowering does not support binary operator '" + e.op + "'";
+        }
+        if (e.kind == 7 && !gen2SupportsUnaryOperator(e.op)) {
+            return "C++17 lowering does not support unary operator '" + e.op + "'";
+        }
+        if (e.kind < 1 || e.kind > 14) {
+            return "C++17 lowering does not support expression kind " + int_to_string(e.kind);
+        }
+        i = i + 1;
+    }
+
+    i = 0;
+    while (i < listLength(program.stmts)) {
+        let s: Stmt = program.stmts[i];
+        if (s.kind < 1 || s.kind > 9) {
+            return "C++17 lowering does not support statement kind " + int_to_string(s.kind);
+        }
+        i = i + 1;
+    }
+
+    return "";
+}

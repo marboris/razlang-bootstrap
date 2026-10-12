@@ -11,8 +11,8 @@ const GEN2 = path.join(ROOT, 'compiler', 'razc');
 const STDLIB = path.join(ROOT, 'library', 'raz');
 const CANDIDATE = process.env.RAZC ?? path.join(GEN2, 'build', process.platform === 'win32' ? 'razc-candidate.exe' : 'razc-candidate');
 const WORK = path.join(GEN2, 'build', 'resolver-fast');
-const cppMangle = (prefix, name) => `${prefix}_n${name.length}_${[...name].map((c) => c.charCodeAt(0)).join('_')}`;
-const cppFunction = (name) => cppMangle('raz_fn', name);
+const cppMangle = (prefix, name) => `${prefix}_${name}`;
+const cppFunction = (name) => cppMangle('rz_f', name);
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { cwd: options.cwd ?? ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
@@ -56,7 +56,7 @@ expect((code.match(new RegExp(`raz_i64 ${cppFunction('answer')}\\(\\) \\{`, 'g')
 expect((code.match(new RegExp(`raz_i64 ${cppFunction('wrapped')}\\(\\) \\{`, 'g')) ?? []).length === 1, 'wrapper module missing or duplicated');
 expect(code.includes('#include <cstddef>'), 'native use header was not preserved');
 expect(!code.includes('use demo.wrapper;') && !code.includes('use demo.math;'), 'Raz module directive leaked into C++ output');
-expect(code.includes(`raz_i64 ${cppFunction('main')}() {`) && !code.includes('raz_fn_main') && !code.includes('raz_main()'), 'main must use the general opaque Raz function mangling rule');
+expect(code.includes(`raz_i64 ${cppFunction('main')}() {`) && !code.includes('raz_fn_main') && !code.includes('raz_main()'), 'main must use the general readable Raz function naming rule');
 const moduleExe = path.join(WORK, 'module-case');
 run(process.env.CXX ?? 'c++', ['-std=c++17', '-O0', output, '-I', STDLIB, '-o', moduleExe], { status: 0 });
 run(moduleExe, [], { status: 42 });

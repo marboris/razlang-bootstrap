@@ -1,0 +1,2 @@
+let count: i64 = "wrong";
+return count;

@@ -1,0 +1,7 @@
+unsafe {
+    let pointer: i64* = nullptr;
+    if (pointer == nullptr) {
+        return 0;
+    }
+}
+return 1;

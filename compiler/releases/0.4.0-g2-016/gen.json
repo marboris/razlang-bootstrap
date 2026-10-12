@@ -1,0 +1,38 @@
+{
+  "generation": 2,
+  "language": "raz-1.0 subset (Gen1 bootstrap compatible)",
+  "status": "frozen-release-snapshot",
+  "compiled_by": "gen2-selfhost-stage3-fixed-point",
+  "source": "src/",
+  "final_file": "compiler.raz",
+  "binary": "razc",
+  "checksum": "razc.sha256",
+  "build_dir": "build/",
+  "milestone": "G2-016: readable C++ identifiers, deep emitted-C++ tests, and three-stage self-host fixed-point validation",
+  "operational_role": "Unfrozen development compiler; module resolution runs in Raz; native GNU-like driver and CMake/Ninja/CTest workflow",
+  "bootstrap_contract": "Frozen Gen1 compiles a temporary flattened bundle assembled from modular Gen2 sources; the canonical compiler.raz uses Gen2 include directives.",
+  "source_modules": [
+    "src/model/",
+    "src/core/",
+    "src/source/",
+    "src/source/macros.raz",
+    "src/validation/",
+    "src/targets/cpp17/",
+    "src/driver/"
+  ],
+  "active_binary_version": "0.4.0-g2-015",
+  "active_binary_sha256": "75544cd93d44fa28a55f20dc4b0a8dcbb43baf3da539a8b265d37f7d9d8892c6",
+  "release_history": [
+    {
+      "version": "0.4.0-g2-014",
+      "sha256": "44a21af2f67da662a1c8a01345535aa6d4dfd0dcd8ed72d22413115ba5c5e6b6",
+      "release": "compiler/releases/0.4.0-g2-014/"
+    },
+    {
+      "version": "0.4.0-g2-015",
+      "sha256": "75544cd93d44fa28a55f20dc4b0a8dcbb43baf3da539a8b265d37f7d9d8892c6",
+      "release": "compiler/releases/0.4.0-g2-015/"
+    }
+  ],
+  "release_version": "0.4.0-g2-016"
+}

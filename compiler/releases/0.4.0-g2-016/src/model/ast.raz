@@ -1,0 +1,119 @@
+// Native frontend, written in Raz.
+//
+// Important implementation rule:
+// Compiler state is explicit and passed as Ref<T>. There is no JS/OOP state.
+// Mutable lists use push() so compiler state is updated without copying the full list.
+//
+// Compiler data model shared by the native Raz frontend and C++17 target.
+//
+// Pipeline:
+//   source -> lexer/parser -> AST -> semantic analysis/name normalization
+//          -> target capability validation -> RIR-1 -> RIR verification
+//          -> C++17 lowering -> generated-C++ structural validation
+//
+// RIR-1 is currently serialized as text between the frontend and target parser.
+// The external C++ compiler remains responsible for full C++ grammar/type checking.
+
+struct Token {
+    kind: i64;
+    text: string;
+    pos: i64;
+}
+
+struct Expr {
+    kind: i64;
+    op: string;
+    text: string;
+    left: i64;
+    right: i64;
+    valueText: string;
+    args: List<i64>;
+}
+
+struct Stmt {
+    kind: i64;
+    name: string;
+    type: string;
+    isTypeExplicit: bool;
+    isConst: bool;
+    expr: i64;
+    left: i64;
+    right: i64;
+    thenStmts: List<i64>;
+    elseStmts: List<i64>;
+    body: List<i64>;
+}
+
+struct Param {
+    name: string;
+    type: string;
+}
+
+struct Field {
+    name: string;
+    type: string;
+}
+
+struct FunctionDef {
+    name: string;
+    params: List<Param>;
+    returnType: string;
+    body: List<i64>;
+}
+
+struct StructDef {
+    name: string;
+    fields: List<Field>;
+}
+
+struct Program {
+    exprs: List<Expr>;
+    stmts: List<Stmt>;
+    topStmts: List<i64>;
+    uses: List<string>;
+    functions: List<FunctionDef>;
+    structs: List<StructDef>;
+    valid: bool;
+    error: string;
+}
+
+struct ParserState {
+    tokens: List<Token>;
+    pos: i64;
+    exprs: List<Expr>;
+    stmts: List<Stmt>;
+    functions: List<FunctionDef>;
+    structs: List<StructDef>;
+    lastTokenKind: i64;
+    lastTokenText: string;
+    lastExpr: i64;
+    lastStmt: i64;
+    lastList: List<i64>;
+    lastArgs: List<i64>;
+    lastType: string;
+    lastFunction: FunctionDef;
+    lastStruct: StructDef;
+    blockDepth: i64;
+    parseError: bool;
+    parseErrorText: string;
+}
+
+struct EmitState {
+    lines: List<string>;
+    temp: i64;
+    label: i64;
+    lastValue: string;
+}
+
+struct Binding {
+    name: string;
+    type: string;
+    isConst: bool;
+}
+
+struct SemanticState {
+    ok: bool;
+    message: string;
+    unsafeDepth: i64;
+}
+

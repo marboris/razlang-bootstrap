@@ -43,8 +43,8 @@ for (const match of lexer.matchAll(/if \(word == "([^"]+)"\) return (\d+);/g)) {
     throw new Error(`LANGUAGE-MAP.md is missing lexer keyword ${keyword} (token ${token})`);
   }
 }
-if (!languageMap.includes('M(prefix, name) = prefix + "_n"') || !languageMap.includes('## ۶. فهرست کامل keywordهای lexer')) {
-  throw new Error('LANGUAGE-MAP.md must document opaque name mangling and the complete keyword table');
+if (!languageMap.includes('rz_f_') || !languageMap.includes('rz_v_') || !languageMap.includes('rz_t_') || !languageMap.includes('rz_m_') || !languageMap.includes('## ۶. فهرست کامل keywordهای lexer')) {
+  throw new Error('LANGUAGE-MAP.md must document readable C++ symbol prefixes and the complete keyword table');
 }
 if (meta.generation !== 2 || meta.status === 'frozen') throw new Error('Gen2 metadata must describe an unfrozen generation 2');
 if (compilerEntry.length > 4096) throw new Error('compiler.raz must remain a small canonical include entry, not a generated monolithic bundle');
@@ -123,13 +123,15 @@ if (!rirEmitter.includes('global-const ') || !rirEmitter.includes('function " + 
 if (!targetParser.includes('starts(line, "global-const ")') || !targetEmitter.includes('if (g.isConst) cpp17_emitLine(state, "const "')) throw new Error('C++ target must lower RIR const globals to const storage');
 if (!semantics.includes('function names beginning with raz_global_init_ are reserved by the compiler')) throw new Error('generated global initializer function namespace must be reserved');
 if (!rirEmitter.includes('if (x.op == "&&" || x.op == "||")') || !rirEmitter.includes('branch " + left + " ? " + rhsLabel') || !rirEmitter.includes(' = copy ')) throw new Error('logical operators must lower to short-circuit control flow in RIR');
-if (!targetTypes.includes('function cppMangledName(prefix: string, name: string)') || !targetTypes.includes('int_to_string(name[i])') || !targetTypes.includes('function cppFunctionName(name: string)') || !targetTypes.includes('function cppVariableName(name: string)') || !targetTypes.includes('function cppStructName(name: string)') || !targetTypes.includes('function cppFieldName(name: string)')) throw new Error('C++ target must use deterministic opaque mangling by symbol category');
-if (targetTypes.includes('return "raz_fn_" + name') || targetTypes.includes('return "raz_v_" + name') || targetTypes.includes('return "raz_ty_" + name') || targetTypes.includes('return "raz_field_" + name')) throw new Error('C++ target must not expose raw Raz identifiers in mangled names');
+if (!targetTypes.includes('function cppMangledName(prefix: string, name: string)') || !targetTypes.includes('return prefix + "_" + name') || !targetTypes.includes('function cppFunctionName(name: string)') || !targetTypes.includes('function cppVariableName(name: string)') || !targetTypes.includes('function cppStructName(name: string)') || !targetTypes.includes('function cppFieldName(name: string)')) throw new Error('C++ target must use short, readable identifiers by symbol category');
+if (!targetTypes.includes('cppMangledName("rz_f", name)') || !targetTypes.includes('cppMangledName("rz_v", name)') || !targetTypes.includes('cppMangledName("rz_t", name)') || !targetTypes.includes('cppMangledName("rz_m", name)')) throw new Error('C++ target symbol categories must use rz_f/rz_v/rz_t/rz_m prefixes');
+if (targetTypes.includes('int_to_string(name[i])') || targetTypes.includes('_n" + int_to_string(length(name))')) throw new Error('C++ target must not encode each identifier character as decimal digits');
 if (targetTypes.includes('if (name == "main") return "raz_main"') || targetEmitter.includes('raz_main()')) throw new Error('main must not be special-cased as a user symbol in C++ output');
 if (!semantics.includes('let target: string = "raz$local$" + int_to_string(nextSymbol)') || !semantics.includes('normalizeStatementNames')) throw new Error('local names must be normalized to unique symbols before flattened RIR emission');
 if (!fs.readFileSync(path.join(ROOT, 'scripts', 'test-gen2-fast.mjs'), 'utf8').includes('duplicate-sibling-local.raz')) throw new Error('sibling-scope local collision regression test is missing');
 if (!targetParser.includes('head == "load" || head == "copy" || head == "ref"') || !targetEmitter.includes('ins.opcode == "copy"')) throw new Error('structured RIR parser and C++ target must lower copy instructions');
 if (!targetTypes.includes('function cppCallName(module: Ref<BackendModule>, name: string)')) throw new Error('C++ call naming must distinguish Raz definitions from C++ library APIs generically');
+if (!targetEmitter.includes('static_cast<char>(')) throw new Error('character literals must lower from numeric code points without C++ multi-character literals');
 if (!parser.includes('s.isTypeExplicit = true;') || !rirEmitter.includes('local-auto ') || !rirEmitter.includes('global-auto ') || !rirEmitter.includes('global-const-auto ')) throw new Error('omitted variable type annotation must be preserved in AST/RIR');
 if (!targetParser.includes('global-const-auto ') || !targetParser.includes('global-auto ') || !targetTypes.includes('state.localAutos = [];') || !targetEmitter.includes('decltype(') || !targetEmitter.includes('const auto ')) throw new Error('C++ target must lower omitted variable types through auto-based storage');
 if (!fs.readFileSync(path.join(ROOT, 'scripts', 'test-gen2-fast.mjs'), 'utf8').includes('type-elision.raz')) throw new Error('type-elision behavior regression test is missing');

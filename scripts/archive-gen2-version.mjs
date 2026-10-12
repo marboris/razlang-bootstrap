@@ -39,7 +39,7 @@ function copyTree(from, to) {
 
 const version = process.argv[2];
 if (!version || !/^\d+\.\d+\.\d+-g2-\d+$/.test(version)) {
-  fail('usage: node scripts/archive-gen2-version.mjs <semver-g2-NNN>, e.g. 0.4.0-g2-015');
+  fail('usage: node scripts/archive-gen2-version.mjs <semver-g2-NNN>, e.g. 0.4.0-g2-016');
 }
 const releaseDir = path.join(RELEASES, version);
 if (fs.existsSync(releaseDir)) fail(`release already exists and is immutable: ${releaseDir}`);

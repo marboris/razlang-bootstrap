@@ -1,0 +1,504 @@
+function emitLine(state: Ref<EmitState>, line: string) {
+    push(state.lines, line);
+}
+
+function newTemp(state: Ref<EmitState>) -> string {
+    let t: string = "%t" + int_to_string(state.temp);
+    state.temp = state.temp + 1;
+    return t;
+}
+
+function newLabel(state: Ref<EmitState>, prefix: string) -> string {
+    let t: string = prefix + int_to_string(state.label);
+    state.label = state.label + 1;
+    return t;
+}
+
+function canonicalBinary(op: string) -> string {
+    if (op == "+") return "add";
+    if (op == "-") return "sub";
+    if (op == "*") return "mul";
+    if (op == "/") return "div";
+    if (op == "%") return "mod";
+    if (op == "==") return "eq";
+    if (op == "!=") return "ne";
+    if (op == "<") return "lt";
+    if (op == "<=") return "le";
+    if (op == ">") return "gt";
+    if (op == ">=") return "ge";
+    if (op == "&&") return "and";
+    if (op == "||") return "or";
+    return op;
+}
+
+function canonicalUnary(op: string) -> string {
+    if (op == "-") return "neg";
+    if (op == "!") return "not";
+    if (op == "+") return "pos";
+    return op;
+}
+
+function escapeString(value: string) -> string {
+    let out: string = "";
+    let i: i64 = 0;
+    while (i < length(value)) {
+        let c: i64 = value[i];
+        if (c == 92) out = out + "\\\\";
+        else if (c == 10) out = out + "\\n";
+        else if (c == 13) out = out + "\\r";
+        else if (c == 9) out = out + "\\t";
+        else if (c == 34) out = out + "\\\"";
+        else out = out + slice(value, i, i + 1);
+        i = i + 1;
+    }
+    return out;
+}
+
+function isRefType(type: string) -> bool {
+    return innerGeneric(type, "Ref<") != "";
+}
+
+function isLValue(program: Ref<Program>, id: i64) -> bool {
+    if (id < 0 || id >= listLength(program.exprs)) return false;
+    let x: Expr = program.exprs[id];
+    if (x.kind == 5) return true;
+    if (x.kind == 9 || x.kind == 10) return isLValue(program, x.left);
+    return false;
+}
+
+function emitPlace(state: Ref<EmitState>, program: Ref<Program>, id: i64) -> string {
+    let x: Expr = program.exprs[id];
+    if (x.kind == 5) {
+        let t: string = newTemp(state);
+        emitLine(state, "    " + t + " = ref " + x.text);
+        return t;
+    }
+    if (x.kind == 9) {
+        let base: string = emitPlace(state, program, x.left);
+        let t: string = newTemp(state);
+        emitLine(state, "    " + t + " = ref_field " + base + "." + x.text);
+        return t;
+    }
+    if (x.kind == 10) {
+        let base: string = emitPlace(state, program, x.left);
+        let idx: string = emitExpr(state, program, x.right);
+        let t: string = newTemp(state);
+        emitLine(state, "    " + t + " = ref_index " + base + "[" + idx + "]");
+        return t;
+    }
+    return "%invalid";
+}
+
+function callNeedsRef(program: Ref<Program>, callee: string, index: i64) -> bool {
+    if ((callee == "length" || callee == "listLength") && index == 0) return true;
+    if (callee == "push" && index == 0) return true;
+    let fi: i64 = functionIndex(program, callee);
+    if (fi < 0) return false;
+    let fn: FunctionDef = program.functions[fi];
+    if (index < 0 || index >= listLength(fn.params)) return false;
+    return isRefType(fn.params[index].type);
+}
+
+function isPureExpr(program: Ref<Program>, id: i64) -> bool {
+    if (id < 0 || id >= listLength(program.exprs)) return false;
+    let x: Expr = program.exprs[id];
+    if (x.kind == 1 || x.kind == 2 || x.kind == 3 || x.kind == 4 || x.kind == 5) return true;
+    if (x.kind == 7) return isPureExpr(program, x.left);
+    if (x.kind == 6) return isPureExpr(program, x.left) && isPureExpr(program, x.right);
+    if (x.kind == 9) return isPureExpr(program, x.left);
+    if (x.kind == 10) return isPureExpr(program, x.left) && isPureExpr(program, x.right);
+    return false;
+}
+
+function emitExpr(state: Ref<EmitState>, program: Ref<Program>, id: i64) -> string {
+    let x: Expr = program.exprs[id];
+    if (x.kind == 1) {
+        let t: string = newTemp(state);
+        let literalType: string = "i64";
+        if (findText(x.valueText, ".", 0) >= 0) literalType = "f64";
+        emitLine(state, "    " + t + " = const " + literalType + " " + x.valueText);
+        return t;
+    }
+    if (x.kind == 2) {
+        let t: string = newTemp(state);
+        emitLine(state, "    " + t + " = const string \"" + escapeString(x.text) + "\"");
+        return t;
+    }
+    if (x.kind == 3) {
+        let t: string = newTemp(state);
+        emitLine(state, "    " + t + " = const char " + x.valueText);
+        return t;
+    }
+    if (x.kind == 4) {
+        let t: string = newTemp(state);
+        emitLine(state, "    " + t + " = const bool " + x.valueText);
+        return t;
+    }
+    if (x.kind == 5) {
+        let t: string = newTemp(state);
+        emitLine(state, "    " + t + " = load " + x.text);
+        return t;
+    }
+    if (x.kind == 7) {
+        let a: string = emitExpr(state, program, x.left);
+        let t: string = newTemp(state);
+        emitLine(state, "    " + t + " = " + canonicalUnary(x.op) + " " + a);
+        return t;
+    }
+    if (x.kind == 6) {
+        // Logical operators are control flow, not eager binary operators.
+        // Evaluating the RHS unconditionally can read invalid indexes in guards
+        // such as `i == 0 || text[i - 1] == ...`.
+        if (x.op == "&&" || x.op == "||") {
+            let left: string = emitExpr(state, program, x.left);
+            let result: string = newTemp(state);
+            let rhsLabel: string = newLabel(state, "sc_rhs");
+            let shortLabel: string = newLabel(state, "sc_short");
+            let endLabel: string = newLabel(state, "sc_end");
+            if (x.op == "&&") emitLine(state, "    branch " + left + " ? " + rhsLabel + " : " + shortLabel);
+            else emitLine(state, "    branch " + left + " ? " + shortLabel + " : " + rhsLabel);
+            emitLine(state, shortLabel + ":");
+            if (x.op == "&&") emitLine(state, "    " + result + " = const bool false");
+            else emitLine(state, "    " + result + " = const bool true");
+            emitLine(state, "    jump " + endLabel);
+            emitLine(state, rhsLabel + ":");
+            let right: string = emitExpr(state, program, x.right);
+            emitLine(state, "    " + result + " = copy " + right);
+            emitLine(state, "    jump " + endLabel);
+            emitLine(state, endLabel + ":");
+            return result;
+        }
+        let a: string = emitExpr(state, program, x.left);
+        let b: string = emitExpr(state, program, x.right);
+        let t: string = newTemp(state);
+        emitLine(state, "    " + t + " = " + canonicalBinary(x.op) + " " + a + ", " + b);
+        return t;
+    }
+    if (x.kind == 14) {
+        let args: string = "";
+        let i: i64 = 0;
+        while (i < listLength(x.args)) {
+            if (i > 0) args = args + ", ";
+            // Without an external signature, pass lvalues as lvalues: this is
+            // valid for by-value C++ parameters and preserves native references.
+            if (isLValue(program, x.args[i])) args = args + emitPlace(state, program, x.args[i]);
+            else args = args + emitExpr(state, program, x.args[i]);
+            i = i + 1;
+        }
+        // The native compiler infers the return type and validates the symbol.
+        return x.text + "(" + args + ")";
+    }
+    if (x.kind == 8) {
+        let callee: string = program.exprs[x.left].text;
+        let args: string = "";
+        let i: i64 = 0;
+        while (i < listLength(x.args)) {
+            if (i > 0) args = args + ", ";
+            if (callNeedsRef(program, callee, i) && isLValue(program, x.args[i])) {
+                args = args + emitPlace(state, program, x.args[i]);
+            } else {
+                args = args + emitExpr(state, program, x.args[i]);
+            }
+            i = i + 1;
+        }
+        let fi: i64 = functionIndex(program, callee);
+        let returnType: string = "";
+        if (callee == "push") returnType = "void";
+        else if (fi >= 0) returnType = program.functions[fi].returnType;
+        if (returnType == "void") {
+            emitLine(state, "    call " + callee + "(" + args + ")");
+            return "";
+        }
+        let t: string = newTemp(state);
+        emitLine(state, "    " + t + " = call " + callee + "(" + args + ")");
+        return t;
+    }
+    if (x.kind == 9) {
+        let base: string = emitExpr(state, program, x.left);
+        let t: string = newTemp(state);
+        emitLine(state, "    " + t + " = field " + base + "." + x.text);
+        return t;
+    }
+    if (x.kind == 10) {
+        let base: string = "";
+        if (isLValue(program, x.left) && isPureExpr(program, x.right)) {
+            base = emitPlace(state, program, x.left);
+        } else {
+            base = emitExpr(state, program, x.left);
+        }
+        let idx: string = emitExpr(state, program, x.right);
+        let t: string = newTemp(state);
+        emitLine(state, "    " + t + " = index " + base + "[" + idx + "]");
+        return t;
+    }
+    if (x.kind == 11) {
+        let t: string = newTemp(state);
+        emitLine(state, "    " + t + " = new " + x.text);
+        return t;
+    }
+    if (x.kind == 13) {
+        let t: string = newTemp(state);
+        emitLine(state, "    " + t + " = const char* nullptr");
+        return t;
+    }
+    if (x.kind == 12) {
+        let args: string = "";
+        let i: i64 = 0;
+        while (i < listLength(x.args)) {
+            if (i > 0) args = args + ", ";
+            args = args + emitExpr(state, program, x.args[i]);
+            i = i + 1;
+        }
+        let t: string = newTemp(state);
+        emitLine(state, "    " + t + " = list(" + args + ")");
+        return t;
+    }
+    return "%invalid";
+}
+
+function emitStmt(state: Ref<EmitState>, program: Ref<Program>, id: i64) {
+    let s: Stmt = program.stmts[id];
+    if (s.kind == 1) {
+        let v: string = emitExpr(state, program, s.expr);
+        if (s.isTypeExplicit) emitLine(state, "    local " + s.type + " " + s.name);
+        else emitLine(state, "    local-auto " + s.type + " " + s.name);
+        emitLine(state, "    store " + s.name + ", " + v);
+        return;
+    }
+    if (s.kind == 2) {
+        if (s.expr < 0) emitLine(state, "    return");
+        else emitLine(state, "    return " + emitExpr(state, program, s.expr));
+        return;
+    }
+    if (s.kind == 3) {
+        if (program.exprs[s.expr].kind == 14) emitLine(state, "    native-call " + emitExpr(state, program, s.expr));
+        else emitExpr(state, program, s.expr);
+        return;
+    }
+    if (s.kind == 4) {
+        let place: string = emitPlace(state, program, s.left);
+        let value: string = emitExpr(state, program, s.right);
+        emitLine(state, "    store_ref " + place + ", " + value);
+        return;
+    }
+    if (s.kind == 9) {
+        let i: i64 = 0;
+        while (i < listLength(s.body)) {
+            emitStmt(state, program, s.body[i]);
+            i = i + 1;
+        }
+        return;
+    }
+    if (s.kind == 5) {
+        let cond: string = emitExpr(state, program, s.expr);
+        let thenLabel: string = newLabel(state, "then");
+        let elseLabel: string = newLabel(state, "else");
+        let endLabel: string = newLabel(state, "endif");
+        emitLine(state, "    branch " + cond + " ? " + thenLabel + " : " + elseLabel);
+        emitLine(state, thenLabel + ":");
+        let i: i64 = 0;
+        while (i < listLength(s.thenStmts)) {
+            emitStmt(state, program, s.thenStmts[i]);
+            i = i + 1;
+        }
+        emitLine(state, "    jump " + endLabel);
+        emitLine(state, elseLabel + ":");
+        i = 0;
+        while (i < listLength(s.elseStmts)) {
+            emitStmt(state, program, s.elseStmts[i]);
+            i = i + 1;
+        }
+        emitLine(state, "    jump " + endLabel);
+        emitLine(state, endLabel + ":");
+        return;
+    }
+    if (s.kind == 6) {
+        let head: string = newLabel(state, "while");
+        let body: string = newLabel(state, "while_body");
+        let end: string = newLabel(state, "while_end");
+        emitLine(state, "    jump " + head);
+        emitLine(state, head + ":");
+        let cond: string = emitExpr(state, program, s.expr);
+        emitLine(state, "    branch " + cond + " ? " + body + " : " + end);
+        emitLine(state, body + ":");
+        let i: i64 = 0;
+        while (i < listLength(s.body)) {
+            emitStmt(state, program, s.body[i]);
+            i = i + 1;
+        }
+        emitLine(state, "    jump " + head);
+        emitLine(state, end + ":");
+        return;
+    }
+}
+
+function emitTopStmt(state: Ref<EmitState>, program: Ref<Program>, id: i64) {
+    let s: Stmt = program.stmts[id];
+    if (s.kind == 1) {
+        let v: string = emitExpr(state, program, s.expr);
+        emitLine(state, "    store " + s.name + ", " + v);
+        return;
+    }
+    emitStmt(state, program, id);
+}
+
+function emitProgram(program: Ref<Program>) -> string {
+    let state: EmitState = new EmitState();
+    state.lines = [];
+    state.temp = 0;
+    state.label = 0;
+    let header: string = "rir 1";
+    emitLine(state, header);
+
+    let i: i64 = 0;
+    while (i < listLength(program.uses)) {
+        if (starts(program.uses[i], "quoted:")) emitLine(state, "use-quoted " + slice(program.uses[i], 7, length(program.uses[i])));
+        i = i + 1;
+    }
+
+    i = 0;
+    while (i < listLength(program.topStmts)) {
+        let sid: i64 = program.topStmts[i];
+        let ts: Stmt = program.stmts[sid];
+        if (ts.kind == 1) {
+            let initName: string = "raz_global_init_" + ts.name;
+            if (ts.isConst && !ts.isTypeExplicit) emitLine(state, "global-const-auto " + ts.type + " " + ts.name + " " + initName);
+            else if (ts.isConst) emitLine(state, "global-const " + ts.type + " " + ts.name + " " + initName);
+            else if (!ts.isTypeExplicit) emitLine(state, "global-auto " + ts.type + " " + ts.name + " " + initName);
+            else emitLine(state, "global " + ts.type + " " + ts.name);
+        }
+        i = i + 1;
+    }
+
+    i = 0;
+    while (i < listLength(program.structs)) {
+        let s: StructDef = program.structs[i];
+        emitLine(state, "struct " + s.name);
+        let j: i64 = 0;
+        while (j < listLength(s.fields)) {
+            emitLine(state, "  field " + s.fields[j].type + " " + s.fields[j].name);
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+
+    emitLine(state, "function main() -> i64");
+    emitLine(state, "entry:");
+    // Phase 1: initialize mutable module globals in entry after process argc/argv
+    // is set. Const globals already use static C++ const initializers.
+    i = 0;
+    while (i < listLength(program.topStmts)) {
+        let sid: i64 = program.topStmts[i];
+        if (program.stmts[sid].kind == 1 && !program.stmts[sid].isConst) emitTopStmt(state, program, sid);
+        i = i + 1;
+    }
+    // Phase 2: run any source module startup hooks. The compiler core only
+    // defines the naming/signature contract; modules own their implementation.
+    i = 0;
+    while (i < listLength(program.functions)) {
+        let f: FunctionDef = program.functions[i];
+        if (starts(f.name, "raz_module_init_") && length(f.name) > 16) {
+            emitLine(state, "    call " + f.name + "()");
+        }
+        i = i + 1;
+    }
+    // Phase 3: execute ordinary top-level statements in source order.
+    i = 0;
+    while (i < listLength(program.topStmts)) {
+        let sid: i64 = program.topStmts[i];
+        if (program.stmts[sid].kind != 1) emitTopStmt(state, program, sid);
+        i = i + 1;
+    }
+    emitLine(state, "    %t" + int_to_string(state.temp) + " = const i64 0");
+    emitLine(state, "    return %t" + int_to_string(state.temp));
+    state.temp = state.temp + 1;
+    emitLine(state, "endfunction");
+
+    i = 0;
+    while (i < listLength(program.functions)) {
+        let f: FunctionDef = program.functions[i];
+        let sig: string = "function " + f.name + "(";
+        let j: i64 = 0;
+        while (j < listLength(f.params)) {
+            if (j > 0) sig = sig + ", ";
+            sig = sig + f.params[j].type + " " + f.params[j].name;
+            j = j + 1;
+        }
+        sig = sig + ") -> " + f.returnType;
+        emitLine(state, sig);
+        emitLine(state, "entry:");
+        j = 0;
+        while (j < listLength(f.body)) {
+            emitStmt(state, program, f.body[j]);
+            j = j + 1;
+        }
+        emitLine(state, "endfunction");
+        i = i + 1;
+    }
+
+    // Give each const global a function that computes its initializer. The C++
+    // target calls this from the const object's definition, preserving runtime
+    // initialization (for example osName()) without a later mutable store.
+    i = 0;
+    while (i < listLength(program.topStmts)) {
+        let sid: i64 = program.topStmts[i];
+        let ts: Stmt = program.stmts[sid];
+        if (ts.kind == 1 && (ts.isConst || !ts.isTypeExplicit)) {
+            let initName: string = "raz_global_init_" + ts.name;
+            let initState: EmitState = new EmitState();
+            initState.lines = [];
+            initState.temp = 0;
+            initState.label = 0;
+            let value: string = emitExpr(initState, program, ts.expr);
+            emitLine(state, "function " + initName + "() -> " + ts.type);
+            emitLine(state, "entry:");
+            let j: i64 = 0;
+            while (j < listLength(initState.lines)) {
+                emitLine(state, initState.lines[j]);
+                j = j + 1;
+            }
+            emitLine(state, "    return " + value);
+            emitLine(state, "endfunction");
+        }
+        i = i + 1;
+    }
+
+    let outputChunks: List<string> = [];
+    i = 0;
+    while (i < listLength(state.lines)) {
+        push(outputChunks, state.lines[i] + "\n");
+        i = i + 1;
+    }
+    return joinTextChunks(outputChunks);
+}
+
+function compileSourceAt(source: string, entryPath: string) -> string {
+    let seen: List<string> = [];
+    let expanded: string = expandIncludes(source, entryPath, seen, "");
+    if (expanded == "" && source != "") return "";
+    let program: Program = parseProgram(expanded);
+    if (!program.valid) return "";
+    if (analyzeProgram(program) != 0) return "";
+
+    // Target support is checked while the source program is still structured AST.
+    let loweringError: string = validateCpp17Lowering(program);
+    if (loweringError != "") {
+        print("lowering-error: " + loweringError);
+        return "";
+    }
+
+    // Emit a normalized RIR-1 module, then verify the IR contract before a
+    // target backend can consume it. Unknown operations must never disappear.
+    let rir: string = emitProgram(program);
+    let rirError: string = validateRir1(rir);
+    if (rirError != "") {
+        print("rir-error: " + rirError);
+        return "";
+    }
+    return rir;
+}
+
+function compileSource(source: string) -> string {
+    return compileSourceAt(source, "frontend/input.raz");
+}
+

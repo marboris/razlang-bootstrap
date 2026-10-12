@@ -1,0 +1,291 @@
+// Gen2 compiler entry point. User module resolution is implemented in Raz in
+// src/source/modules.raz. JavaScript build scripts assemble/bootstrap only.
+use std.io;
+use std.text;
+use std.containers;
+use "cstdint";
+use "cstddef";
+use "string";
+use "vector";
+
+// Gen1 bootstrap workaround: the frozen backend infers some local string loads as i64.
+// The compiler executable explicitly imports every header required by its own implementation.
+let gInputPath: string = "";
+let gOutputPath: string = "";
+let gOption: string = "";
+let gSource: string = "";
+let gResolvedSource: string = "";
+let gExpandedSource: string = "";
+let gRir: string = "";
+let gCpp: string = "";
+let gDefaultModuleRoot: string = "";
+let gDefinitions: string = "";
+let gTargetOS: string = "unknown";
+let gTargetArch: string = "unknown";
+let gTargetCompiler: string = "unknown";
+
+function printUsage() {
+    print("Raz Gen2 compiler preview");
+    print("Usage: razc <input.raz> [GNU C++ options] [-o output]");
+    print("Raz options: --help, --version, -o <output>, --emit-cpp <output.cpp>, --module-path DIR, --define NAME=VALUE");
+}
+
+
+function buildDefinitionName(spec: string) -> string {
+    let equal: i64 = findText(spec, "=", 0);
+    if (equal <= 0) return "";
+    return slice(spec, 0, equal);
+}
+
+function validBuildDefinitionName(name: string) -> bool {
+    let tokens: List<Token> = lex(name);
+    if (listLength(tokens) != 2) return false;
+    return tokens[0].kind == 1 && tokens[0].text == name;
+}
+
+function validBuildDefinitionValue(value: string) -> bool {
+    let tokens: List<Token> = lex(value);
+    if (listLength(tokens) == 2) {
+        let kind: i64 = tokens[0].kind;
+        if (kind == 2 || kind == 3 || kind == 4 || kind == 17 || kind == 18) return true;
+    }
+    // Signed decimal numeric literals are also accepted; arbitrary expressions
+    // are intentionally not accepted as build-time values in G2-010.
+    if (length(value) > 1 && charCodeAt(value, 0) == 45) {
+        let magnitude: string = slice(value, 1, length(value));
+        let signedTokens: List<Token> = lex(magnitude);
+        if (listLength(signedTokens) == 2 && signedTokens[0].kind == 2) return true;
+    }
+    return false;
+}
+
+
+function reservedTargetDefinition(name: string) -> bool {
+    return name == "RAZ_TARGET_OS" || name == "RAZ_TARGET_ARCH" || name == "RAZ_TARGET_COMPILER";
+}
+
+function validTargetLabel(value: string) -> bool {
+    if (value == "") return false;
+    let i: i64 = 0;
+    while (i < length(value)) {
+        let c: i64 = charCodeAt(value, i);
+        if (!((c >= 65 && c <= 90) || (c >= 97 && c <= 122) || (c >= 48 && c <= 57) || c == 95 || c == 45 || c == 46)) return false;
+        i = i + 1;
+    }
+    return true;
+}
+
+function addBuildDefinition(spec: string) -> bool {
+    let name: string = buildDefinitionName(spec);
+    let cursor: i64 = 0;
+    while (cursor < length(gDefinitions)) {
+        let next: i64 = findText(gDefinitions, "\n", cursor);
+        let end: i64 = next;
+        if (end < 0) end = length(gDefinitions);
+        let oldSpec: string = slice(gDefinitions, cursor, end);
+        if (oldSpec != "" && buildDefinitionName(oldSpec) == name) return false;
+        if (next < 0) cursor = length(gDefinitions);
+        else cursor = next + 1;
+    }
+    gDefinitions = gDefinitions + spec + "\n";
+    return true;
+}
+
+function sourceUsesIdentifier(source: string, name: string) -> bool {
+    let tokens: List<Token> = lex(source);
+    let i: i64 = 0;
+    while (i + 1 < listLength(tokens)) {
+        if (tokens[i].kind == 1 && tokens[i].text == name) return true;
+        i = i + 1;
+    }
+    return false;
+}
+
+function rewriteBuildDefinitionReferences(source: string, name: string, alias: string) -> string {
+    let tokens: List<Token> = lex(source);
+    let out: string = "";
+    let cursor: i64 = 0;
+    let i: i64 = 0;
+    while (i < listLength(tokens)) {
+        let t: Token = tokens[i];
+        if (t.kind == 1 && t.text == name) {
+            out = out + slice(source, cursor, t.pos) + alias;
+            cursor = t.pos + length(name);
+        }
+        i = i + 1;
+    }
+    return out + slice(source, cursor, length(source));
+}
+
+function applyBuildDefinitions(source: string, definitions: string) -> string {
+    let declarations: string = "";
+    let rewritten: string = source;
+
+    // Target metadata is a read-only compile-time constant, added only when
+    // referenced so programs with no imports remain header-free.
+    if (sourceUsesIdentifier(rewritten, "RAZ_TARGET_OS")) declarations = declarations + "const RAZ_TARGET_OS: string = \"" + gTargetOS + "\";\n";
+    if (sourceUsesIdentifier(rewritten, "RAZ_TARGET_ARCH")) declarations = declarations + "const RAZ_TARGET_ARCH: string = \"" + gTargetArch + "\";\n";
+    if (sourceUsesIdentifier(rewritten, "RAZ_TARGET_COMPILER")) declarations = declarations + "const RAZ_TARGET_COMPILER: string = \"" + gTargetCompiler + "\";\n";
+
+    let cursor: i64 = 0;
+    while (cursor < length(definitions)) {
+        let next: i64 = findText(definitions, "\n", cursor);
+        let end: i64 = next;
+        if (end < 0) end = length(definitions);
+        let spec: string = slice(definitions, cursor, end);
+        if (spec != "") {
+            let name: string = buildDefinitionName(spec);
+            let equal: i64 = findText(spec, "=", 0);
+            let value: string = slice(spec, equal + 1, length(spec));
+            if (!validBuildDefinitionName(name)) {
+                print("razc: note: -D" + name + " is passed to GNU C++ but is not exposed as a Raz global");
+            } else if (!validBuildDefinitionValue(value)) {
+                print("razc: note: -D" + name + " has a non-literal value; it remains a GNU C++ macro only");
+            } else if (sourceUsesIdentifier(rewritten, name)) {
+                let alias: string = "raz_build_definition_" + name;
+                rewritten = rewriteBuildDefinitionReferences(rewritten, name, alias);
+                declarations = declarations + "const " + alias + " = " + value + ";\n";
+            }
+        }
+        if (next < 0) cursor = length(definitions);
+        else cursor = next + 1;
+    }
+    return declarations + rewritten;
+}
+
+function runCompiler() -> i64 {
+    let argc: i64 = argCount();
+    if (argc < 2) {
+        printUsage();
+        return 2;
+    }
+
+    gInputPath = argAt(1);
+    if (gInputPath == "--help" || gInputPath == "-h") {
+        printUsage();
+        return 0;
+    }
+    if (gInputPath == "--version" || gInputPath == "-V") {
+        print("razc Gen2 preview 0.4.0-g2-016");
+        return 0;
+    }
+
+    // Resolve the standard library from the project root containing the compiler.
+    // `-L` and `--module-path` append caller-supplied library roots.
+    let projectRoot: string = pathDir(pathDir(pathDir(pathDir(argAt(0)))));
+    gDefaultModuleRoot = joinPath(projectRoot, "library/raz");
+    if (gDefaultModuleRoot == "") gDefaultModuleRoot = "library/raz";
+    let moduleRoots: List<string> = [];
+    push(moduleRoots, gDefaultModuleRoot);
+
+    gOutputPath = gInputPath + ".cpp";
+    let i: i64 = 2;
+    while (i < argc) {
+        gOption = argAt(i);
+        if (gOption == "--emit-cpp" || gOption == "-o") {
+            i = i + 1;
+            if (i >= argc) {
+                print("razc: missing path after " + gOption);
+                return 2;
+            }
+            gOutputPath = argAt(i);
+        } else if (gOption == "-L" || gOption == "--module-path" || gOption == "--std-path") {
+            i = i + 1;
+            if (i >= argc) {
+                print("razc: missing path after " + gOption);
+                return 2;
+            }
+            push(moduleRoots, argAt(i));
+        } else if (gOption == "--target-os" || gOption == "--target-arch" || gOption == "--target-compiler") {
+            i = i + 1;
+            if (i >= argc) {
+                print("razc: missing value after " + gOption);
+                return 2;
+            }
+            let targetValue: string = argAt(i);
+            if (!validTargetLabel(targetValue)) {
+                print("razc: invalid target metadata value for " + gOption);
+                return 2;
+            }
+            if (gOption == "--target-os") gTargetOS = targetValue;
+            else if (gOption == "--target-arch") gTargetArch = targetValue;
+            else gTargetCompiler = targetValue;
+        } else if (gOption == "--define") {
+            i = i + 1;
+            if (i >= argc) {
+                print("razc: missing NAME=VALUE after --define");
+                return 2;
+            }
+            let spec: string = argAt(i);
+            if (reservedTargetDefinition(buildDefinitionName(spec))) {
+                print("razc: reserved build definition: " + buildDefinitionName(spec));
+                return 2;
+            }
+            if (buildDefinitionName(spec) == "") {
+                print("razc: invalid build definition; expected NAME=VALUE");
+                return 2;
+            }
+            if (!addBuildDefinition(spec)) {
+                print("razc: duplicate --define for " + buildDefinitionName(spec));
+                return 2;
+            }
+        } else if (starts(gOption, "--define=")) {
+            let spec: string = slice(gOption, 9, length(gOption));
+            if (reservedTargetDefinition(buildDefinitionName(spec))) {
+                print("razc: reserved build definition: " + buildDefinitionName(spec));
+                return 2;
+            }
+            if (buildDefinitionName(spec) == "") {
+                print("razc: invalid build definition; expected NAME=VALUE");
+                return 2;
+            }
+            if (!addBuildDefinition(spec)) {
+                print("razc: duplicate --define for " + buildDefinitionName(spec));
+                return 2;
+            }
+        } else {
+            print("razc: unknown argument: " + gOption);
+            printUsage();
+            return 2;
+        }
+        i = i + 1;
+    }
+
+    gSource = readFile(gInputPath);
+    if (gSource == "") {
+        print("razc: cannot read input: " + gInputPath);
+        return 1;
+    }
+    gResolvedSource = resolveRazModules(gSource, gInputPath, moduleRoots);
+    if (gResolvedSource == "") {
+        print("razc: source/module resolution failed");
+        return 1;
+    }
+    gExpandedSource = expandRazMacros(gResolvedSource, gInputPath);
+    if (gExpandedSource == "") return 1;
+    gExpandedSource = applyBuildDefinitions(gExpandedSource, gDefinitions);
+    if (gExpandedSource == "") return 2;
+    gRir = compileSourceAt(gExpandedSource, gInputPath);
+    if (gRir == "") {
+        print("razc: compilation failed");
+        return 1;
+    }
+    gCpp = generate(gRir);
+    if (gCpp == "") {
+        print("razc: C++ lowering failed");
+        return 1;
+    }
+    let cppValidationError: string = validateCpp17Output(gCpp);
+    if (cppValidationError != "") {
+        print("razc: generated C++ failed structural validation: " + cppValidationError);
+        return 1;
+    }
+    if (!writeFile(gOutputPath, gCpp)) {
+        print("razc: cannot write output: " + gOutputPath);
+        return 1;
+    }
+    print("razc: wrote " + gOutputPath);
+    return 0;
+}
+
+return runCompiler();

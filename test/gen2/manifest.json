@@ -1,0 +1,186 @@
+{
+  "cases": [
+    {
+      "name": "arithmetic-control",
+      "source": "cases/arithmetic-control.raz",
+      "exit": 29,
+      "cppContains": [
+        "rz_f_weighted(",
+        "rz_f_sumTo(",
+        "rz_v_1_total",
+        "goto ",
+        "static_cast<int>(rz_f_main())"
+      ],
+      "cppNotContains": [
+        "#include",
+        "raz_fn_n",
+        "raz_v_n"
+      ]
+    },
+    {
+      "name": "struct-ref",
+      "source": "cases/struct-ref.raz",
+      "exit": 0,
+      "cppContains": [
+        "struct rz_t_class",
+        "rz_m_switch",
+        "rz_f_increment(rz_t_class&",
+        "rz_v_object"
+      ],
+      "cppNotContains": [
+        "struct class",
+        "raz_ty_n",
+        "raz_field_n"
+      ]
+    },
+    {
+      "name": "short-circuit",
+      "source": "cases/short-circuit.raz",
+      "exit": 0,
+      "cppContains": [
+        "rz_f_mustNotRun(",
+        "goto ",
+        "if ("
+      ],
+      "cppNotContains": [
+        "raz_fn_n"
+      ]
+    },
+    {
+      "name": "text-module",
+      "source": "cases/text-module.raz",
+      "exit": 0,
+      "cppContains": [
+        "std/text/text_native.hpp",
+        "rz_f_length(",
+        "rz_f_slice(",
+        "rz_f_int_to_string("
+      ],
+      "cppNotContains": [
+        "raz_runtime.hpp",
+        "raz::string_"
+      ]
+    },
+    {
+      "name": "containers",
+      "source": "cases/containers.raz",
+      "exit": 0,
+      "cppContains": [
+        "std/containers/containers_native.hpp",
+        "push(",
+        "append(",
+        "listLength(",
+        "rz_f_testContainers(",
+        "rz_v_0_values",
+        "rz_v_1_next"
+      ],
+      "cppNotContains": [
+        "raz::list_",
+        "raz_v_n"
+      ]
+    },
+    {
+      "name": "globals",
+      "source": "cases/globals.raz",
+      "exit": 0,
+      "cppContains": [
+        "rz_v_counter",
+        "rz_v_target",
+        "rz_f_raz_global_init_target",
+        "const auto rz_v_target"
+      ],
+      "cppNotContains": [
+        "raz_fn_n"
+      ]
+    },
+    {
+      "name": "local-scopes",
+      "source": "cases/local-scopes.raz",
+      "exit": 0,
+      "cppContains": [
+        "rz_v_0_value",
+        "rz_v_1_value",
+        "rz_t_Point",
+        "rz_m_x",
+        "rz_m_y"
+      ],
+      "cppNotContains": [
+        "raz_v_n",
+        "raz_ty_n"
+      ]
+    },
+    {
+      "name": "native-call",
+      "source": "cases/native-call.raz",
+      "exit": 0,
+      "cppContains": [
+        "#include \"native_api.hpp\"",
+        "native_add(",
+        "rz_f_invokeNative("
+      ],
+      "cppNotContains": [
+        "raz_runtime.hpp",
+        "raz_fn_n"
+      ]
+    },
+    {
+      "name": "define-macro",
+      "source": "cases/define-macro.raz",
+      "exit": 0,
+      "cppContains": [
+        "rz_v_value",
+        "return static_cast<int>(rz_f_main())"
+      ],
+      "cppNotContains": [
+        "define twice",
+        "define combine",
+        "raz_fn_n"
+      ]
+    },
+    {
+      "name": "unsafe-char-pointer",
+      "source": "cases/unsafe-char-pointer.raz",
+      "exit": 0,
+      "cppContains": [
+        "char* rz_v_0_text",
+        "nullptr",
+        "rz_f_main"
+      ],
+      "cppNotContains": [
+        "raz_v_n",
+        "raz_fn_n"
+      ]
+    },
+    {
+      "name": "primitive-types",
+      "source": "cases/primitive-types.raz",
+      "exit": 0,
+      "cppContains": [
+        "double rz_v_ratio",
+        "char rz_v_letter",
+        "bool rz_v_ready"
+      ],
+      "cppNotContains": [
+        "raz_v_n",
+        "'65'"
+      ]
+    }
+  ],
+  "negative": [
+    {
+      "name": "type-mismatch",
+      "source": "negative/type-mismatch.raz",
+      "contains": "cannot initialize"
+    },
+    {
+      "name": "unresolved-module",
+      "source": "negative/unresolved-module.raz",
+      "contains": "cannot resolve module"
+    },
+    {
+      "name": "unsupported-pointer-type",
+      "source": "negative/unsupported-pointer.raz",
+      "contains": "only char* pointer types are currently supported by Gen2"
+    }
+  ]
+}

@@ -1,0 +1,180 @@
+// RIR-1 verifier. This is a compiler stage, not a debugging utility: it rejects
+// malformed or unsupported intermediate operations before target lowering.
+
+function gen2RirTrim(value: string) -> string {
+    let a: i64 = 0;
+    let b: i64 = length(value);
+    while (a < b && (charCodeAt(value, a) == 32 || charCodeAt(value, a) == 9 || charCodeAt(value, a) == 13)) a = a + 1;
+    while (b > a && (charCodeAt(value, b - 1) == 32 || charCodeAt(value, b - 1) == 9 || charCodeAt(value, b - 1) == 13)) b = b - 1;
+    return slice(value, a, b);
+}
+
+function gen2RirStarts(value: string, prefix: string) -> bool {
+    if (length(value) < length(prefix)) return false;
+    return slice(value, 0, length(prefix)) == prefix;
+}
+
+function gen2RirFind(value: string, needle: string) -> i64 {
+    let i: i64 = 0;
+    let n: i64 = length(needle);
+    if (n == 0) return 0;
+    while (i + n <= length(value)) {
+        if (slice(value, i, i + n) == needle) return i;
+        i = i + 1;
+    }
+    return -1;
+}
+
+function gen2RirContains(values: Ref<List<string>>, value: string) -> bool {
+    let i: i64 = 0;
+    while (i < listLength(values)) {
+        if (values[i] == value) return true;
+        i = i + 1;
+    }
+    return false;
+}
+
+function gen2RirValidLabel(value: string) -> bool {
+    if (value == "") return false;
+    let first: i64 = charCodeAt(value, 0);
+    if (!((first >= 65 && first <= 90) || (first >= 97 && first <= 122) || first == 95)) return false;
+    let i: i64 = 1;
+    while (i < length(value)) {
+        let c: i64 = charCodeAt(value, i);
+        if (!((c >= 65 && c <= 90) || (c >= 97 && c <= 122) || (c >= 48 && c <= 57) || c == 95)) return false;
+        i = i + 1;
+    }
+    return true;
+}
+
+function gen2RirValidateTargets(labels: Ref<List<string>>, targets: Ref<List<string>>) -> string {
+    let i: i64 = 0;
+    while (i < listLength(targets)) {
+        if (!gen2RirContains(labels, targets[i])) {
+            return "control-flow target is not defined in this function: " + targets[i];
+        }
+        i = i + 1;
+    }
+    return "";
+}
+
+function gen2RirKnownRhs(rhs: string) -> bool {
+    if (gen2RirStarts(rhs, "const i64 ") || gen2RirStarts(rhs, "const f64 ") || gen2RirStarts(rhs, "const string ") ||
+        gen2RirStarts(rhs, "const char ") || gen2RirStarts(rhs, "const bool ") ||
+        gen2RirStarts(rhs, "const char* ")) return true;
+    if (gen2RirStarts(rhs, "load ") || gen2RirStarts(rhs, "copy ") ||
+        gen2RirStarts(rhs, "ref ") || gen2RirStarts(rhs, "ref_field ") ||
+        gen2RirStarts(rhs, "ref_index ") || gen2RirStarts(rhs, "new ") ||
+        gen2RirStarts(rhs, "field ") || gen2RirStarts(rhs, "index ") ||
+        gen2RirStarts(rhs, "call ") || gen2RirStarts(rhs, "list(")) return true;
+    if (gen2RirStarts(rhs, "add ") || gen2RirStarts(rhs, "sub ") ||
+        gen2RirStarts(rhs, "mul ") || gen2RirStarts(rhs, "div ") ||
+        gen2RirStarts(rhs, "mod ") || gen2RirStarts(rhs, "eq ") ||
+        gen2RirStarts(rhs, "ne ") || gen2RirStarts(rhs, "lt ") ||
+        gen2RirStarts(rhs, "le ") || gen2RirStarts(rhs, "gt ") ||
+        gen2RirStarts(rhs, "ge ") || gen2RirStarts(rhs, "and ") ||
+        gen2RirStarts(rhs, "or ") || gen2RirStarts(rhs, "neg ") ||
+        gen2RirStarts(rhs, "not ") || gen2RirStarts(rhs, "pos ")) return true;
+    return false;
+}
+
+function gen2RirKnownFunctionLine(line: string) -> bool {
+    if (line == "entry:" || line == "return" || gen2RirStarts(line, "return ") ||
+        gen2RirStarts(line, "local ") || gen2RirStarts(line, "local-auto ") ||
+        gen2RirStarts(line, "store ") || gen2RirStarts(line, "store_ref ") ||
+        gen2RirStarts(line, "jump ") || gen2RirStarts(line, "branch ") ||
+        gen2RirStarts(line, "native-call ") || gen2RirStarts(line, "call ")) return true;
+    if (length(line) > 1 && charCodeAt(line, length(line) - 1) == 58) return true;
+    let assignment: i64 = gen2RirFind(line, " = ");
+    if (gen2RirStarts(line, "%t") && assignment > 2) {
+        return gen2RirKnownRhs(gen2RirTrim(slice(line, assignment + 3, length(line))));
+    }
+    return false;
+}
+
+function validateRir1(rir: string) -> string {
+    if (!gen2RirStarts(rir, "rir 1\n")) return "expected RIR version header 'rir 1'";
+
+    let inFunction: bool = false;
+    let hasFunction: bool = false;
+    let lastWasStruct: bool = false;
+    let labels: List<string> = [];
+    let targets: List<string> = [];
+    let lineNumber: i64 = 1;
+    let start: i64 = 0;
+    let i: i64 = 0;
+    while (i <= length(rir)) {
+        if (i == length(rir) || charCodeAt(rir, i) == 10) {
+            let line: string = gen2RirTrim(slice(rir, start, i));
+            start = i + 1;
+            if (line != "" && line != "rir 1") {
+                if (inFunction) {
+                    if (line == "endfunction") {
+                        let targetError: string = gen2RirValidateTargets(labels, targets);
+                        if (targetError != "") return "RIR line " + int_to_string(lineNumber) + ": " + targetError;
+                        inFunction = false;
+                        labels = [];
+                        targets = [];
+                    } else {
+                        if (!gen2RirKnownFunctionLine(line)) return "unsupported RIR instruction at line " + int_to_string(lineNumber) + ": " + line;
+                        if (gen2RirStarts(line, "branch ") &&
+                            (gen2RirFind(line, " ? ") < 0 || gen2RirFind(line, " : ") < 0)) return "malformed branch at RIR line " + int_to_string(lineNumber);
+                        if (gen2RirStarts(line, "store ") && gen2RirFind(line, ", ") < 0) return "malformed store at RIR line " + int_to_string(lineNumber);
+                        if (gen2RirStarts(line, "store_ref ") && gen2RirFind(line, ", ") < 0) return "malformed store_ref at RIR line " + int_to_string(lineNumber);
+                        if (gen2RirStarts(line, "jump ")) {
+                            let target: string = gen2RirTrim(slice(line, 5, length(line)));
+                            if (!gen2RirValidLabel(target)) return "malformed jump target at RIR line " + int_to_string(lineNumber);
+                            push(targets, target);
+                        }
+                        if (gen2RirStarts(line, "branch ")) {
+                            let x: string = slice(line, 7, length(line));
+                            let q: i64 = gen2RirFind(x, " ? ");
+                            let c: i64 = -1;
+                            if (q >= 0) c = gen2RirFind(slice(x, q + 3, length(x)), " : ");
+                            if (q < 0 || c < 0) return "malformed branch at RIR line " + int_to_string(lineNumber);
+                            let trueTarget: string = gen2RirTrim(slice(x, q + 3, q + 3 + c));
+                            let falseTarget: string = gen2RirTrim(slice(x, q + 3 + c + 3, length(x)));
+                            if (!gen2RirValidLabel(trueTarget) || !gen2RirValidLabel(falseTarget)) return "invalid branch target at RIR line " + int_to_string(lineNumber);
+                            push(targets, trueTarget);
+                            push(targets, falseTarget);
+                        }
+                        if (length(line) > 0 && charCodeAt(line, length(line) - 1) == 58) {
+                            let label: string = gen2RirTrim(slice(line, 0, length(line) - 1));
+                            if (!gen2RirValidLabel(label)) return "invalid label at RIR line " + int_to_string(lineNumber);
+                            if (gen2RirContains(labels, label)) return "duplicate label at RIR line " + int_to_string(lineNumber) + ": " + label;
+                            push(labels, label);
+                        }
+                    }
+                } else if (gen2RirStarts(line, "function ")) {
+                    if (gen2RirFind(line, "(") < 0 || gen2RirFind(line, ") -> ") < 0) {
+                        return "malformed function header at RIR line " + int_to_string(lineNumber);
+                    }
+                    inFunction = true;
+                    hasFunction = true;
+                    labels = [];
+                    targets = [];
+                    lastWasStruct = false;
+                } else if (gen2RirStarts(line, "use-quoted ")) {
+                    if (length(line) <= 11) return "empty native include at RIR line " + int_to_string(lineNumber);
+                    lastWasStruct = false;
+                } else if (gen2RirStarts(line, "global ") || gen2RirStarts(line, "global-auto ") ||
+                    gen2RirStarts(line, "global-const ") || gen2RirStarts(line, "global-const-auto ")) {
+                    lastWasStruct = false;
+                } else if (gen2RirStarts(line, "struct ")) {
+                    if (length(line) <= 7) return "empty struct name at RIR line " + int_to_string(lineNumber);
+                    lastWasStruct = true;
+                } else if (gen2RirStarts(line, "field ") && lastWasStruct) {
+                    lastWasStruct = true;
+                } else {
+                    return "unexpected RIR declaration at line " + int_to_string(lineNumber) + ": " + line;
+                }
+            }
+        }
+        i = i + 1;
+        if (i == length(rir) || (i < length(rir) && charCodeAt(rir, i) == 10)) lineNumber = lineNumber + 1;
+    }
+
+    if (inFunction) return "unterminated RIR function (missing endfunction)";
+    if (!hasFunction) return "RIR module has no functions";
+    return "";
+}

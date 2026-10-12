@@ -1,0 +1,12 @@
+let counter: i64 = 39;
+const target = 42;
+
+function bump() -> i64 {
+    counter = counter + 1;
+    return counter;
+}
+
+if (bump() == 40 && bump() + 1 == target) {
+    return 0;
+}
+return 1;

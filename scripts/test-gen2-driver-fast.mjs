@@ -49,7 +49,7 @@ run(process.execPath, [path.join(ROOT, 'scripts', 'repair-gen2-bootstrap-cpp.mjs
 run(process.env.CXX ?? 'c++', ['-std=c++17', '-O0', REPAIRED_CPP, '-I', WORK, '-o', CANDIDATE], { status: 0 });
 
 const version = run(CANDIDATE, ['--version'], { status: 0 });
-if (!version.output.includes('razc Gen2 preview 0.4.0-g2-015')) throw new Error('--version output mismatch');
+if (!version.output.includes('razc Gen2 preview 0.4.0-g2-016')) throw new Error('--version output mismatch');
 run(CANDIDATE, ['--help'], { status: 0 });
 const noArgs = run(CANDIDATE, [], { status: 2 });
 if (!noArgs.output.includes('Usage: razc')) throw new Error('usage output missing for empty args');

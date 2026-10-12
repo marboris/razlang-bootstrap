@@ -9,7 +9,10 @@ function resetLines(state: Ref<BackendState>) {
 function cppLiteral(rest: string, type: string) -> string {
     if (type == "string") return "std::string(" + rest + ")";
     if (type == "bool") return rest;
-    if (type == "char") return "'" + rest + "'";
+    // The lexer stores character literals as numeric code points. Emitting
+    // that decimal text between single quotes would create a multi-character
+    // C++ literal (e.g. '65'), not the character A. Preserve the value safely.
+    if (type == "char") return "static_cast<char>(" + rest + ")";
     return rest;
 }
 

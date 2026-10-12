@@ -1,0 +1,7 @@
+use std.text;
+
+let word: string = "Raz";
+if (length(word) == 3 && slice(word, 0, 3) == "Raz" && int_to_string(42) == "42") {
+    return 0;
+}
+return 1;

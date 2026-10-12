@@ -17,7 +17,9 @@ const ENTRY = path.join(GEN2, 'compiler.raz');
 const FLAT_BUNDLE = path.join(GEN2, 'build', 'bootstrap', 'compiler.bundle.raz');
 const CPP = path.join(WORK, 'backend', 'output.cpp');
 const STAGE2_CPP = path.join(WORK, 'backend', 'output.stage2.cpp');
+const STAGE3_CPP = path.join(WORK, 'backend', 'output.stage3.cpp');
 const SELF_HOST_STAGE1 = path.join(GEN2, 'build', process.platform === 'win32' ? 'razc-candidate-stage1.exe' : 'razc-candidate-stage1');
+const SELF_HOST_STAGE2 = path.join(GEN2, 'build', process.platform === 'win32' ? 'razc-candidate-stage2.exe' : 'razc-candidate-stage2');
 const SMOKE_CPP = path.join(WORK, 'backend', 'selfhost-smoke.cpp');
 const SMOKE_BIN = path.join(WORK, 'backend', process.platform === 'win32' ? 'selfhost-smoke.exe' : 'selfhost-smoke');
 const REPAIRED_CPP = path.join(WORK, 'backend', 'output.bootstrap-fixed.cpp');
@@ -111,43 +113,61 @@ if (SELF_HOST) {
   if (!fs.existsSync(SELF_HOST_BIN)) throw new Error(`Gen2 self-host compiler not found: ${SELF_HOST_BIN}`);
   fs.rmSync(WORK, { recursive: true, force: true });
   fs.rmSync(SELF_HOST_STAGE1, { force: true });
+  fs.rmSync(SELF_HOST_STAGE2, { force: true });
+  fs.rmSync(CANDIDATE, { force: true });
   fs.mkdirSync(path.join(WORK, 'backend'), { recursive: true });
   const optimization = process.env.RAZ_BUILD_OPT ?? '-O0';
   const cxx = process.env.CXX ?? 'g++';
 
-  // Stage 1: the current Gen2 compiler translates the canonical include graph.
-  console.log('[gen2] stage 1/2: current Gen2 compiles compiler.raz');
+  // Stage 1 is a compatibility bootstrap: the frozen compiler may still emit
+  // identifiers using the previous backend contract. Do not demand a fixed
+  // point yet, because a backend/name-mangling change converges one stage later.
+  console.log('[gen2] stage 1/3: active Gen2 compiles compiler.raz');
   run(SELF_HOST_BIN, [ENTRY, '--emit-cpp', CPP, '-L', LIBRARY_ROOT], { label: 'Gen2 stage 1 emits compiler C++' });
   run(cxx, ['-std=c++17', optimization, CPP, '-I', LIBRARY_ROOT, '-o', SELF_HOST_STAGE1], { label: 'build stage-1 Gen2 candidate' });
   fs.chmodSync(SELF_HOST_STAGE1, 0o755);
 
-  // Stage 2: the newly-built compiler compiles the exact same Raz source again.
-  // Identical emitted C++ is a useful fixed-point check for deterministic self-hosting.
-  console.log('[gen2] stage 2/2: stage-1 Gen2 recompiles compiler.raz');
+  // Stage 2 runs the compiler implementation from the source tree, including
+  // its current readable-name mapping. Build that output as the convergence candidate.
+  console.log('[gen2] stage 2/3: stage-1 Gen2 compiles compiler.raz');
   run(SELF_HOST_STAGE1, [ENTRY, '--emit-cpp', STAGE2_CPP, '-L', LIBRARY_ROOT], { label: 'Gen2 stage 2 emits compiler C++' });
-  const firstCpp = fs.readFileSync(CPP, 'utf8');
-  const secondCpp = fs.readFileSync(STAGE2_CPP, 'utf8');
-  if (firstCpp !== secondCpp) {
-    const firstHash = requireHash(firstCpp);
-    const secondHash = requireHash(secondCpp);
-    throw new Error(`self-host fixed-point mismatch: stage 1 C++ sha256=${firstHash}, stage 2 sha256=${secondHash}`);
-  }
-  console.log(`[gen2] self-host fixed-point verified (${firstCpp.length.toLocaleString()} C++ characters)`);
+  run(cxx, ['-std=c++17', optimization, STAGE2_CPP, '-I', LIBRARY_ROOT, '-o', SELF_HOST_STAGE2], { label: 'build stage-2 Gen2 candidate' });
+  fs.chmodSync(SELF_HOST_STAGE2, 0o755);
 
-  run(cxx, ['-std=c++17', optimization, STAGE2_CPP, '-I', LIBRARY_ROOT, '-o', CANDIDATE], { label: 'build stage-2 Gen2 candidate' });
+  // Stage 3 must reproduce stage 2 byte-for-byte. This permits a single
+  // transition from an older frozen emitter while still enforcing a stable fixed point.
+  console.log('[gen2] stage 3/3: stage-2 Gen2 verifies the self-host fixed point');
+  run(SELF_HOST_STAGE2, [ENTRY, '--emit-cpp', STAGE3_CPP, '-L', LIBRARY_ROOT], { label: 'Gen2 stage 3 emits compiler C++' });
+  const secondCpp = fs.readFileSync(STAGE2_CPP, 'utf8');
+  const thirdCpp = fs.readFileSync(STAGE3_CPP, 'utf8');
+  if (secondCpp !== thirdCpp) {
+    const secondHash = requireHash(secondCpp);
+    const thirdHash = requireHash(thirdCpp);
+    throw new Error(`self-host fixed-point mismatch after stage 2: stage 2 C++ sha256=${secondHash}, stage 3 sha256=${thirdHash}`);
+  }
+  console.log(`[gen2] self-host fixed point verified (${thirdCpp.length.toLocaleString()} C++ characters; stage 2 == stage 3)`);
+
+  // The stage-2 executable was compiled from output.stage2.cpp, which has
+  // just been proven byte-identical to output.stage3.cpp. Promote that exact
+  // executable instead of asking the C++ compiler to rebuild identical input.
+  fs.copyFileSync(SELF_HOST_STAGE2, CANDIDATE);
   fs.chmodSync(CANDIDATE, 0o755);
   const stage1Version = run(SELF_HOST_STAGE1, ['--version'], { label: 'verify stage-1 version', capture: true });
-  const stage2Version = run(CANDIDATE, ['--version'], { label: 'verify stage-2 version', capture: true });
-  if ((stage1Version.stdout ?? '').trim() !== (stage2Version.stdout ?? '').trim()) {
-    throw new Error(`self-host version mismatch: stage 1='${(stage1Version.stdout ?? '').trim()}', stage 2='${(stage2Version.stdout ?? '').trim()}'`);
+  const stage2Version = run(SELF_HOST_STAGE2, ['--version'], { label: 'verify stage-2 version', capture: true });
+  const finalVersion = run(CANDIDATE, ['--version'], { label: 'verify final version', capture: true });
+  const stage1VersionText = (stage1Version.stdout ?? '').trim();
+  const stage2VersionText = (stage2Version.stdout ?? '').trim();
+  const expectedVersion = (finalVersion.stdout ?? '').trim();
+  if (stage1VersionText !== expectedVersion || stage2VersionText !== expectedVersion) {
+    throw new Error(`self-host version mismatch: stage 1='${stage1VersionText}', stage 2='${stage2VersionText}', final='${expectedVersion}'`);
   }
 
-  run(CANDIDATE, [path.join(GEN2, 'examples', 'hello.raz'), '--emit-cpp', SMOKE_CPP, '-L', LIBRARY_ROOT], { label: 'stage-2 candidate smoke emit' });
-  run(cxx, ['-std=c++17', optimization, SMOKE_CPP, '-I', LIBRARY_ROOT, '-o', SMOKE_BIN], { label: 'stage-2 candidate smoke build' });
-  const smoke = run(SMOKE_BIN, [], { label: 'stage-2 candidate smoke run', capture: true });
-  if (!(smoke.stdout ?? '').includes('Hello from Raz Gen2!')) throw new Error('stage-2 candidate smoke output mismatch');
+  run(CANDIDATE, [path.join(GEN2, 'examples', 'hello.raz'), '--emit-cpp', SMOKE_CPP, '-L', LIBRARY_ROOT], { label: 'final candidate smoke emit' });
+  run(cxx, ['-std=c++17', optimization, SMOKE_CPP, '-I', LIBRARY_ROOT, '-o', SMOKE_BIN], { label: 'final candidate smoke build' });
+  const smoke = run(SMOKE_BIN, [], { label: 'final candidate smoke run', capture: true });
+  if (!(smoke.stdout ?? '').includes('Hello from Raz Gen2!')) throw new Error('final candidate smoke output mismatch');
 
-  console.log(`[gen2] two-stage self-host candidate ready: ${CANDIDATE}`);
+  console.log(`[gen2] three-stage self-host candidate ready: ${CANDIDATE}`);
   process.exit(0);
 }
 

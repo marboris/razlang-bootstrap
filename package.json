@@ -8,6 +8,10 @@
     "build:gen1": "node scripts/build-gen1.mjs",
     "build:gen2": "node scripts/build-gen2.mjs",
     "build:gen2:selfhost": "RAZ_BUILD_KIND=gen2-selfhost node scripts/build-gen2.mjs --self-host",
-    "build:gen2:bundle": "node scripts/build-gen2.mjs --bundle-only"
+    "build:gen2:bundle": "node scripts/build-gen2.mjs --bundle-only",
+    "test:gen2:fast": "make test-gen2-fast",
+    "test:gen2:deep": "make test-gen2-deep",
+    "test:gen2": "make test-gen2",
+    "test:all": "make test-all"
   }
 }

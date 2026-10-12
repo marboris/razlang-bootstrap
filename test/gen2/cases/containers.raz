@@ -1,0 +1,13 @@
+use std.containers;
+
+function testContainers() -> i64 {
+    let values: List<i64> = [1, 2];
+    push(values, 3);
+    let next: List<i64> = append(values, 4);
+    if (listLength(values) == 3 && listLength(next) == 4 && next[3] == 4) {
+        return 0;
+    }
+    return 1;
+}
+
+return testContainers();

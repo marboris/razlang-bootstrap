@@ -1,32 +1,35 @@
-// Raz declarations are never emitted with their source spelling. Encode each
-// ASCII identifier as length + decimal character codes. This is deterministic,
-// injective for the lexer's identifier alphabet, valid in C++, and deliberately
-// keeps the source name opaque to the C++ layer. Native `name!(...)` calls are
-// the only exception because they explicitly name an external C++ API.
+// Keep generated C++ readable while isolating every Raz symbol category.
+// Prefixes keep C++ keywords safe (`class` -> `rz_t_class`) without encoding
+// every character as a decimal number. Native `name!(...)` calls intentionally
+// keep their native spelling so C++ APIs remain directly accessible.
 function cppMangledName(prefix: string, name: string) -> string {
-    let out: string = prefix + "_n" + int_to_string(length(name));
-    let i: i64 = 0;
-    while (i < length(name)) {
-        out = out + "_" + int_to_string(name[i]);
-        i = i + 1;
-    }
-    return out;
+    return prefix + "_" + name;
 }
 
 function cppVariableName(name: string) -> string {
-    return cppMangledName("raz_v", name);
+    // Locals are globally unique in flattened RIR: raz$local$ID$sourceName.
+    // '$' is not a legal Raz identifier, so this compiler-only spelling cannot
+    // collide with user source. Preserve both the compact ID and readable name.
+    if (cpp17_starts(name, "raz$local$")) {
+        let rest: string = slice(name, 10, length(name));
+        let separator: i64 = cpp17_findText(rest, "$", 0);
+        if (separator >= 0) {
+            return "rz_v_" + slice(rest, 0, separator) + "_" + slice(rest, separator + 1, length(rest));
+        }
+    }
+    return cppMangledName("rz_v", name);
 }
 
 function cppFunctionName(name: string) -> string {
-    return cppMangledName("raz_fn", name);
+    return cppMangledName("rz_f", name);
 }
 
 function cppStructName(name: string) -> string {
-    return cppMangledName("raz_ty", name);
+    return cppMangledName("rz_t", name);
 }
 
 function cppFieldName(name: string) -> string {
-    return cppMangledName("raz_field", name);
+    return cppMangledName("rz_m", name);
 }
 
 // Calls that bind to a Raz function are mangled. Calls provided by an

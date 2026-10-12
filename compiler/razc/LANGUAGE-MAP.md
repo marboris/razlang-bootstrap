@@ -1,22 +1,22 @@
 # Raz Gen2 — جدول مرجع زبان و نگاشت C++17
 
-نسخه‌ی مرجع فعلی: Gen2 preview 0.4.0-g2-012. ستون «وضعیت» صریح می‌کند که آیا نگاشت در کد پیاده‌سازی شده یا صرفاً هدف طراحی است.
+نسخه‌ی مرجع فعلی: Gen2 preview 0.4.0-g2-016. ستون «وضعیت» صریح می‌کند که آیا نگاشت در کد پیاده‌سازی شده یا صرفاً هدف طراحی است.
 
 ## ۱. واژه‌های کلیدی
 
 | واژه | نحو / قید | معنا در Raz | نمایش فعلی در RIR | خروجی C++17 | وضعیت |
 |---|---|---|---|---|---|
-| `function` | `function f(p: T) -> R { ... }` | تعریف تابع | `function f(T p) -> R` | `R M(raz_fn, f)(...)` | پیاده‌سازی‌شده |
-| `struct` | `struct S { field: T; }` | نوع مرکب با فیلد | `struct S`, `field T field` | `struct M(raz_ty, S)`؛ فیلد `M(raz_field, field)` | پیاده‌سازی‌شده |
-| `let` | `let x: T = e;` یا `let x = e;` | تعریف binding تغییرپذیر؛ وجود annotation در AST ثبت می‌شود | `local T x` یا `local-auto T x`؛ برای global نیز `global` یا `global-auto`، سپس `store` | شناسه‌ی `M(raz_v, x)`؛ در حالت بدون annotation، C++ از `auto` storage استفاده می‌کند | storage مبتنی بر `auto` پیاده‌سازی شده؛ checker هنوز نوع داخلی را برای اعتبارسنجی/RIR تعیین می‌کند و semantics type-erasure کامل نشده است |
-| `const` | `const x: T = e;` | مقدار سراسری غیرقابل‌تغییر پس از initializer | `global-const T x raz_global_init_x` + تابع initializer RIR | `const T M(raz_v, x) = M(raz_fn, raz_global_init_x)();` | پیاده‌سازی‌شده برای ثابت‌های سراسری؛ compile-time constant هنوز هدف جداگانه است |
+| `function` | `function f(p: T) -> R { ... }` | تعریف تابع | `function f(T p) -> R` | `R rz_f_f(...)` | پیاده‌سازی‌شده |
+| `struct` | `struct S { field: T; }` | نوع مرکب با فیلد | `struct S`, `field T field` | `struct rz_t_S`؛ فیلد `rz_m_field` | پیاده‌سازی‌شده |
+| `let` | `let x: T = e;` یا `let x = e;` | تعریف binding تغییرپذیر؛ وجود annotation در AST ثبت می‌شود | `local T x` یا `local-auto T x`؛ برای global نیز `global` یا `global-auto`، سپس `store` | شناسه‌ی `rz_v_x`؛ در حالت بدون annotation، C++ از `auto` storage استفاده می‌کند | storage مبتنی بر `auto` پیاده‌سازی شده؛ checker هنوز نوع داخلی را برای اعتبارسنجی/RIR تعیین می‌کند و semantics type-erasure کامل نشده است |
+| `const` | `const x: T = e;` | مقدار سراسری غیرقابل‌تغییر پس از initializer | `global-const T x raz_global_init_x` + تابع initializer RIR | `const T rz_v_x = rz_f_raz_global_init_x();` | پیاده‌سازی‌شده برای ثابت‌های سراسری؛ compile-time constant هنوز هدف جداگانه است |
 | `return` | `return;`, `return e;` | بازگشت از تابع | `return [value]` | `return [value];` | پیاده‌سازی‌شده |
 | `if` | `if (c) { A }` | اجرای شرطی | `branch c ? L1 : L2` | `if (c) goto L1; else goto L2;` | پیاده‌سازی‌شده |
 | `else` | `if (c) A else B` | شاخه‌ی جایگزین | label و `jump` جدا | برچسب‌ها و `goto` | پیاده‌سازی‌شده |
 | `while` | `while (c) { A }` | حلقه‌ی شرطی | label سرحلقه و `branch` | `goto` و شرط تولیدشده | پیاده‌سازی‌شده |
 | `true` | مقدار | مقدار بولی درست | `const bool true` | `true` | پیاده‌سازی‌شده |
 | `false` | مقدار | مقدار بولی نادرست | `const bool false` | `false` | پیاده‌سازی‌شده |
-| `new` | `new S()` | ساخت مقدار نوع | `new S` | `M(raz_ty, S){}` | پیاده‌سازی اولیه؛ heap allocation عمومی نیست |
+| `new` | `new S()` | ساخت مقدار نوع | `new S` | `rz_t_S{}` | پیاده‌سازی اولیه؛ heap allocation عمومی نیست |
 | `use` | `use "header";` یا `use std.mod;`؛ چند import ماژول می‌توانند در یک خط باشند | افزودن header خارجی یا واردکردن ماژول Raz | `use-quoted` یا سورس ماژول resolve‌شده | `#include <header>` / `#include "path"` برای headerهای صریح | پیاده‌سازی‌شده؛ importهای ماژولی deduplicate می‌شوند و خطاهای resolver مسیر/شماره‌خط دارند |
 | `include` | `include "file.raz";` | گسترش فایل Raz قبل از parse | پیش از RIR حذف و گسترش می‌شود | نگاشت مستقیم ندارد | پیاده‌سازی‌شده |
 | `unsafe` | `unsafe { ... }` | اجازه‌ی عملیات pointer محدودشده | wrapper/metadata معنایی | بلوک C++ معمولی، بدون runtime guard | پیاده‌سازی اولیه |
@@ -35,9 +35,9 @@
 | `a && b` | هر دو `bool` | `b` فقط اگر `a == true` | `branch`؛ ارزیابی شرطی RHS | `if/goto` تولیدی | پیاده‌سازی و تست runtime با candidate تازه موفق |
 | `a || b` | هر دو `bool` | `b` فقط اگر `a == false` | `branch`؛ ارزیابی شرطی RHS | `if/goto` تولیدی | پیاده‌سازی و تست runtime با candidate تازه موفق |
 | `!a` | `bool`؛ یا قرارداد native-call در postfix | نفی بولی یا فراخوانی native با `name!(...)` | `not` یا native-call | `!a` یا فراخوانی نام native دست‌نخورده | پیاده‌سازی‌شده |
-| `f(...)` | تابع Raz شناخته‌شده | فراخوانی تابع | `call` | `M(raz_fn, f)(...)` | پیاده‌سازی‌شده |
+| `f(...)` | تابع Raz شناخته‌شده | فراخوانی تابع | `call` | `rz_f_f(...)` | پیاده‌سازی‌شده |
 | `native!(...)` | هدر باید از طریق `use "..."` فراهم شده باشد | فراخوانی API خارجی بدون `extern` | native-call | `native(...)` با نام خارجی اصلی | پیاده‌سازی‌شده |
-| `x.y` | فیلد موجود باشد | دسترسی به فیلد | `field` / `ref_field` | `.M(raz_field, y)` | پیاده‌سازی‌شده |
+| `x.y` | فیلد موجود باشد | دسترسی به فیلد | `field` / `ref_field` | `.rz_m_y` | پیاده‌سازی‌شده |
 | `xs[i]` | اندیس معتبر از نظر نوع `i64`/`char` | دسترسی اندیسی | `index` / `ref_index` | `[]` | پیاده‌سازی نوع؛ bounds check در runtime هنوز نیست |
 | `->` | بعد از امضای تابع | تعیین نوع بازگشت | امضای RIR | نوع بازگشت C++ | پیاده‌سازی‌شده |
 | `.` در `use std.io` | نام ماژول بخش‌بندی می‌شود | یافتن سورس کتابخانه‌ی Raz | resolver | فایل ماژول پس از گسترش | پیاده‌سازی‌شده |
@@ -54,7 +54,7 @@
 | `;` | پایان statement و دستور use/include | معمولاً پیش از RIR حذف می‌شود | به‌عنوان terminator در C++ emitter | پیاده‌سازی‌شده |
 | `:` | جداکردن نام از type در متغیر، پارامتر و فیلد | type در `local/global`, پارامتر یا field | type declaration در C++ | پیاده‌سازی‌شده |
 | `,` | جداکننده‌ی پارامترها و آرگومان‌ها | فهرست‌ها | `,` | پیاده‌سازی‌شده |
-| `.` | دسترسی به struct field یا جداسازی بخش‌های نام ماژول | `field` یا lookup ماژول | `.M(raz_field, x)` برای field؛ در `use std.io` پیش از C++ resolution می‌شود | پیاده‌سازی‌شده؛ الحاق رشته نیست |
+| `.` | دسترسی به struct field یا جداسازی بخش‌های نام ماژول | `field` یا lookup ماژول | `.rz_m_x` برای field؛ در `use std.io` پیش از C++ resolution می‌شود | پیاده‌سازی‌شده؛ الحاق رشته نیست |
 | `[` `]` | اندیس‌گذاری رشته/فهرست و lvalue اندیسی | `index` / `ref_index` | `value[index]` | پیاده‌سازی نوع؛ bounds check عمومی هنوز وجود ندارد |
 | `->` | جداکننده‌ی return type از امضای تابع | نوع بازگشت در function record | نوع بازگشت C++، خود `->` حذف می‌شود | پیاده‌سازی‌شده |
 | `&` | ارجاع به سبک C++، مانند `&string` | token/AST مشخصی ندارد | هیچ خروجی‌ای؛ فعلاً syntax پشتیبانی نمی‌شود | برنامه‌ریزی‌شده |
@@ -66,7 +66,7 @@
 
 | صورت Raz | قاعده‌ی فعلی | اثر C++ | وضعیت |
 |---|---|---|---|
-| `let x: T = e` | binding تغییرپذیر با type صریح | `T M(raz_v, x){}` سپس assignment در مسیر اجرا | پیاده‌سازی‌شده؛ initializer مستقیم هنوز در توسعه‌ی بعدی مطرح است |
+| `let x: T = e` | binding تغییرپذیر با type صریح | `T rz_v_x{}` سپس assignment در مسیر اجرا | پیاده‌سازی‌شده؛ initializer مستقیم هنوز در توسعه‌ی بعدی مطرح است |
 | `let x = e` | نشانگر `isTypeExplicit=false` حفظ می‌شود؛ checker فعلاً نوع داخلی را برای اعتبارسنجی نگه می‌دارد | `local-auto` / `global-auto` با نوع initializer در RIR | C++ local: `auto M(x) = decltype(temp){};`؛ global: `auto M(x) = decltype(init_fn()){};`؛ const global: `const auto M(x) = init_fn();` |
 | `function f(...)` بدون `-> T` | نوع بازگشت پیش‌فرض فعلی `void` است | تابع C++ از نوع `void` | پیاده‌سازی‌شده؛ inference بازگشت در هدف فعلی نیست |
 | `Ref<T>` | ارجاع lvalue در مدل فعلی | `T&` | پیاده‌سازی اولیه؛ borrow/ownership safety تضمین نشده |
@@ -85,7 +85,7 @@
 | `string` | متن | `std::string` | `string` |
 | `List<T>` | فهرست پویا | `std::vector<cpp(T)>` | library/container operations؛ genericها هنوز کامل نیستند |
 | `Ref<T>` | ارجاع قابل‌انتساب | `cpp(T)&` | مدل reference فعلی؛ ownership تضمین‌شده نیست |
-| `S` | struct تعریف‌شده در Raz | `M(raz_ty, S)` | RIR `struct S` |
+| `S` | struct تعریف‌شده در Raz | `rz_t_S` | RIR `struct S` |
 | `T*` | pointer محدود | `cpp(T)*` | تنها subset ایمنی‌سنجی‌شده؛ `unsafe` لازم است |
 | نوع حذف‌شده | در Gen2 فعلی auto-inference عمومی برای نوع مبهم کامل نیست | هدف طراحی: `auto` یا `std::any` بسته به قرارداد آینده | باید پیش از تثبیت زبان تصمیم نهایی شود |
 
@@ -104,44 +104,39 @@
 
 ## ۵. قرارداد نام‌های C++
 
-| نماد Raz | نام C++ فعلی | نوع نگاشت |
+| نماد Raz | نام C++ | قاعده |
 |---|---|---|
-| تابع `f` | `M(raz_fn, f)` | deterministic و یک‌به‌یک برای نام‌های مجاز فعلی |
-| متغیر `x` | `M(raz_v, x)` | deterministic؛ shadowing در scopeهای تودرتو نیازمند Symbol ID است |
-| نوع `S` | `M(raz_ty, S)` | جدا از فضای نام تابع/متغیر |
-| فیلد `value` | `M(raz_field, value)` | جدا از فضای نام سایر نمادها |
+| تابع `f` | `rz_f_f` | پیشوند تابع `rz_f_` |
+| متغیر `x` | `rz_v_x` | پیشوند متغیر `rz_v_` |
+| نوع `S` | `rz_t_S` | پیشوند نوع `rz_t_` |
+| فیلد `value` | `rz_m_value` | پیشوند عضو `rz_m_` |
+| local تخت‌شده با شناسه‌ی 3 و نام `value` | `rz_v_3_value` | پیشوند متغیر + Symbol ID + نام منبع |
 | فراخوانی `c_api!(...)` | `c_api(...)` | نام خارجی عمداً تغییر نمی‌کند |
-| entry point C++ | `main(int, char**)` | wrapper ثابت میزبان؛ تابع Raz با `M(raz_fn, main)` اجرا می‌شود |
+| entry point C++ | `main(int, char**)` | wrapper ثابت میزبان؛ تابع Raz با `rz_f_main()` فراخوانی می‌شود |
 
-نام‌های منبع در خروجی C++ آشکار نمی‌شوند. نگاشت deterministic است تا build بازتولیدپذیر بماند؛ یکتایی برای رشته‌های شناسه با طول و جداکننده تضمین می‌شود. هویت دو declaration هم‌نام جداست و تا افزودن Symbol ID، semantic checker چنین localهایی را در یک تابع رد می‌کند.
+نام‌ها deterministic و خوانا هستند. پیشوند دسته‌ی نماد سبب می‌شود identifierهای رزروشده‌ی C++، مانند `class`، به نام‌های معتبر مانند `rz_t_class` تبدیل شوند. نام‌های native که با `!` فراخوانی می‌شوند مستثنا هستند؛ آن‌ها باید دقیقاً با نام symbol موجود در header مقصد تطابق داشته باشند.
 
-تعریف رسمی نگاشت (برای identifierهای ASCII که lexer می‌پذیرد):
-
-`M(prefix, name) = prefix + "_n" + decimal(length(name)) + concat("_" + decimal(ord(name[i])))` برای هر نویسه‌ی `i` از `0` تا `length(name)-1`.
-
-در این تعریف `prefix` فضای نام نقش نماد را مشخص می‌کند، `length(name)` تعداد نویسه‌ها و `ord(name[i])` کد نویسه است. جداکننده‌ی `_` مرز مقادیر را مشخص می‌کند؛ بنابراین دو identifier متفاوت به یک نام C++ تبدیل نمی‌شوند. این نگاشت تصادفی نیست تا build قابل‌بازتولید بماند. تابع Raz با نام `main` نیز فقط از همین قاعده استفاده می‌کند؛ `main(int, char**)` تنها wrapper میزبان C++ است. نام‌های `name!(...)` مستثنا هستند، چون قراردادشان ارجاع صریح به symbol خارجی است.
-
-**محدودیت نمادهای محلی:** RIR فعلی نام متغیر را نگه می‌دارد، نه Symbol ID. از این رو checker اکنون declarationهای local هم‌نام را در شاخه‌ها/حلقه‌های یک تابع رد می‌کند؛ پس از افزودن Symbol ID به AST/RIR می‌توان shadowing امن و نگاشت مستقل هر declaration را فعال کرد.
+Localهایی که برای تخت‌کردن control-flow به شناسه‌ی داخلی نیاز دارند، از قرارداد `raz$local$ID$sourceName` استفاده می‌کنند؛ `$` در identifier عادی Raz مجاز نیست و بنابراین به‌عنوان جداکننده امن است. Backend این نام را به صورت `rz_v_ID_sourceName` تولید می‌کند. این روش از کدگذاری هر حرف به عدد جلوگیری می‌کند و در عین خوانایی، نام‌های local شاخه‌های خواهر را یکتا نگه می‌دارد.
 
 ## ۶. فهرست کامل keywordهای lexer
 
 | Keyword | تولید Token | رفتار/قید | RIR / مرحله‌ی داخلی | خروجی C++17 |
 |---|---:|---|---|---|
-| `function` | 10 | تعریف تابع در سطح فایل | `FunctionDef` سپس `function` | `R M(raz_fn, name)(...)` |
-| `struct` | 11 | تعریف struct در سطح فایل | `StructDef` سپس `struct` | `struct M(raz_ty, name)` |
-| `let` | 12 | تعریف binding تغییرپذیر | `local` یا global و `store` | `M(raz_v, name)`؛ نوع با قرارداد فعلی checker تعیین می‌شود |
+| `function` | 10 | تعریف تابع در سطح فایل | `FunctionDef` سپس `function` | `R rz_f_name(...)` |
+| `struct` | 11 | تعریف struct در سطح فایل | `StructDef` سپس `struct` | `struct rz_t_name` |
+| `let` | 12 | تعریف binding تغییرپذیر | `local` یا global و `store` | `rz_v_name`؛ نوع با قرارداد فعلی checker تعیین می‌شود |
 | `return` | 13 | بازگشت با/بدون مقدار | `return` | `return ...;` |
 | `if` | 14 | انتخاب شرطی | `branch` و labelها | `if (...) goto ...; else goto ...;` |
 | `else` | 15 | شاخه‌ی جایگزین | label و `jump` | کنترل جریان `goto` |
 | `while` | 16 | تکرار تا نادرست‌شدن شرط | head/body/end labels | کنترل جریان `goto` |
 | `true` | 17 | literal بولی درست | `const bool true` | `true` |
 | `false` | 18 | literal بولی نادرست | `const bool false` | `false` |
-| `new` | 19 | ساخت مقدار struct | `new Type` | `M(raz_ty, Type){}`؛ فعلاً allocation روی heap نیست |
+| `new` | 19 | ساخت مقدار struct | `new Type` | `rz_t_Type{}`؛ فعلاً allocation روی heap نیست |
 | `use` | 46 | واردکردن header یا ماژول Raz | `use-quoted` یا module expansion | `#include` برای headerهای صریح؛ سورس Raz پیش از RIR ادغام می‌شود |
 | `include` | 47 | گسترش فایل Raz نسبی | حذف/گسترش پیش از parse | خروجی مستقیم ندارد |
 | `unsafe` | 48 | محدوده‌ی عملیات pointer مجاز | `unsafe` statement و شمارنده‌ی semantic | بلوک C++ معمولی؛ تضمین runtime ایجاد نمی‌کند |
 | `nullptr` | 49 | literal pointer تهی؛ فقط در `unsafe` | `const char* nullptr` | `nullptr` |
-| `const` | 51 | binding غیرقابل‌تغییر در سطح برنامه | `global-const` + initializer | `const T M(raz_v, name) = M(raz_fn, initializer)();` |
+| `const` | 51 | binding غیرقابل‌تغییر در سطح برنامه | `global-const` + initializer | `const T rz_v_name = M(raz_fn, initializer)();` |
 | `define` | 52 | تعریف source define در سطح فایل | پیش‌پردازش توکن‌محور پیش از AST/RIR | تعریف حذف می‌شود؛ فراخوانی مستقیم define گسترش می‌یابد | پیاده‌سازی اولیه؛ بدون hygiene/source map کامل |
 | `extern` | — | پشتیبانی نمی‌شود؛ `!` برای native call | ندارد | ندارد |
 
@@ -158,7 +153,7 @@ Keywordها حساس به حروف بزرگ/کوچک هستند. نام نوع�
 | `;` | 24 | پایان statement | حذف پس از parse | terminator تولیدی `;` |
 | `:` | 25 | جداکننده‌ی نام/نوع | type field | type declaration در C++ |
 | `,` | 26 | جداکننده‌ی آرگومان/فیلد | list separator | `,` |
-| `.` | 27 | field access؛ در `use` بخش نام ماژول | `field` یا module name | `.M(raz_field, field)`؛ نام ماژول از خروجی حذف می‌شود |
+| `.` | 27 | field access؛ در `use` بخش نام ماژول | `field` یا module name | `.rz_m_field`؛ نام ماژول از خروجی حذف می‌شود |
 | `[` `]` | 28, 29 | literal لیست یا index | `list`, `index`, `ref_index` | initializer/indexing C++; bounds-check عمومی هنوز ندارد |
 | `=` | 30 | انتساب یا initializer separator | `store`, `store_ref` | `=` |
 | `+` | 31 | جمع؛ الحاق فقط برای دو string | `add` | `+` |

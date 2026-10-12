@@ -10,11 +10,14 @@ const WORK = path.join(GEN2, 'build', 'fast-check');
 const CANDIDATE = process.env.RAZC ?? path.join(GEN2, 'build', process.platform === 'win32' ? 'razc-candidate.exe' : 'razc-candidate');
 const STD_ROOT = path.join(ROOT, 'library', 'raz');
 const RAZ_DRIVER = path.join(ROOT, 'scripts', 'raz.mjs');
-const cppMangle = (prefix, name) => `${prefix}_n${name.length}_${[...name].map((c) => c.charCodeAt(0)).join('_')}`;
-const cppFunction = (name) => cppMangle('raz_fn', name);
-const cppVariable = (name) => cppMangle('raz_v', name);
-const cppType = (name) => cppMangle('raz_ty', name);
-const cppField = (name) => cppMangle('raz_field', name);
+const cppMangle = (prefix, name) => `${prefix}_${name}`;
+const cppVariable = (name) => {
+  const local = /^raz\$local\$(\d+)\$(.+)$/.exec(name);
+  return local ? `rz_v_${local[1]}_${local[2]}` : cppMangle('rz_v', name);
+};
+const cppFunction = (name) => cppMangle('rz_f', name);
+const cppType = (name) => cppMangle('rz_t', name);
+const cppField = (name) => cppMangle('rz_m', name);
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -52,7 +55,7 @@ fs.rmSync(WORK, { recursive: true, force: true });
 fs.mkdirSync(WORK, { recursive: true });
 
 const version = run(CANDIDATE, ['--version'], { status: 0 });
-if (!version.output.includes('razc Gen2 preview 0.4.0-g2-015')) throw new Error('CLI --version output mismatch');
+if (!version.output.includes('razc Gen2 preview 0.4.0-g2-016')) throw new Error('CLI --version output mismatch');
 run(CANDIDATE, ['--help'], { status: 0 });
 run(CANDIDATE, [], { status: 2 });
 

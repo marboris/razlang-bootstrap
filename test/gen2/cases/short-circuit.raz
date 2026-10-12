@@ -1,0 +1,10 @@
+function mustNotRun() -> bool {
+    return 1 / 0 == 0;
+}
+
+let noAnd: bool = false && mustNotRun();
+let noOr: bool = true || mustNotRun();
+if (!noAnd && noOr) {
+    return 0;
+}
+return 1;
