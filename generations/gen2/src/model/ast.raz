@@ -4,11 +4,15 @@
 // Compiler state is explicit and passed as Ref<T>. There is no JS/OOP state.
 // Mutable lists use push() so compiler state is updated without copying the full list.
 //
-// Pipeline implemented here:
-//   source -> lexer -> AST -> RIR
+// Compiler data model shared by the native Raz frontend and C++17 target.
 //
-// RIR is intentionally target-independent and textual in this bootstrap stage.
-// Semantic/type checking and a native RIR backend are later stages.
+// Pipeline:
+//   source -> lexer/parser -> AST -> semantic analysis/name normalization
+//          -> target capability validation -> RIR-1 -> RIR verification
+//          -> C++17 lowering -> generated-C++ structural validation
+//
+// RIR-1 is currently serialized as text between the frontend and target parser.
+// The external C++ compiler remains responsible for full C++ grammar/type checking.
 
 struct Token {
     kind: i64;

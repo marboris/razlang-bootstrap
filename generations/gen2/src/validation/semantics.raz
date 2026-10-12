@@ -170,7 +170,7 @@ function validateType(program: Ref<Program>, state: Ref<SemanticState>, type: st
         if (state.unsafeDepth <= 0) { semanticFail(state, "pointer type " + type + " requires unsafe"); return false; }
         let base: string = slice(type, 0, length(type) - 1);
         if (base == "char") return true;
-        semanticFail(state, "only char* is supported in gen1");
+        semanticFail(state, "only char* pointer types are currently supported by Gen2");
         return false;
     }
     let listInner: string = innerGeneric(type, "List<");
@@ -227,7 +227,10 @@ function checkExpr(program: Ref<Program>, state: Ref<SemanticState>, scope: Ref<
     if (!state.ok) return "";
     if (id < 0 || id >= listLength(program.exprs)) return semanticFail(state, "invalid expression reference");
     let x: Expr = program.exprs[id];
-    if (x.kind == 1) return "i64";
+    if (x.kind == 1) {
+        if (findText(x.valueText, ".", 0) >= 0) return "f64";
+        return "i64";
+    }
     if (x.kind == 2) return "string";
     if (x.kind == 3) return "char";
     if (x.kind == 4) return "bool";
@@ -445,6 +448,30 @@ function checkStatement(program: Ref<Program>, state: Ref<SemanticState>, scope:
     semanticFail(state, "unsupported statement kind");
 }
 
+// Control-flow validation belongs to semantic analysis, before RIR/C++ lowering.
+// A non-void Raz function must not be able to fall through the end of its body.
+function statementAlwaysReturns(program: Ref<Program>, stmtId: i64) -> bool {
+    if (stmtId < 0 || stmtId >= listLength(program.stmts)) return false;
+    let s: Stmt = program.stmts[stmtId];
+    if (s.kind == 2) return true;
+    if (s.kind == 5) {
+        // An if only guarantees a return when both paths do. An absent else
+        // is represented by an empty elseStmts list and therefore returns false.
+        return blockAlwaysReturns(program, s.thenStmts) && blockAlwaysReturns(program, s.elseStmts);
+    }
+    if (s.kind == 9) return blockAlwaysReturns(program, s.body);
+    return false;
+}
+
+function blockAlwaysReturns(program: Ref<Program>, ids: List<i64>) -> bool {
+    let i: i64 = 0;
+    while (i < listLength(ids)) {
+        if (statementAlwaysReturns(program, ids[i])) return true;
+        i = i + 1;
+    }
+    return false;
+}
+
 function analyzeProgram(program: Ref<Program>) -> i64 {
     let state: SemanticState = new SemanticState();
     state.ok = true;
@@ -595,6 +622,10 @@ function analyzeProgram(program: Ref<Program>) -> i64 {
             checkStatement(program, state, scope, f.body[j], f.returnType);
             if (!state.ok) return 1;
             j = j + 1;
+        }
+        if (f.returnType != "void" && !blockAlwaysReturns(program, f.body)) {
+            semanticFail(state, "non-void function may exit without returning a value: " + f.name);
+            return 1;
         }
         i = i + 1;
     }

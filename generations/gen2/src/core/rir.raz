@@ -114,7 +114,9 @@ function emitExpr(state: Ref<EmitState>, program: Ref<Program>, id: i64) -> stri
     let x: Expr = program.exprs[id];
     if (x.kind == 1) {
         let t: string = newTemp(state);
-        emitLine(state, "    " + t + " = const i64 " + x.valueText);
+        let literalType: string = "i64";
+        if (findText(x.valueText, ".", 0) >= 0) literalType = "f64";
+        emitLine(state, "    " + t + " = const " + literalType + " " + x.valueText);
         return t;
     }
     if (x.kind == 2) {

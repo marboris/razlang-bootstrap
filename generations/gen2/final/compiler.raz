@@ -6,11 +6,15 @@
 // Compiler state is explicit and passed as Ref<T>. There is no JS/OOP state.
 // Mutable lists use push() so compiler state is updated without copying the full list.
 //
-// Pipeline implemented here:
-//   source -> lexer -> AST -> RIR
+// Compiler data model shared by the native Raz frontend and C++17 target.
 //
-// RIR is intentionally target-independent and textual in this bootstrap stage.
-// Semantic/type checking and a native RIR backend are later stages.
+// Pipeline:
+//   source -> lexer/parser -> AST -> semantic analysis/name normalization
+//          -> target capability validation -> RIR-1 -> RIR verification
+//          -> C++17 lowering -> generated-C++ structural validation
+//
+// RIR-1 is currently serialized as text between the frontend and target parser.
+// The external C++ compiler remains responsible for full C++ grammar/type checking.
 
 struct Token {
     kind: i64;
@@ -1804,7 +1808,7 @@ function validateType(program: Ref<Program>, state: Ref<SemanticState>, type: st
         if (state.unsafeDepth <= 0) { semanticFail(state, "pointer type " + type + " requires unsafe"); return false; }
         let base: string = slice(type, 0, length(type) - 1);
         if (base == "char") return true;
-        semanticFail(state, "only char* is supported in gen1");
+        semanticFail(state, "only char* pointer types are currently supported by Gen2");
         return false;
     }
     let listInner: string = innerGeneric(type, "List<");
@@ -1861,7 +1865,10 @@ function checkExpr(program: Ref<Program>, state: Ref<SemanticState>, scope: Ref<
     if (!state.ok) return "";
     if (id < 0 || id >= listLength(program.exprs)) return semanticFail(state, "invalid expression reference");
     let x: Expr = program.exprs[id];
-    if (x.kind == 1) return "i64";
+    if (x.kind == 1) {
+        if (findText(x.valueText, ".", 0) >= 0) return "f64";
+        return "i64";
+    }
     if (x.kind == 2) return "string";
     if (x.kind == 3) return "char";
     if (x.kind == 4) return "bool";
@@ -2079,6 +2086,30 @@ function checkStatement(program: Ref<Program>, state: Ref<SemanticState>, scope:
     semanticFail(state, "unsupported statement kind");
 }
 
+// Control-flow validation belongs to semantic analysis, before RIR/C++ lowering.
+// A non-void Raz function must not be able to fall through the end of its body.
+function statementAlwaysReturns(program: Ref<Program>, stmtId: i64) -> bool {
+    if (stmtId < 0 || stmtId >= listLength(program.stmts)) return false;
+    let s: Stmt = program.stmts[stmtId];
+    if (s.kind == 2) return true;
+    if (s.kind == 5) {
+        // An if only guarantees a return when both paths do. An absent else
+        // is represented by an empty elseStmts list and therefore returns false.
+        return blockAlwaysReturns(program, s.thenStmts) && blockAlwaysReturns(program, s.elseStmts);
+    }
+    if (s.kind == 9) return blockAlwaysReturns(program, s.body);
+    return false;
+}
+
+function blockAlwaysReturns(program: Ref<Program>, ids: List<i64>) -> bool {
+    let i: i64 = 0;
+    while (i < listLength(ids)) {
+        if (statementAlwaysReturns(program, ids[i])) return true;
+        i = i + 1;
+    }
+    return false;
+}
+
 function analyzeProgram(program: Ref<Program>) -> i64 {
     let state: SemanticState = new SemanticState();
     state.ok = true;
@@ -2230,6 +2261,10 @@ function analyzeProgram(program: Ref<Program>) -> i64 {
             if (!state.ok) return 1;
             j = j + 1;
         }
+        if (f.returnType != "void" && !blockAlwaysReturns(program, f.body)) {
+            semanticFail(state, "non-void function may exit without returning a value: " + f.name);
+            return 1;
+        }
         i = i + 1;
     }
     return 0;
@@ -2306,8 +2341,41 @@ function gen2RirFind(value: string, needle: string) -> i64 {
     return -1;
 }
 
+function gen2RirContains(values: Ref<List<string>>, value: string) -> bool {
+    let i: i64 = 0;
+    while (i < listLength(values)) {
+        if (values[i] == value) return true;
+        i = i + 1;
+    }
+    return false;
+}
+
+function gen2RirValidLabel(value: string) -> bool {
+    if (value == "") return false;
+    let first: i64 = charCodeAt(value, 0);
+    if (!((first >= 65 && first <= 90) || (first >= 97 && first <= 122) || first == 95)) return false;
+    let i: i64 = 1;
+    while (i < length(value)) {
+        let c: i64 = charCodeAt(value, i);
+        if (!((c >= 65 && c <= 90) || (c >= 97 && c <= 122) || (c >= 48 && c <= 57) || c == 95)) return false;
+        i = i + 1;
+    }
+    return true;
+}
+
+function gen2RirValidateTargets(labels: Ref<List<string>>, targets: Ref<List<string>>) -> string {
+    let i: i64 = 0;
+    while (i < listLength(targets)) {
+        if (!gen2RirContains(labels, targets[i])) {
+            return "control-flow target is not defined in this function: " + targets[i];
+        }
+        i = i + 1;
+    }
+    return "";
+}
+
 function gen2RirKnownRhs(rhs: string) -> bool {
-    if (gen2RirStarts(rhs, "const i64 ") || gen2RirStarts(rhs, "const string ") ||
+    if (gen2RirStarts(rhs, "const i64 ") || gen2RirStarts(rhs, "const f64 ") || gen2RirStarts(rhs, "const string ") ||
         gen2RirStarts(rhs, "const char ") || gen2RirStarts(rhs, "const bool ") ||
         gen2RirStarts(rhs, "const char* ")) return true;
     if (gen2RirStarts(rhs, "load ") || gen2RirStarts(rhs, "copy ") ||
@@ -2346,6 +2414,8 @@ function validateRir1(rir: string) -> string {
     let inFunction: bool = false;
     let hasFunction: bool = false;
     let lastWasStruct: bool = false;
+    let labels: List<string> = [];
+    let targets: List<string> = [];
     let lineNumber: i64 = 1;
     let start: i64 = 0;
     let i: i64 = 0;
@@ -2356,16 +2426,40 @@ function validateRir1(rir: string) -> string {
             if (line != "" && line != "rir 1") {
                 if (inFunction) {
                     if (line == "endfunction") {
+                        let targetError: string = gen2RirValidateTargets(labels, targets);
+                        if (targetError != "") return "RIR line " + int_to_string(lineNumber) + ": " + targetError;
                         inFunction = false;
-                    } else if (!gen2RirKnownFunctionLine(line)) {
-                        return "unsupported RIR instruction at line " + int_to_string(lineNumber) + ": " + line;
-                    } else if (gen2RirStarts(line, "branch ") &&
-                        (gen2RirFind(line, " ? ") < 0 || gen2RirFind(line, " : ") < 0)) {
-                        return "malformed branch at RIR line " + int_to_string(lineNumber);
-                    } else if (gen2RirStarts(line, "store ") && gen2RirFind(line, ", ") < 0) {
-                        return "malformed store at RIR line " + int_to_string(lineNumber);
-                    } else if (gen2RirStarts(line, "store_ref ") && gen2RirFind(line, ", ") < 0) {
-                        return "malformed store_ref at RIR line " + int_to_string(lineNumber);
+                        labels = [];
+                        targets = [];
+                    } else {
+                        if (!gen2RirKnownFunctionLine(line)) return "unsupported RIR instruction at line " + int_to_string(lineNumber) + ": " + line;
+                        if (gen2RirStarts(line, "branch ") &&
+                            (gen2RirFind(line, " ? ") < 0 || gen2RirFind(line, " : ") < 0)) return "malformed branch at RIR line " + int_to_string(lineNumber);
+                        if (gen2RirStarts(line, "store ") && gen2RirFind(line, ", ") < 0) return "malformed store at RIR line " + int_to_string(lineNumber);
+                        if (gen2RirStarts(line, "store_ref ") && gen2RirFind(line, ", ") < 0) return "malformed store_ref at RIR line " + int_to_string(lineNumber);
+                        if (gen2RirStarts(line, "jump ")) {
+                            let target: string = gen2RirTrim(slice(line, 5, length(line)));
+                            if (!gen2RirValidLabel(target)) return "malformed jump target at RIR line " + int_to_string(lineNumber);
+                            push(targets, target);
+                        }
+                        if (gen2RirStarts(line, "branch ")) {
+                            let x: string = slice(line, 7, length(line));
+                            let q: i64 = gen2RirFind(x, " ? ");
+                            let c: i64 = -1;
+                            if (q >= 0) c = gen2RirFind(slice(x, q + 3, length(x)), " : ");
+                            if (q < 0 || c < 0) return "malformed branch at RIR line " + int_to_string(lineNumber);
+                            let trueTarget: string = gen2RirTrim(slice(x, q + 3, q + 3 + c));
+                            let falseTarget: string = gen2RirTrim(slice(x, q + 3 + c + 3, length(x)));
+                            if (!gen2RirValidLabel(trueTarget) || !gen2RirValidLabel(falseTarget)) return "invalid branch target at RIR line " + int_to_string(lineNumber);
+                            push(targets, trueTarget);
+                            push(targets, falseTarget);
+                        }
+                        if (length(line) > 0 && charCodeAt(line, length(line) - 1) == 58) {
+                            let label: string = gen2RirTrim(slice(line, 0, length(line) - 1));
+                            if (!gen2RirValidLabel(label)) return "invalid label at RIR line " + int_to_string(lineNumber);
+                            if (gen2RirContains(labels, label)) return "duplicate label at RIR line " + int_to_string(lineNumber) + ": " + label;
+                            push(labels, label);
+                        }
                     }
                 } else if (gen2RirStarts(line, "function ")) {
                     if (gen2RirFind(line, "(") < 0 || gen2RirFind(line, ") -> ") < 0) {
@@ -2373,6 +2467,8 @@ function validateRir1(rir: string) -> string {
                     }
                     inFunction = true;
                     hasFunction = true;
+                    labels = [];
+                    targets = [];
                     lastWasStruct = false;
                 } else if (gen2RirStarts(line, "use-quoted ")) {
                     if (length(line) <= 11) return "empty native include at RIR line " + int_to_string(lineNumber);
@@ -2516,7 +2612,9 @@ function emitExpr(state: Ref<EmitState>, program: Ref<Program>, id: i64) -> stri
     let x: Expr = program.exprs[id];
     if (x.kind == 1) {
         let t: string = newTemp(state);
-        emitLine(state, "    " + t + " = const i64 " + x.valueText);
+        let literalType: string = "i64";
+        if (findText(x.valueText, ".", 0) >= 0) literalType = "f64";
+        emitLine(state, "    " + t + " = const " + literalType + " " + x.valueText);
         return t;
     }
     if (x.kind == 2) {
@@ -4188,7 +4286,7 @@ function runCompiler() -> i64 {
         return 0;
     }
     if (gInputPath == "--version" || gInputPath == "-V") {
-        print("razc Gen2 preview 0.4.0-g2-012");
+        print("razc Gen2 preview 0.4.0-g2-013");
         return 0;
     }
 
