@@ -1,0 +1,264 @@
+// Module resolution is part of the Gen2 compiler and implemented in Raz.
+// module.json is optional documentation; source paths define the lookup contract.
+struct ModuleResolveState {
+    roots: List<string>;
+    seenModules: List<string>;
+    activeModules: List<string>;
+    seenIncludes: List<string>;
+    failed: bool;
+}
+
+struct ModuleScanState { blockComment: bool; blockCommentLine: i64; quote: i64; escaped: bool; }
+
+function validRazModuleName(name: string) -> bool {
+    if (length(name) < 3 || findText(name, ".", 0) < 1) return false;
+    let i: i64 = 0;
+    let start: bool = true;
+    while (i < length(name)) {
+        let c: i64 = charCodeAt(name, i);
+        if (c == 46) {
+            if (start || i + 1 == length(name)) return false;
+            start = true;
+        } else {
+            if (start && !isAlpha(c)) return false;
+            if (!isAlphaNum(c)) return false;
+            start = false;
+        }
+        i = i + 1;
+    }
+    return !start;
+}
+
+function maskModuleComments(line: string, scan: Ref<ModuleScanState>, lineNumber: i64) -> string {
+    let out: string = "";
+    let i: i64 = 0;
+    while (i < length(line)) {
+        let c: i64 = charCodeAt(line, i);
+        if (scan.blockComment) {
+            let closes: bool = false;
+            if (i + 1 < length(line)) {
+                if (c == 42 && charCodeAt(line, i + 1) == 47) closes = true;
+            }
+            if (closes) {
+                scan.blockComment = false;
+                out = out + "  ";
+                i = i + 2;
+            } else {
+                out = out + " ";
+                i = i + 1;
+            }
+        } else if (scan.quote != 0) {
+            out = out + slice(line, i, i + 1);
+            if (scan.escaped) scan.escaped = false;
+            else if (c == 92) scan.escaped = true;
+            else if (c == scan.quote) scan.quote = 0;
+            i = i + 1;
+        } else if (c == 34 || c == 39) {
+            scan.quote = c;
+            scan.escaped = false;
+            out = out + slice(line, i, i + 1);
+            i = i + 1;
+        } else {
+            let nextIsSlash: bool = false;
+            let nextIsStar: bool = false;
+            if (i + 1 < length(line)) {
+                nextIsSlash = charCodeAt(line, i + 1) == 47;
+                nextIsStar = charCodeAt(line, i + 1) == 42;
+            }
+            if (c == 47 && nextIsSlash) {
+                return out;
+            } else if (c == 47 && nextIsStar) {
+                scan.blockComment = true;
+                scan.blockCommentLine = lineNumber;
+                out = out + "  ";
+                i = i + 2;
+            } else {
+                out = out + slice(line, i, i + 1);
+                i = i + 1;
+            }
+        }
+    }
+    return out;
+}
+
+function noModuleNames() -> List<string> {
+    let names: List<string> = [];
+    return names;
+}
+
+// A module-directive line is one or more `use dotted.name;` directives.
+// Comments have already been masked, so whitespace from comments is accepted
+// between directives while strings remain intact and cannot become directives.
+function moduleUsesOnLine(line: string) -> List<string> {
+    let names: List<string> = [];
+    let cursor: i64 = 0;
+    while (cursor < length(line) && isSpace(charCodeAt(line, cursor))) cursor = cursor + 1;
+    while (cursor < length(line)) {
+        if (cursor + 3 > length(line) || slice(line, cursor, cursor + 3) != "use") return noModuleNames();
+        cursor = cursor + 3;
+        if (cursor < length(line) && !isSpace(charCodeAt(line, cursor))) return noModuleNames();
+        while (cursor < length(line) && isSpace(charCodeAt(line, cursor))) cursor = cursor + 1;
+        let start: i64 = cursor;
+        let nameDone: bool = false;
+        while (cursor < length(line) && !nameDone) {
+            let c: i64 = charCodeAt(line, cursor);
+            if (isAlphaNum(c) || c == 46) cursor = cursor + 1;
+            else nameDone = true;
+        }
+        let name: string = slice(line, start, cursor);
+        if (name == "" || !validRazModuleName(name)) return noModuleNames();
+        while (cursor < length(line) && isSpace(charCodeAt(line, cursor))) cursor = cursor + 1;
+        if (cursor >= length(line) || charCodeAt(line, cursor) != 59) return noModuleNames();
+        push(names, name);
+        cursor = cursor + 1;
+        while (cursor < length(line) && isSpace(charCodeAt(line, cursor))) cursor = cursor + 1;
+    }
+    return names;
+}
+
+function sourceLineNumber(source: string, offset: i64) -> i64 {
+    let line: i64 = 1;
+    let i: i64 = 0;
+    while (i < offset && i < length(source)) {
+        if (charCodeAt(source, i) == 10) line = line + 1;
+        i = i + 1;
+    }
+    return line;
+}
+
+function moduleRelativePath(name: string) -> string {
+    let out: string = "";
+    let i: i64 = 0;
+    while (i < length(name)) {
+        if (charCodeAt(name, i) == 46) out = out + "/";
+        else out = out + slice(name, i, i + 1);
+        i = i + 1;
+    }
+    return out;
+}
+
+function locateRazModule(state: Ref<ModuleResolveState>, name: string) -> string {
+    let relative: string = moduleRelativePath(name);
+    let dot: i64 = length(name) - 1;
+    let foundDot: bool = false;
+    while (dot >= 0 && !foundDot) {
+        if (charCodeAt(name, dot) == 46) foundDot = true;
+        else dot = dot - 1;
+    }
+    if (dot < 0) return "";
+    let leaf: string = slice(name, dot + 1, length(name));
+    let i: i64 = 0;
+    while (i < listLength(state.roots)) {
+        let nested: string = joinPath(state.roots[i], relative + "/" + leaf + ".raz");
+        if (readFile(nested) != "") return nested;
+        let flat: string = joinPath(state.roots[i], relative + ".raz");
+        if (readFile(flat) != "") return flat;
+        i = i + 1;
+    }
+    return "";
+}
+
+function dropLastModuleName(values: List<string>) -> List<string> {
+    let out: List<string> = [];
+    let i: i64 = 0;
+    while (i + 1 < listLength(values)) {
+        push(out, values[i]);
+        i = i + 1;
+    }
+    return out;
+}
+
+function moduleResolveFail(state: Ref<ModuleResolveState>, message: string) {
+    if (!state.failed) {
+        state.failed = true;
+        print("razc: " + message);
+    }
+}
+
+function resolveOneModule(state: Ref<ModuleResolveState>, name: string, filePath: string, lineNumber: i64) -> string {
+    if (containsText(state.activeModules, name)) {
+        moduleResolveFail(state, filePath + ":" + int_to_string(lineNumber) + ": module dependency cycle involving " + name);
+        return "";
+    }
+    if (containsText(state.seenModules, name)) return "";
+
+    let modulePath: string = locateRazModule(state, name);
+    if (modulePath == "") {
+        moduleResolveFail(state, filePath + ":" + int_to_string(lineNumber) + ": cannot resolve module " + name);
+        return "";
+    }
+
+    let moduleSource: string = readFile(modulePath);
+    moduleSource = expandIncludes(moduleSource, modulePath, state.seenIncludes, "");
+    if (moduleSource == "") {
+        moduleResolveFail(state, filePath + ":" + int_to_string(lineNumber) + ": cannot read or expand module " + name);
+        return "";
+    }
+
+    push(state.activeModules, name);
+    let resolvedModule: string = expandResolvedModules(state, moduleSource, modulePath);
+    state.activeModules = dropLastModuleName(state.activeModules);
+    if (!state.failed) push(state.seenModules, name);
+    return resolvedModule;
+}
+
+function expandResolvedModules(state: Ref<ModuleResolveState>, source: string, filePath: string) -> string {
+    let cursor: i64 = 0;
+    let lineNumber: i64 = 1;
+    let outputChunks: List<string> = [];
+    let scan: ModuleScanState = new ModuleScanState();
+    scan.blockComment = false;
+    scan.blockCommentLine = 0;
+    scan.quote = 0;
+    scan.escaped = false;
+    while (cursor < length(source) && !state.failed) {
+        let next: i64 = findText(source, "\n", cursor);
+        let end: i64 = next;
+        if (end < 0) end = length(source);
+        let line: string = slice(source, cursor, end);
+        let consumed: i64 = end;
+        if (next >= 0) consumed = next + 1;
+        let cleanLine: string = maskModuleComments(line, scan, lineNumber);
+        let names: List<string> = moduleUsesOnLine(cleanLine);
+        if (listLength(names) == 0) {
+            push(outputChunks, line);
+            if (next >= 0) push(outputChunks, "\n");
+        } else {
+            let i: i64 = 0;
+            while (i < listLength(names) && !state.failed) {
+                push(outputChunks, resolveOneModule(state, names[i], filePath, lineNumber));
+                i = i + 1;
+            }
+        }
+        // Removing a `use` line must not remove an open trailing block comment.
+        // Emit a comment opener in its place so following source remains masked
+        // until the matching `*/` is encountered on a later line.
+        if (listLength(names) > 0 && scan.blockComment) push(outputChunks, "\n/*");
+        cursor = consumed;
+        if (next >= 0) lineNumber = lineNumber + 1;
+    }
+    if (!state.failed && scan.blockComment) {
+        let startLine: i64 = scan.blockCommentLine;
+        if (startLine < 1) startLine = sourceLineNumber(source, length(source));
+        moduleResolveFail(state, filePath + ":" + int_to_string(startLine) + ": unterminated block comment");
+    }
+    if (state.failed) return "";
+    return joinTextChunks(outputChunks);
+}
+
+function resolveRazModules(source: string, entryPath: string, roots: List<string>) -> string {
+    let state: ModuleResolveState = new ModuleResolveState();
+    state.roots = roots;
+    state.seenModules = [];
+    state.activeModules = [];
+    state.seenIncludes = [];
+    state.failed = false;
+    // No implicit prelude: each program and each Raz library declares its own
+    // source-module and native-header dependencies with `use`. In particular,
+    // std.core is available as an explicit module but is never injected here.
+    let expanded: string = expandIncludes(source, entryPath, state.seenIncludes, "");
+    if (expanded == "") return "";
+    let result: string = expandResolvedModules(state, expanded, entryPath);
+    if (state.failed) return "";
+    return result;
+}

@@ -140,7 +140,7 @@ fs::path absoluteFromCwd(const std::string& value) {
 }
 
 bool isProjectRoot(const fs::path& candidate) {
-    return fs::exists(candidate / "final" / "compiler" / "src" / "driver" / "main.raz") &&
+    return fs::exists(candidate / "compiler" / "razc" / "src" / "driver" / "main.raz") &&
            fs::exists(candidate / "legacy" / "gen1" / "gen.json");
 }
 
@@ -176,9 +176,9 @@ std::string frontendPath(const fs::path& root, const Options& options) {
     const char* fromEnv = std::getenv("RAZ_FRONTEND");
     if (fromEnv && *fromEnv) return absoluteFromCwd(fromEnv).string();
 #ifdef _WIN32
-    return (root / "final" / "compiler" / "build" / "razc-candidate.exe").string();
+    return (root / "compiler" / "razc" / "build" / "razc-candidate.exe").string();
 #else
-    return (root / "final" / "compiler" / "build" / "razc-candidate").string();
+    return (root / "compiler" / "razc" / "build" / "razc-candidate").string();
 #endif
 }
 
@@ -550,7 +550,8 @@ TargetInfo detectTargetInfo(const Options& options) {
 std::vector<std::string> makeFrontendCommand(
     const fs::path& root, const Options& options, const std::string& frontend,
     const fs::path& cppPath, const TargetInfo& target) {
-    std::vector<std::string> command = {frontend, options.input, "--emit-cpp", cppPath.string()};
+    std::vector<std::string> command = {frontend, options.input, "--emit-cpp", cppPath.string(), "-L",
+                                        (root / "library" / "raz").string()};
     for (const auto& moduleRoot : options.moduleRoots) {
         command.push_back("-L");
         command.push_back(moduleRoot);
@@ -577,7 +578,7 @@ std::vector<std::string> makeNativeCommand(
     command.push_back("-I");
     command.push_back(fs::path(options.input).parent_path().string());
     command.push_back("-I");
-    command.push_back((root / "final" / "compiler").string());
+    command.push_back((root / "library" / "raz").string());
     for (const auto& moduleRoot : options.moduleRoots) {
         command.push_back("-I");
         command.push_back(moduleRoot);

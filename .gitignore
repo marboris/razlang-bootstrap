@@ -43,5 +43,8 @@ tests/last-run.txt
 # Legacy and active compiler build caches (frozen compiler binaries remain tracked)
 legacy/*/build/*
 !legacy/*/build/.gitkeep
-final/compiler/build/*
-!final/compiler/build/.gitkeep
+compiler/razc/build/*
+!compiler/razc/build/.gitkeep
+
+# Temporary flattened Gen2 bootstrap source lives under build/; frozen release snapshots are tracked.
+compiler/releases/*/build/

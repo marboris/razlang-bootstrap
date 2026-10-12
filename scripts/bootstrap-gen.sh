@@ -6,7 +6,7 @@ N="$1"; SRC="$2"; OUT="$3"
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 case "$N" in
   0|1) GEN="$ROOT/legacy/gen$N" ;;
-  2) GEN="$ROOT/final/compiler" ;;
+  2) GEN="$ROOT/compiler/razc" ;;
   *) echo "unsupported generation: $N (use 0, 1, or 2)" >&2; exit 2 ;;
 esac
 COMPILER="$GEN/bin/razc"
@@ -16,10 +16,12 @@ WORK="$GEN/build/work"
 
 rm -rf "$WORK"
 mkdir -p "$WORK/frontend" "$WORK/backend"
-node "$ROOT/scripts/legacy-runtime.mjs" "$WORK/backend/raz_runtime.hpp"
+if [ "$N" != "2" ]; then
+  node "$ROOT/scripts/legacy-runtime.mjs" "$WORK/backend/raz_runtime.hpp"
+fi
 cp "$SRC" "$WORK/frontend/input.raz"
 
 cd "$WORK"
 "$COMPILER"
-g++ -std=c++17 -O2 backend/output.cpp -o "$OUT"
+g++ -std=c++17 -O2 backend/output.cpp -I "$ROOT/library/raz" -o "$OUT"
 echo "built $OUT with generation $N"

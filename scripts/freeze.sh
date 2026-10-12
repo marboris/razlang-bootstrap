@@ -1,5 +1,5 @@
 #!/bin/sh
-# Freeze a historical generation or the active final compiler, preserving its checksum.
+# Freeze a historical generation or the active Gen2 compiler, preserving its checksum.
 # After this point genN is the operational compiler for L_N and the builder of genN+1.
 # usage: scripts/freeze.sh <N> [--replace-pending|--replace-frozen]
 # Frozen binaries are immutable by default. --replace-pending is only for provisional
@@ -10,7 +10,7 @@ MODE="${2:-}"
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 case "$N" in
   0|1) GEN="$ROOT/legacy/gen$N"; REL="legacy/gen$N" ;;
-  2) GEN="$ROOT/final/compiler"; REL="final/compiler" ;;
+  2) GEN="$ROOT/compiler/razc"; REL="compiler/razc" ;;
   *) echo "unsupported generation: $N (use 0, 1, or 2)" >&2; exit 2 ;;
 esac
 CAND="$GEN/build/razc-candidate"

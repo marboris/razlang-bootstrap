@@ -5,8 +5,18 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const GEN1 = path.join(ROOT, 'legacy', 'gen1');
-const GEN2 = path.join(ROOT, 'final', 'compiler');
-const source = fs.readFileSync(path.join(GEN2, 'compiler.raz'), 'utf8');
+const GEN2 = path.join(ROOT, 'compiler', 'razc');
+const STDLIB = path.join(ROOT, 'library', 'raz');
+const compilerEntry = fs.readFileSync(path.join(GEN2, 'compiler.raz'), 'utf8');
+const sourceFiles = [
+  'src/model/ast.raz', 'src/core/lexer.raz', 'src/core/parser.raz', 'src/core/text.raz',
+  'src/source/includes.raz', 'src/source/modules.raz', 'src/source/macros.raz',
+  'src/validation/semantics.raz', 'src/validation/lowering.raz', 'src/validation/rir.raz',
+  'src/core/rir.raz', 'src/targets/cpp17/model.raz', 'src/targets/cpp17/rir_parser.raz',
+  'src/targets/cpp17/types.raz', 'src/targets/cpp17/emitter.raz', 'src/targets/cpp17/validate.raz',
+  'src/driver/main.raz',
+];
+const source = sourceFiles.map((relative) => fs.readFileSync(path.join(GEN2, relative), 'utf8')).join('\n\n');
 const resolver = fs.readFileSync(path.join(GEN2, 'src', 'source', 'modules.raz'), 'utf8');
 const includes = fs.readFileSync(path.join(GEN2, 'src', 'source', 'includes.raz'), 'utf8');
 const parser = fs.readFileSync(path.join(GEN2, 'src', 'core', 'parser.raz'), 'utf8');
@@ -15,12 +25,12 @@ const languageMap = fs.readFileSync(path.join(GEN2, 'LANGUAGE-MAP.md'), 'utf8');
 const rirEmitter = fs.readFileSync(path.join(GEN2, 'src', 'core', 'rir.raz'), 'utf8');
 const targetParser = fs.readFileSync(path.join(GEN2, 'src', 'targets', 'cpp17', 'rir_parser.raz'), 'utf8');
 const launcher = fs.readFileSync(path.join(ROOT, 'scripts', 'raz.mjs'), 'utf8');
-const stdIo = fs.readFileSync(path.join(GEN2, 'std', 'io', 'io.raz'), 'utf8');
-const stdText = fs.readFileSync(path.join(GEN2, 'std', 'text', 'text.raz'), 'utf8');
-const stdContainers = fs.readFileSync(path.join(GEN2, 'std', 'containers', 'containers.raz'), 'utf8');
-const stdEnv = fs.readFileSync(path.join(GEN2, 'std', 'env', 'env.raz'), 'utf8');
-const stdEnvNative = fs.readFileSync(path.join(GEN2, 'std', 'env', 'env_native.hpp'), 'utf8');
-const stdIoNative = fs.readFileSync(path.join(GEN2, 'std', 'io', 'io_native.hpp'), 'utf8');
+const stdIo = fs.readFileSync(path.join(STDLIB, 'std', 'io', 'io.raz'), 'utf8');
+const stdText = fs.readFileSync(path.join(STDLIB, 'std', 'text', 'text.raz'), 'utf8');
+const stdContainers = fs.readFileSync(path.join(STDLIB, 'std', 'containers', 'containers.raz'), 'utf8');
+const stdEnv = fs.readFileSync(path.join(STDLIB, 'std', 'env', 'env.raz'), 'utf8');
+const stdEnvNative = fs.readFileSync(path.join(STDLIB, 'std', 'env', 'env_native.hpp'), 'utf8');
+const stdIoNative = fs.readFileSync(path.join(STDLIB, 'std', 'io', 'io_native.hpp'), 'utf8');
 const targetTypes = fs.readFileSync(path.join(GEN2, 'src', 'targets', 'cpp17', 'types.raz'), 'utf8');
 const targetEmitter = fs.readFileSync(path.join(GEN2, 'src', 'targets', 'cpp17', 'emitter.raz'), 'utf8');
 const semantics = fs.readFileSync(path.join(GEN2, 'src', 'validation', 'semantics.raz'), 'utf8');
@@ -57,6 +67,22 @@ if (!languageMap.includes('M(prefix, name) = prefix + "_n"') || !languageMap.inc
   throw new Error('LANGUAGE-MAP.md must document opaque name mangling and the complete keyword table');
 }
 if (meta.generation !== 2 || meta.status === 'frozen') throw new Error('Gen2 metadata must describe an unfrozen generation 2');
+if (compilerEntry.length > 4096) throw new Error('compiler.raz must remain a small canonical include entry, not a generated monolithic bundle');
+for (const relative of sourceFiles) {
+  if (!compilerEntry.includes(`include \"${relative}\";`)) throw new Error(`compiler.raz is missing source include ${relative}`);
+}
+if (meta.source !== 'compiler/razc/src/' || meta.final_file !== 'compiler/razc/compiler.raz') throw new Error('Gen2 metadata paths do not match compiler/razc layout');
+const declarationOwners = new Map();
+for (const relative of sourceFiles) {
+  const content = fs.readFileSync(path.join(GEN2, relative), 'utf8');
+  for (const match of content.matchAll(/^(?:struct|function)\s+([A-Za-z_][A-Za-z0-9_]*)/gm)) {
+    const owners = declarationOwners.get(match[1]) ?? [];
+    owners.push(relative);
+    declarationOwners.set(match[1], owners);
+  }
+}
+const duplicateDeclarations = [...declarationOwners].filter(([, owners]) => owners.length > 1);
+if (duplicateDeclarations.length) throw new Error(`included compiler declarations must be globally unique: ${duplicateDeclarations.map(([name, owners]) => `${name} (${owners.join(', ')})`).join('; ')}`);
 if (gen1.status !== 'frozen') throw new Error('Gen2 bootstrap requires frozen Gen1 metadata');
 if (/^function main\(\)/m.test(source)) throw new Error('Gen2 source must use top-level execution, not user-defined main');
 for (const include of [
@@ -76,7 +102,7 @@ if (!fs.existsSync(path.join(ROOT, 'scripts', 'test-gen2-io-native-fast.mjs'))) 
 if (/JSON\.parse|readFile\([^)]*module\.json/i.test(resolver)) throw new Error('Raz module resolver must not read JSON metadata');
 if (!resolver.includes('function resolveRazModules(')) throw new Error('module resolution must be implemented in Raz');
 if (resolver.includes('sourceWithPrelude') || /use\s+std\.core\s*;/.test(resolver)) throw new Error('std.core must not be injected as an implicit prelude');
-if (!fs.existsSync(path.join(GEN2, 'std', 'core', 'core.raz'))) throw new Error('explicit std.core module is missing');
+if (!fs.existsSync(path.join(STDLIB, 'std', 'core', 'core.raz'))) throw new Error('explicit std.core module is missing');
 if (!includes.includes('function normalizeIncludePath(') || !includes.includes('function isPathSeparator(')) throw new Error('include paths must be normalized before deduplication/cycle checks');
 if (!includes.includes('charCodeAt(source, scan + 1) == 47') || !includes.includes('charCodeAt(source, scan + 1) == 42')) throw new Error('include expansion must ignore directive-like text in comments');
 if (!includes.includes('let quote: i64 = charCodeAt(source, scan)')) throw new Error('include expansion must ignore directive-like text in string/character literals');
@@ -114,7 +140,7 @@ if (includes.includes('scan == 0 || !isAlphaNum(source[scan - 1])') || includes.
 if (resolver.includes('while (dot >= 0 && name[dot]') || resolver.includes('while (b > a && isSpace(line[b - 1])')) throw new Error('module resolver still has a potentially negative string index in a loop guard');
 if (targetParser.includes('while (b > a && (s[b - 1]')) throw new Error('RIR parser trim must not hide a negative string index in a loop guard');
 if (!rirEmitter.includes('global-const ') || !rirEmitter.includes('function " + initName + "() -> " + ts.type')) throw new Error('const globals must have explicit RIR initializer functions');
-if (!targetParser.includes('starts(line, "global-const ")') || !targetEmitter.includes('if (g.isConst) emitLine(state, "const "')) throw new Error('C++ target must lower RIR const globals to const storage');
+if (!targetParser.includes('starts(line, "global-const ")') || !targetEmitter.includes('if (g.isConst) cpp17_emitLine(state, "const "')) throw new Error('C++ target must lower RIR const globals to const storage');
 if (!semantics.includes('function names beginning with raz_global_init_ are reserved by the compiler')) throw new Error('generated global initializer function namespace must be reserved');
 if (!rirEmitter.includes('if (x.op == "&&" || x.op == "||")') || !rirEmitter.includes('branch " + left + " ? " + rhsLabel') || !rirEmitter.includes(' = copy ')) throw new Error('logical operators must lower to short-circuit control flow in RIR');
 if (!targetTypes.includes('function cppMangledName(prefix: string, name: string)') || !targetTypes.includes('int_to_string(name[i])') || !targetTypes.includes('function cppFunctionName(name: string)') || !targetTypes.includes('function cppVariableName(name: string)') || !targetTypes.includes('function cppStructName(name: string)') || !targetTypes.includes('function cppFieldName(name: string)')) throw new Error('C++ target must use deterministic opaque mangling by symbol category');

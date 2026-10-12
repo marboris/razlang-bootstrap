@@ -23,7 +23,7 @@ make GENERATOR='Unix Makefiles'
 پس از ساخت candidate مربوط به Gen2:
 
 ```sh
-build/native/bin/razc final/compiler/examples/hello.raz -O2 -g -march=native -o build/native/hello
+build/native/bin/razc compiler/razc/examples/hello.raz -O2 -g -march=native -o build/native/hello
 ./build/native/hello
 ```
 
@@ -37,22 +37,22 @@ build/native/bin/razc app.raz -DRAZ_DEBUG -DRAZ_LEVEL=7 '-DRAZ_CHANNEL="nightly"
 
 ```sh
 # فقط C++ تولیدشده را ذخیره کن
-build/native/bin/razc final/compiler/examples/hello.raz --emit-cpp build/native/hello.cpp
+build/native/bin/razc compiler/razc/examples/hello.raz --emit-cpp build/native/hello.cpp
 
 # اسمبلی تولید کن (مثل g++)
-build/native/bin/razc final/compiler/examples/hello.raz -S -g -o build/native/hello.s
+build/native/bin/razc compiler/razc/examples/hello.raz -S -g -o build/native/hello.s
 
 # آبجکت بساز
-build/native/bin/razc final/compiler/examples/hello.raz -c -O2 -o build/native/hello.o
+build/native/bin/razc compiler/razc/examples/hello.raz -c -O2 -o build/native/hello.o
 
 # مسیر جست‌وجوی ماژول Raz، جدا از -L بومی GNU
 build/native/bin/razc app.raz --module-path ./vendor/raz -O2 -L ./lib -lmathx -o app
 
 # مشاهده‌ی فرمان‌های دقیق بدون اجرای compiler frontend یا g++
-build/native/bin/razc --dry-run final/compiler/examples/hello.raz -O2 -g -march=native -o build/native/hello
+build/native/bin/razc --dry-run compiler/razc/examples/hello.raz -O2 -g -march=native -o build/native/hello
 
 # اشکال‌زدایی
-build/native/bin/razc final/compiler/examples/hello.raz -O0 -g -o build/native/hello
+build/native/bin/razc compiler/razc/examples/hello.raz -O0 -g -o build/native/hello
 gdb --args build/native/hello
 ```
 
@@ -60,7 +60,7 @@ gdb --args build/native/hello
 
 ## تست‌ها
 
-تست‌های روزمره با CTest اجرا می‌شوند و فقط رفتار درایور، parsing گزینه‌ها و انتقال flagها را بررسی می‌کنند. بنابراین حتی اگر `final/compiler/build/razc-candidate` هنوز ساخته نشده باشد، تست‌ها قابل اجرا هستند:
+تست‌های روزمره با CTest اجرا می‌شوند و فقط رفتار درایور، parsing گزینه‌ها و انتقال flagها را بررسی می‌کنند. بنابراین حتی اگر `compiler/razc/build/razc-candidate` هنوز ساخته نشده باشد، تست‌ها قابل اجرا هستند:
 
 ```sh
 make test
@@ -71,7 +71,7 @@ ctest --test-dir build/native --output-on-failure
 
 ## ماژول‌ها و تست‌های رگرسیون Gen2
 
-Resolver در `final/compiler/src/source/modules.raz` دستورهای `use dotted.name;` را به‌صورت بومی در Raz پردازش می‌کند. مسیر `test.message` در ریشهٔ جست‌وجو به `test/message.raz` یا `test/message/message.raz` نگاشت می‌شود. اسکنر resolver کامنت‌های `//` و `/* ... */` را نادیده می‌گیرد، اما markerهای کامنت داخل string و character literal یا quoteهای escapeشده را به‌عنوان کامنت نمی‌شناسد. importهای تکراری deduplicate می‌شوند؛ وابستگی چرخه‌ای و ماژول گم‌شده پیش از تولید C++ خطای صریح می‌دهند.
+Resolver در `compiler/razc/src/source/modules.raz` دستورهای `use dotted.name;` را به‌صورت بومی در Raz پردازش می‌کند. مسیر `test.message` در ریشهٔ جست‌وجو به `test/message.raz` یا `test/message/message.raz` نگاشت می‌شود. اسکنر resolver کامنت‌های `//` و `/* ... */` را نادیده می‌گیرد، اما markerهای کامنت داخل string و character literal یا quoteهای escapeشده را به‌عنوان کامنت نمی‌شناسد. importهای تکراری deduplicate می‌شوند؛ وابستگی چرخه‌ای و ماژول گم‌شده پیش از تولید C++ خطای صریح می‌دهند.
 
 برای اجرای تست‌های یکپارچهٔ resolver و semantics، ابتدا candidate نسل 2 باید ساخته شده باشد:
 
@@ -87,7 +87,7 @@ make test
 - `legacy/gen0/seed/`: JavaScript seed اولیه‌ی bootstrap.
 - `legacy/gen0/`: compiler تاریخی نسل صفر.
 - `legacy/gen1/`: source و compiler تاریخی نسل یک؛ با Gen0 ساخته می‌شود.
-- `final/compiler/`: نسل در حال توسعه؛ سورس ماژولار آن منبع اصلی کامپایلر فعلی است.
+- `compiler/razc/`: نسل در حال توسعه؛ سورس ماژولار آن منبع اصلی کامپایلر فعلی است.
 - `src/host/raz_driver.cpp`: درایور native برای ترجمه‌ی فایل Raz به C++ و اجرای GNU C++.
 - `CMakeLists.txt` و `Makefile`: build و تست بومی.
 - `scripts/build-gen1.mjs` و `scripts/build-gen2.mjs`: مسیر bootstrap نسل‌ها؛ این اسکریپت‌های JS بخشی از ساخت تاریخی‌اند، نه framework تست روزمره.

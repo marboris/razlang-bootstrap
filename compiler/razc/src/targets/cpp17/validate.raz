@@ -1,0 +1,65 @@
+// Validate the structural contract of our generated C++17 translation unit.
+// Full C++ grammar/type validation belongs to the selected native C++ compiler;
+// this pass catches malformed output from our own lowering before it is written.
+function validateCpp17Output(source: string) -> string {
+    if (source == "") return "empty C++ output";
+    if (cpp17_findText(source, "int main(int argc, char** argv) {", 0) < 0) {
+        return "generated C++ is missing the required process entry point";
+    }
+    if (cpp17_findText(source, "using raz_i64 = __INT64_TYPE__;", 0) < 0) {
+        return "generated C++ is missing the target primitive type declaration";
+    }
+
+    let parens: i64 = 0;
+    let braces: i64 = 0;
+    let brackets: i64 = 0;
+    let quote: i64 = 0;
+    let escaped: bool = false;
+    let lineComment: bool = false;
+    let blockComment: bool = false;
+    let i: i64 = 0;
+    while (i < length(source)) {
+        let c: i64 = charCodeAt(source, i);
+        let next: i64 = -1;
+        if (i + 1 < length(source)) next = charCodeAt(source, i + 1);
+
+        if (lineComment) {
+            if (c == 10) lineComment = false;
+        } else if (blockComment) {
+            if (c == 42 && next == 47) {
+                blockComment = false;
+                i = i + 1;
+            }
+        } else if (quote != 0) {
+            if (escaped) escaped = false;
+            else if (c == 92) escaped = true;
+            else if (c == quote) quote = 0;
+        } else if (c == 47 && next == 47) {
+            lineComment = true;
+            i = i + 1;
+        } else if (c == 47 && next == 42) {
+            blockComment = true;
+            i = i + 1;
+        } else if (c == 34 || c == 39) {
+            quote = c;
+        } else if (c == 40) parens = parens + 1;
+        else if (c == 41) {
+            parens = parens - 1;
+            if (parens < 0) return "unexpected ')' in generated C++";
+        } else if (c == 123) braces = braces + 1;
+        else if (c == 125) {
+            braces = braces - 1;
+            if (braces < 0) return "unexpected '}' in generated C++";
+        } else if (c == 91) brackets = brackets + 1;
+        else if (c == 93) {
+            brackets = brackets - 1;
+            if (brackets < 0) return "unexpected ']' in generated C++";
+        }
+        i = i + 1;
+    }
+
+    if (quote != 0) return "unterminated literal in generated C++";
+    if (blockComment) return "unterminated comment in generated C++";
+    if (parens != 0 || braces != 0 || brackets != 0) return "unbalanced delimiters in generated C++";
+    return "";
+}

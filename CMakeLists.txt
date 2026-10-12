@@ -32,21 +32,21 @@ if(BUILD_TESTING)
     # Gen2 frontend. This keeps native driver iteration independent of bootstrap.
     add_test(NAME razc_forwards_cpu_optimization_and_debug_flags
         COMMAND $<TARGET_FILE:razc>
-            --dry-run "${CMAKE_SOURCE_DIR}/final/compiler/examples/hello.raz"
+            --dry-run "${CMAKE_SOURCE_DIR}/compiler/razc/examples/hello.raz"
             -O2 -g -march=native -mtune=native -o "${CMAKE_BINARY_DIR}/raz-hello")
     set_tests_properties(razc_forwards_cpu_optimization_and_debug_flags PROPERTIES
         PASS_REGULAR_EXPRESSION "-O2.*-g.*-march=native.*-mtune=native")
 
     add_test(NAME razc_forwards_and_exposes_build_definitions
         COMMAND $<TARGET_FILE:razc>
-            --dry-run "${CMAKE_SOURCE_DIR}/final/compiler/examples/hello.raz"
+            --dry-run "${CMAKE_SOURCE_DIR}/compiler/razc/examples/hello.raz"
             -DRAZ_BUILD_TEST=17 -march=native)
     set_tests_properties(razc_forwards_and_exposes_build_definitions PROPERTIES
         PASS_REGULAR_EXPRESSION "Raz frontend:.*--define RAZ_BUILD_TEST=17.*GNU C\\+\\+:.*-DRAZ_BUILD_TEST=17")
 
     add_test(NAME razc_forwards_gnu_linker_flags
         COMMAND $<TARGET_FILE:razc>
-            --dry-run "${CMAKE_SOURCE_DIR}/final/compiler/examples/hello.raz"
+            --dry-run "${CMAKE_SOURCE_DIR}/compiler/razc/examples/hello.raz"
             -L "${CMAKE_BINARY_DIR}/fake-lib" -l raz_extra -Wl,--as-needed
             -o "${CMAKE_BINARY_DIR}/raz-hello")
     set_tests_properties(razc_forwards_gnu_linker_flags PROPERTIES
@@ -54,10 +54,10 @@ if(BUILD_TESTING)
 
     add_test(NAME razc_module_path_is_frontend_option
         COMMAND $<TARGET_FILE:razc>
-            --dry-run "${CMAKE_SOURCE_DIR}/final/compiler/examples/hello.raz"
-            --module-path "${CMAKE_SOURCE_DIR}/final/compiler/std" -march=x86-64)
+            --dry-run "${CMAKE_SOURCE_DIR}/compiler/razc/examples/hello.raz"
+            --module-path "${CMAKE_SOURCE_DIR}/library/raz" -march=x86-64)
     set_tests_properties(razc_module_path_is_frontend_option PROPERTIES
-        PASS_REGULAR_EXPRESSION "Raz frontend:.*-L.*final/compiler/std")
+        PASS_REGULAR_EXPRESSION "Raz frontend:.*-L.*library/raz")
 
 
     # Native end-to-end driver test using a tiny C++ test double for the
@@ -74,7 +74,7 @@ if(BUILD_TESTING)
     endif()
     add_test(NAME razc_native_pipeline_fake_frontend_build
         COMMAND $<TARGET_FILE:razc>
-            "${CMAKE_SOURCE_DIR}/final/compiler/examples/hello.raz"
+            "${CMAKE_SOURCE_DIR}/compiler/razc/examples/hello.raz"
             -O0 -g -march=native -mtune=native -o "${RAZ_FAKE_PIPELINE_OUTPUT}")
     set_tests_properties(razc_native_pipeline_fake_frontend_build PROPERTIES
         ENVIRONMENT "RAZ_FRONTEND=$<TARGET_FILE:razc_test_frontend>")
@@ -88,15 +88,15 @@ if(BUILD_TESTING)
     # compiler->C++->GNU toolchain smoke test. It is deliberately optional:
     # building/testing the driver never bootstraps Gen2 by itself.
     if(WIN32)
-        set(RAZ_GEN2_CANDIDATE "${CMAKE_SOURCE_DIR}/final/compiler/build/razc-candidate.exe")
+        set(RAZ_GEN2_CANDIDATE "${CMAKE_SOURCE_DIR}/compiler/razc/build/razc-candidate.exe")
     else()
-        set(RAZ_GEN2_CANDIDATE "${CMAKE_SOURCE_DIR}/final/compiler/build/razc-candidate")
+        set(RAZ_GEN2_CANDIDATE "${CMAKE_SOURCE_DIR}/compiler/razc/build/razc-candidate")
     endif()
     if(EXISTS "${RAZ_GEN2_CANDIDATE}")
         set(RAZ_INTEGRATION_OUTPUT "${CMAKE_BINARY_DIR}/raz-gen2-hello")
         add_test(NAME razc_gen2_cpp_and_gnu_smoke_build
             COMMAND $<TARGET_FILE:razc>
-                "${CMAKE_SOURCE_DIR}/final/compiler/examples/hello.raz"
+                "${CMAKE_SOURCE_DIR}/compiler/razc/examples/hello.raz"
                 -O0 -g -o "${RAZ_INTEGRATION_OUTPUT}")
         add_test(NAME razc_gen2_cpp_and_gnu_smoke_run
             COMMAND "${RAZ_INTEGRATION_OUTPUT}")
@@ -294,7 +294,7 @@ if(BUILD_TESTING)
         add_test(NAME razc_rejects_reserved_target_override
             COMMAND "${CMAKE_COMMAND}"
                 -DRAZC=$<TARGET_FILE:razc>
-                -DSOURCE=${CMAKE_SOURCE_DIR}/final/compiler/examples/hello.raz
+                -DSOURCE=${CMAKE_SOURCE_DIR}/compiler/razc/examples/hello.raz
                 -P "${CMAKE_SOURCE_DIR}/tests/cmake/assert_driver_rejects_target_override.cmake")
 
         set(RAZ_UNUSED_BUILD_DEF_CPP "${CMAKE_BINARY_DIR}/raz-unused-build-definition.cpp")

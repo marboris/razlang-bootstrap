@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { adaptGen2SourceForGen1Bootstrap, gen1BootstrapCompatHeader } from './gen2-bootstrap-adapter.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const WORK = path.join(ROOT, 'final', 'compiler', 'build', 'driver-fast');
+const WORK = path.join(ROOT, 'compiler', 'razc', 'build', 'driver-fast');
 const GEN1 = path.join(ROOT, 'legacy', 'gen1', 'bin', process.platform === 'win32' ? 'razc.exe' : 'razc');
 const CANDIDATE = path.join(WORK, process.platform === 'win32' ? 'razc-driver-test.exe' : 'razc-driver-test');
 const REPAIRED_CPP = path.join(WORK, 'backend', 'output.bootstrap-fixed.cpp');
@@ -25,13 +25,14 @@ fs.rmSync(WORK, { recursive: true, force: true });
 fs.mkdirSync(path.join(WORK, 'frontend'), { recursive: true });
 fs.mkdirSync(path.join(WORK, 'backend'), { recursive: true });
 fs.writeFileSync(path.join(WORK, 'gen1_bootstrap_compat.hpp'), gen1BootstrapCompatHeader(), 'utf8');
-const driver = fs.readFileSync(path.join(ROOT, 'final', 'compiler', 'src', 'driver', 'main.raz'), 'utf8');
+const driver = fs.readFileSync(path.join(ROOT, 'compiler', 'razc', 'src', 'driver', 'main.raz'), 'utf8');
 const withoutUses = driver.replace(/^(?:use "(?:cstdint|cstddef|string|vector)";|use std\.(?:io|text|containers);)\s*$/gm, '');
 const uses = 'use "cstdint";\nuse "cstddef";\nuse "string";\nuse "vector";\nuse "gen1_bootstrap_compat.hpp";\n';
 const stubs = `
 function compileSourceAt(source: string, entryPath: string) -> string { return "stub-rir"; }
 function generate(rir: string) -> string { return "driver-stub-payload\n"; }
-function pathDir(path: string) -> string { return "final/compiler"; }
+function pathDir(path: string) -> string { return "project"; }
+function joinPath(base: string, relative: string) -> string { return base + "/" + relative; }
 function resolveRazModules(source: string, entryPath: string, roots: List<string>) -> string { return source; }
 `;
 const bootstrapInput = adaptGen2SourceForGen1Bootstrap(`${uses}${stubs}\n${withoutUses}`);

@@ -5,7 +5,8 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const GEN2 = path.join(ROOT, 'final', 'compiler');
+const GEN2 = path.join(ROOT, 'compiler', 'razc');
+const STDLIB = path.join(ROOT, 'library', 'raz');
 const WORK = path.join(GEN2, 'build', 'env-native-fast');
 const CXX = process.env.CXX ?? 'c++';
 
@@ -38,9 +39,9 @@ fs.writeFileSync(source, [
   '}',
   '',
 ].join('\n'));
-run(CXX, ['-std=c++17', '-O0', source, '-I', GEN2, '-o', binary]);
+run(CXX, ['-std=c++17', '-O0', source, '-I', STDLIB, '-o', binary]);
 run(binary, []);
-const module = fs.readFileSync(path.join(GEN2, 'std', 'env', 'env.raz'), 'utf8');
+const module = fs.readFileSync(path.join(STDLIB, 'std', 'env', 'env.raz'), 'utf8');
 for (const api of ['getEnv', 'hasEnv', 'osName', 'architecture']) {
   if (!module.includes(`function ${api}(`)) throw new Error(`std.env is missing ${api}`);
 }

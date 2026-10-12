@@ -10,10 +10,10 @@ Gen2 در حال توسعه است و هنوز stable یا frozen نیست. در
 - وابستگی‌های native از طریق `use` اعلام می‌شوند؛ backend فهرست مخفی از headerهای کتابخانه‌ای تزریق نمی‌کند. `std.core` یک ماژول اختیاری و صریح است؛ دیگر prelude ضمنی وجود ندارد. این ماژول فقط `<string>` و `<vector>` را برای نمایش‌های پایه‌ی `string` و `List<T>` وارد می‌کند. برنامه‌ای که به این نمایش‌ها نیاز دارد می‌تواند `use std.core;` کند یا کتابخانه‌ای مانند `std.io` و `std.containers` را وارد کند که وابستگی‌های خودش را فراهم می‌کند. نوع پایهٔ `i64` به نوع دقیق ۶۴ بیتی تعریف‌شده توسط GNU-compatible C++ compiler نگاشت می‌شود، بدون تزریق خودکار `<cstdint>`.
 - ورودی CLI مسیر فایل Raz است و مسیر includeهای متنی نسبت به همان فایل ورودی محاسبه می‌شود.
 - قرارداد `use` عمداً بدون ابهام است: `use "cstdint";` هدر C++ را وارد می‌کند و `use std.io;` ماژول Raz را resolve می‌کند. نام bare مثل `use cstdint;` در parser رد می‌شود؛ هدر C++ باید داخل کوتیشن باشد و نام ماژول Raz باید dotted باشد و پیش از parsing resolve شود.
-- Resolver در `src/source/modules.raz` و به زبان Raz پیاده‌سازی شده است؛ از قرارداد مسیر فایل استفاده می‌کند و `module.json` را نمی‌خواند. برای مثال `std.io` به `std/io/io.raz` یا `std/io.raz` در یکی از ریشه‌های جست‌وجو نگاشت می‌شود. چند دستور `use` می‌توانند در یک خط بیایند؛ خطاهای ماژول مفقود و چرخه همراه مسیر فایل و شماره خط گزارش می‌شوند. کامنت بسته‌نشده شماره خط شروع کامنت را گزارش می‌کند.
+- Resolver در `src/source/modules.raz` و به زبان Raz پیاده‌سازی شده است؛ از قرارداد مسیر فایل استفاده می‌کند و `module.json` را نمی‌خواند. برای مثال `std.io` به `library/raz/std/io/io.raz` یا `std/io.raz` در یکی از ریشه‌های جست‌وجو نگاشت می‌شود. چند دستور `use` می‌توانند در یک خط بیایند؛ خطاهای ماژول مفقود و چرخه همراه مسیر فایل و شماره خط گزارش می‌شوند. کامنت بسته‌نشده شماره خط شروع کامنت را گزارش می‌کند.
 - در CLI داخلی candidate ریشه‌های اضافه با `-L <path>` یا `--module-path <path>` داده می‌شوند. درایور بیرونی GNU-like از `--module-path <path>` استفاده می‌کند؛ `-L` در آن معنای استاندارد GNU یعنی مسیر کتابخانه‌ی native را دارد. ماژول‌ها فقط یک بار گسترش می‌یابند و وابستگی‌های تو در تو و چرخه‌ها بررسی می‌شوند.
-- `std.io` در سورس Raz APIهای `print`، `readFile`، `writeFile`، `argCount` و `argAt` را تعریف می‌کند؛ `writeFile` مقدار `bool` برمی‌گرداند تا شکست بازکردن یا نوشتن قابل تشخیص باشد. پیاده‌سازی مرز native سیستم‌عامل در `std/io/io_native.hpp` است. خروجی برنامه‌ای که `std.io` را وارد می‌کند به `raz_runtime.hpp` وابسته نیست. این header پل native متعلق به همان ماژول است، نه runtime سراسری کامپایلر.
-- `std.env` از طریق `use std.env;` APIهای `getEnv`، `hasEnv`، `osName` و `architecture` را ارائه می‌کند. پیاده‌سازی native آن در `std/env/env_native.hpp` جداست؛ هسته‌ی compiler برای نام متغیرهای محیطی، سیستم‌عامل یا معماری شاخه‌ی اختصاصی ندارد.
+- `std.io` در سورس Raz APIهای `print`، `readFile`، `writeFile`، `argCount` و `argAt` را تعریف می‌کند؛ `writeFile` مقدار `bool` برمی‌گرداند تا شکست بازکردن یا نوشتن قابل تشخیص باشد. پیاده‌سازی مرز native سیستم‌عامل در `library/raz/std/io/io_native.hpp` است. خروجی برنامه‌ای که `std.io` را وارد می‌کند به `raz_runtime.hpp` وابسته نیست. این header پل native متعلق به همان ماژول است، نه runtime سراسری کامپایلر.
+- `std.env` از طریق `use std.env;` APIهای `getEnv`، `hasEnv`، `osName` و `architecture` را ارائه می‌کند. پیاده‌سازی native آن در `library/raz/std/env/env_native.hpp` جداست؛ هسته‌ی compiler برای نام متغیرهای محیطی، سیستم‌عامل یا معماری شاخه‌ی اختصاصی ندارد.
 - قرارداد startup ماژول‌ها عمومی است: یک ماژول می‌تواند `function raz_module_init_<name>() { ... }` تعریف کند. Core این hookها را پس از مقداردهی globalهای Raz و پیش از اجرای statementهای سطح فایل فراخوانی می‌کند؛ hook باید بدون پارامتر و با نوع بازگشت `void` باشد. این قرارداد در backend به `std.io` یا نام یک کتابخانه‌ی خاص وابسته نیست.
 - آرگومان‌های فرایند از ABI عمومی `raz_internal_process` در entry point تولیدشده فراهم می‌شوند؛ `std.io` فقط این context را می‌خواند و دیگر نیازی به `std_io_set_cli` یا تشخیص ویژه در C++ emitter ندارد.
 - resolver، گسترش `include` و تشخیص چرخه‌ها در خود سورس Raz اجرا می‌شوند. درایور native در `src/host/raz_driver.cpp` candidate را برای تولید C++ اجرا می‌کند و سپس flagهای GNU را به کامپایلر نهایی C++ می‌دهد.
@@ -59,7 +59,7 @@ CMake با Ninja (اگر نصب باشد) درایور `build/native/bin/razc` �
 make build-gen2
 ```
 
-این دستور checksum باینری frozen Gen1 را بررسی می‌کند، bundle را از سورس ماژولار Gen2 می‌سازد و آن را با Gen1 کامپایل می‌کند. به‌دلیل نقص نوع‌دهی tempهای Gen1 برای local/field/list، یک repair pass محدود فقط روی C++ تولیدشده برای خود compiler اجرا می‌شود؛ سورس و باینری Gen1 و خروجی برنامه‌های کاربر دست‌کاری نمی‌شوند. سپس candidate بومی در `final/compiler/build/razc-candidate` قرار می‌گیرد. candidate هنوز به `final/compiler/bin/razc` منتقل یا freeze نمی‌شود.
+این دستور checksum باینری frozen Gen1 را بررسی می‌کند، bundle را از سورس ماژولار Gen2 می‌سازد و آن را با Gen1 کامپایل می‌کند. به‌دلیل نقص نوع‌دهی tempهای Gen1 برای local/field/list، یک repair pass محدود فقط روی C++ تولیدشده برای خود compiler اجرا می‌شود؛ سورس و باینری Gen1 و خروجی برنامه‌های کاربر دست‌کاری نمی‌شوند. سپس candidate بومی در `compiler/razc/build/razc-candidate` قرار می‌گیرد. candidate هنوز به `compiler/razc/bin/razc` منتقل یا freeze نمی‌شود.
 
 ## استفاده از candidate و درایور GNU-like
 
@@ -70,14 +70,14 @@ make build-gen2
 make
 
 # Raz -> C++ -> g++؛ تمام flagهای GNU به مرحله‌ی C++ منتقل می‌شوند
-build/native/bin/razc final/compiler/examples/hello.raz -O2 -g -march=native -o build/hello
+build/native/bin/razc compiler/razc/examples/hello.raz -O2 -g -march=native -o build/hello
 ./build/hello
 
 # فقط C++ تولید کن
-build/native/bin/razc final/compiler/examples/hello.raz --emit-cpp build/hello.cpp
+build/native/bin/razc compiler/razc/examples/hello.raz --emit-cpp build/hello.cpp
 
 # یا دستورات دقیق را بدون اجرای مراحل ببین
-build/native/bin/razc --dry-run final/compiler/examples/hello.raz -O2 -g -march=native -o build/hello
+build/native/bin/razc --dry-run compiler/razc/examples/hello.raz -O2 -g -march=native -o build/hello
 ```
 
 `-march`، `-mtune`، `-O`، `-g`، `-I`، `-L`، `-l`، `-pthread`، `-fPIC`، `-Wl,...` و سایر گزینه‌های native به `g++` پاس داده می‌شوند. مسیر ماژول‌های Raz با `--module-path` و `--std-path` مشخص می‌شود؛ `-L` برای لینک native رزرو است. `CXX` کامپایلر مقصد را عوض می‌کند و با `-g -O0` می‌توان خروجی را با `gdb` دیباگ کرد.
@@ -94,7 +94,7 @@ build/native/bin/razc --dry-run final/compiler/examples/hello.raz -O2 -g -march=
 - `src/driver/`: CLI داخلی Core
 - `src/source/modules.raz`: module resolution و گسترش include با خود Raz
 - `src/host/raz_driver.cpp`: درایور native که گزینه‌های GNU را به کامپایلر C++ پاس می‌دهد
-- `std/`: کتابخانه‌های استاندارد Raz و پل‌های native متعلق به همان ماژول؛ resolver از سورس `*.raz` استفاده می‌کند و `module.json` فقط metadata راهنماست.
+- `library/raz/std/`: کتابخانه‌های استاندارد Raz و پل‌های native متعلق به همان ماژول؛ resolver از سورس `*.raz` استفاده می‌کند و `module.json` فقط metadata راهنماست.
 
 ## قرارداد راه‌اندازی ماژول‌ها
 
@@ -117,7 +117,7 @@ function raz_module_init_my_module() {
 
 ```raz
 use "cstdint"; // هدر مستقیم C++
-use std.io;     // کتابخانه‌ی Raz از مسیر final/compiler/std/io/io.raz
+use std.io;     // کتابخانه‌ی Raz از مسیر library/raz/std/io/io.raz
 
 print("Hello from Raz");
 return 0;
@@ -155,7 +155,7 @@ function nativeCount() -> i64 {
 
 ### کتابخانه‌ی `std.text`
 
-توابع `length`، `slice` و `int_to_string` در Gen2 از نگاشت ثابت `raz::...` خارج شده‌اند. آن‌ها API معمول Raz در `std/text/text.raz` هستند و پیاده‌سازی native آن‌ها فقط با `use "std/text/text_native.hpp";` وارد می‌شود. مصرف‌کننده باید `use std.text;` را صریح اعلام کند. در مرحله‌ی bootstrap با Gen1، adapter موقت این import را حذف می‌کند چون Gen1 هنوز resolver ماژول‌های سورس‌محور را ندارد؛ این سازگارسازی در سورس canonical Gen2 اعمال نمی‌شود.
+توابع `length`، `slice` و `int_to_string` در Gen2 از نگاشت ثابت `raz::...` خارج شده‌اند. آن‌ها API معمول Raz در `library/raz/std/text/text.raz` هستند و پیاده‌سازی native آن‌ها فقط با `use "std/text/text_native.hpp";` وارد می‌شود. مصرف‌کننده باید `use std.text;` را صریح اعلام کند. در مرحله‌ی bootstrap با Gen1، adapter موقت این import را حذف می‌کند چون Gen1 هنوز resolver ماژول‌های سورس‌محور را ندارد؛ این سازگارسازی در سورس canonical Gen2 اعمال نمی‌شود.
 
 
 ### کتابخانه‌ی `std.containers`

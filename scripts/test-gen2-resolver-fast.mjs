@@ -7,7 +7,8 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const GEN2 = path.join(ROOT, 'final', 'compiler');
+const GEN2 = path.join(ROOT, 'compiler', 'razc');
+const STDLIB = path.join(ROOT, 'library', 'raz');
 const CANDIDATE = process.env.RAZC ?? path.join(GEN2, 'build', process.platform === 'win32' ? 'razc-candidate.exe' : 'razc-candidate');
 const WORK = path.join(GEN2, 'build', 'resolver-fast');
 const cppMangle = (prefix, name) => `${prefix}_n${name.length}_${[...name].map((c) => c.charCodeAt(0)).join('_')}`;
@@ -57,7 +58,7 @@ expect(code.includes('#include <cstddef>'), 'native use header was not preserved
 expect(!code.includes('use demo.wrapper;') && !code.includes('use demo.math;'), 'Raz module directive leaked into C++ output');
 expect(code.includes(`std::int64_t ${cppFunction('main')}() {`) && !code.includes('raz_fn_main') && !code.includes('raz_main()'), 'main must use the general opaque Raz function mangling rule');
 const moduleExe = path.join(WORK, 'module-case');
-run(process.env.CXX ?? 'c++', ['-std=c++17', '-O0', output, '-I', GEN2, '-o', moduleExe], { status: 0 });
+run(process.env.CXX ?? 'c++', ['-std=c++17', '-O0', output, '-I', STDLIB, '-o', moduleExe], { status: 0 });
 run(moduleExe, [], { status: 42 });
 
 // Include directives remain relative to the file that declares them, including nested includes.
@@ -69,7 +70,7 @@ run(CANDIDATE, [includeMain, '--emit-cpp', includeCpp], { status: 0 });
 const includeText = fs.readFileSync(includeCpp, 'utf8');
 expect((includeText.match(new RegExp(`${cppFunction('nestedValue')}\\(\\) \\{`, 'g')) ?? []).length === 1, 'nested include was not expanded/deduplicated');
 const includeExe = path.join(WORK, 'include-case');
-run(process.env.CXX ?? 'c++', ['-std=c++17', '-O0', includeCpp, '-I', GEN2, '-o', includeExe], { status: 0 });
+run(process.env.CXX ?? 'c++', ['-std=c++17', '-O0', includeCpp, '-I', STDLIB, '-o', includeExe], { status: 0 });
 run(includeExe, [], { status: 9 });
 
 // Directive-like text in comments/strings must remain inert, and lexical path
@@ -95,7 +96,7 @@ expect(!lexicalIncludeText.split(/\r?\n/).some((line) => line.startsWith('#inclu
 expect(lexicalIncludeText.includes('missing-from-string.raz'),
   'string literal containing include-like text must remain part of the user program');
 const lexicalIncludeExe = path.join(WORK, 'lexical-includes-case');
-run(process.env.CXX ?? 'c++', ['-std=c++17', '-O0', lexicalIncludeCpp, '-I', GEN2, '-o', lexicalIncludeExe], { status: 0 });
+run(process.env.CXX ?? 'c++', ['-std=c++17', '-O0', lexicalIncludeCpp, '-I', STDLIB, '-o', lexicalIncludeExe], { status: 0 });
 run(lexicalIncludeExe, [], { status: 13 });
 
 // Missing modules and both module/include cycles must fail before emitting C++.
@@ -121,7 +122,7 @@ const helloText = fs.readFileSync(helloCpp, 'utf8');
 expect(helloText.includes('#include "std/io/io_native.hpp"'), 'std.io bridge include missing');
 expect(!helloText.includes('raz_runtime.hpp'), 'user program output still depends on legacy runtime');
 const helloExe = path.join(WORK, 'hello');
-run(process.env.CXX ?? 'c++', ['-std=c++17', '-O0', helloCpp, '-I', GEN2, '-o', helloExe], { status: 0 });
+run(process.env.CXX ?? 'c++', ['-std=c++17', '-O0', helloCpp, '-I', STDLIB, '-o', helloExe], { status: 0 });
 const helloResult = run(helloExe, [], { status: 0 });
 expect(helloResult.output.includes('Hello from Raz Gen2!'), 'std.io executable output mismatch');
 
@@ -146,7 +147,7 @@ const nativeArgs = write('native-args/native-args.raz', [
 const nativeArgsCpp = path.join(WORK, 'native-args-generated.cpp');
 run(CANDIDATE, [nativeArgs, '--emit-cpp', nativeArgsCpp], { status: 0 });
 const nativeArgsExe = path.join(WORK, 'native-args-case');
-run(process.env.CXX ?? 'c++', ['-std=c++17', '-O0', nativeArgsCpp, '-I', GEN2, '-o', nativeArgsExe], { status: 0 });
+run(process.env.CXX ?? 'c++', ['-std=c++17', '-O0', nativeArgsCpp, '-I', STDLIB, '-o', nativeArgsExe], { status: 0 });
 const nativeArgsResult = run(nativeArgsExe, [], { status: 0 });
 expect(nativeArgsResult.output.includes('native,comma\n') && nativeArgsResult.output.includes('native value=12'),
   'native call argument splitting or temporary mapping failed');
@@ -162,7 +163,7 @@ const guard = write('short-circuit-guard.raz', [
 const guardCpp = path.join(WORK, 'short-circuit-guard.cpp');
 run(CANDIDATE, [guard, '--emit-cpp', guardCpp], { status: 0 });
 const guardExe = path.join(WORK, 'short-circuit-guard');
-run(process.env.CXX ?? 'c++', ['-std=c++17', '-O0', guardCpp, '-I', GEN2, '-o', guardExe], { status: 0 });
+run(process.env.CXX ?? 'c++', ['-std=c++17', '-O0', guardCpp, '-I', STDLIB, '-o', guardExe], { status: 0 });
 run(guardExe, [], { status: 0 });
 const unwritableOutput = path.join(WORK, 'directory-that-does-not-exist', 'compiler.cpp');
 const writeFailure = run(CANDIDATE, [hello, '--emit-cpp', unwritableOutput], { status: 1 });

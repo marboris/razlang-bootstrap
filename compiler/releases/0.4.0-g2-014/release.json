@@ -1,0 +1,11 @@
+{
+  "version": "0.4.0-g2-014",
+  "generation": 2,
+  "status": "historical-snapshot",
+  "binary": "razc",
+  "checksum": "razc.sha256",
+  "compiler_source_snapshot": "src/",
+  "compiler_bundle_snapshot": "compiler.bundle.raz",
+  "standard_library_snapshot": "std/",
+  "provenance": "Copied from the supplied Raz archive. Build/reproducibility was not rerun during repository restructuring."
+}

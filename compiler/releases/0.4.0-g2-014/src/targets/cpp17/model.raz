@@ -1,0 +1,57 @@
+// Experimental Raz backend: RIR text -> C++17 text.
+// The backend accepts the RIR-1 subset produced by the native frontend.
+
+// Parsed RIR instruction. Text is accepted only at the frontend/backend boundary;
+// C++ lowering consumes explicit opcodes, result types and operands.
+struct RirInstruction {
+    opcode: string;
+    result: string;
+    type: string;
+    name: string;
+    operands: List<string>;
+    line: i64;
+}
+
+struct FunctionMeta {
+    name: string;
+    params: List<string>;
+    paramTypes: List<string>;
+    returnType: string;
+    instructions: List<RirInstruction>;
+}
+
+struct StructMeta {
+    name: string;
+    fields: List<string>;
+    fieldTypes: List<string>;
+}
+
+struct GlobalMeta {
+    name: string;
+    type: string;
+    isConst: bool;
+    isAuto: bool;
+    initFunction: string;
+}
+
+struct BackendModule {
+    parseError: string;
+    uses: List<string>;
+    globals: List<GlobalMeta>;
+    structs: List<StructMeta>;
+    functions: List<FunctionMeta>;
+}
+
+struct BackendState {
+    lines: List<string>;
+    temps: List<string>;
+    tempTypes: List<string>;
+    tempBase: i64;
+    locals: List<string>;
+    localTypes: List<string>;
+    localAutos: List<bool>;
+    localInitValues: List<string>;
+    aliasNames: List<string>;
+    aliasValues: List<string>;
+}
+

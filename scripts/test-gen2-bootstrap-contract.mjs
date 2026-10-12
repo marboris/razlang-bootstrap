@@ -38,7 +38,7 @@ expect(adaptedDriverWrite.includes('writeFile(gOutputPath, gCpp);'), 'bootstrap 
 expect(adaptedDriverWrite.includes('if (readFile(gOutputPath) != gCpp)'), 'bootstrap output check must verify the write by reading it back');
 expect(!adaptedDriverWrite.includes('!writeFile('), 'bootstrap input must not apply boolean negation to Gen1 void writeFile');
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const bundledSource = fs.readFileSync(path.join(ROOT, 'final', 'compiler', 'compiler.raz'), 'utf8');
+const bundledSource = fs.readFileSync(path.join(ROOT, 'compiler', 'razc', 'compiler.raz'), 'utf8');
 if (bundledSource.includes('if (!writeFile(gOutputPath, gCpp))')) {
   const bootstrapBundle = adaptGen2SourceForGen1Bootstrap(bundledSource);
   expect(!bootstrapBundle.includes('!writeFile(gOutputPath, gCpp)'), 'actual Gen2 bundle must be adapted before frozen Gen1 sees it');

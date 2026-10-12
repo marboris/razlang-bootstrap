@@ -46,7 +46,7 @@ RAZ_BOOTSTRAP_USE_CANDIDATES=1 npm run build:gen2
 - ساخت Gen2 native candidate با `g++ -O0`: `3.1 s`
 - `make test`: پس از ساخت candidate واقعی Gen2، ۲۰ تست CTest موفق؛ کل تست‌ها حدود `2.05 s`
 
-این زمان‌ها اندازه‌گیری محیط بررسی هستند، نه تضمین برای همهٔ سخت‌افزارها. تست یکپارچهٔ `final/compiler/examples/hello.raz` نیز با درایور native، C++ تولیدشده و `g++` اجرا شد.
+این زمان‌ها اندازه‌گیری محیط بررسی هستند، نه تضمین برای همهٔ سخت‌افزارها. تست یکپارچهٔ `compiler/razc/examples/hello.raz` نیز با درایور native، C++ تولیدشده و `g++` اجرا شد.
 
 ## کوتاه‌مدار بودن `&&` و `||` در bootstrap
 

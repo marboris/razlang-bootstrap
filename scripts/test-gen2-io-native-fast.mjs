@@ -8,7 +8,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const HEADER_DIR = path.join(ROOT, 'final', 'compiler', 'std', 'io');
+const HEADER_DIR = path.join(ROOT, 'library', 'raz', 'std', 'io');
 const WORK = fs.mkdtempSync(path.join(os.tmpdir(), 'raz-gen2-io-fast-'));
 
 function run(command, args, expectedStatus = 0) {

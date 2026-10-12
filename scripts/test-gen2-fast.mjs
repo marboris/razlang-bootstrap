@@ -5,10 +5,10 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const GEN2 = path.join(ROOT, 'final', 'compiler');
+const GEN2 = path.join(ROOT, 'compiler', 'razc');
 const WORK = path.join(GEN2, 'build', 'fast-check');
 const CANDIDATE = process.env.RAZC ?? path.join(GEN2, 'build', process.platform === 'win32' ? 'razc-candidate.exe' : 'razc-candidate');
-const STD_ROOT = GEN2;
+const STD_ROOT = path.join(ROOT, 'library', 'raz');
 const RAZ_DRIVER = path.join(ROOT, 'scripts', 'raz.mjs');
 const cppMangle = (prefix, name) => `${prefix}_n${name.length}_${[...name].map((c) => c.charCodeAt(0)).join('_')}`;
 const cppFunction = (name) => cppMangle('raz_fn', name);
@@ -52,7 +52,7 @@ fs.rmSync(WORK, { recursive: true, force: true });
 fs.mkdirSync(WORK, { recursive: true });
 
 const version = run(CANDIDATE, ['--version'], { status: 0 });
-if (!version.output.includes('razc Gen2 preview 0.3.0')) throw new Error('CLI --version output mismatch');
+if (!version.output.includes('razc Gen2 preview 0.4.0-g2-014')) throw new Error('CLI --version output mismatch');
 run(CANDIDATE, ['--help'], { status: 0 });
 run(CANDIDATE, [], { status: 2 });
 
@@ -150,7 +150,7 @@ if (!bareNativeResult.output.includes('native C++ headers must be quoted in use 
   throw new Error('bare native use should be rejected with a quote-contract diagnostic');
 }
 
-const hello = path.join(ROOT, 'final', 'compiler', 'examples', 'hello.raz');
+const hello = path.join(ROOT, 'compiler', 'razc', 'examples', 'hello.raz');
 const helloCpp = path.join(WORK, 'hello.cpp');
 const emittedHello = run(process.execPath, [RAZ_DRIVER, 'emit-cpp', hello, '-o', helloCpp], { status: 0 });
 if (!emittedHello.output.includes('razc: wrote')) throw new Error('CLI did not report output path');

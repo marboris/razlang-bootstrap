@@ -7,9 +7,13 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const GEN1 = path.join(ROOT, 'legacy', 'gen1');
-const GEN2 = path.join(ROOT, 'final', 'compiler');
+const GEN2 = path.join(ROOT, 'compiler', 'razc');
+const LIBRARY_ROOT = path.join(ROOT, 'library', 'raz');
+const SELF_HOST = process.argv.includes('--self-host');
+const SELF_HOST_BIN = path.join(GEN2, 'bin', process.platform === 'win32' ? 'razc.exe' : 'razc');
 const WORK = path.join(GEN2, 'build', 'native-work');
-const BUNDLE = path.join(GEN2, 'compiler.raz');
+const ENTRY = path.join(GEN2, 'compiler.raz');
+const FLAT_BUNDLE = path.join(GEN2, 'build', 'bootstrap', 'compiler.bundle.raz');
 const CPP = path.join(WORK, 'backend', 'output.cpp');
 const REPAIRED_CPP = path.join(WORK, 'backend', 'output.bootstrap-fixed.cpp');
 const CANDIDATE = path.join(GEN2, 'build', process.platform === 'win32' ? 'razc-candidate.exe' : 'razc-candidate');
@@ -78,38 +82,6 @@ function declaredNames(source) {
   return names;
 }
 
-function renameIdentifiers(source, renames) {
-  let output = '';
-  let i = 0;
-  while (i < source.length) {
-    if (source[i] === '/' && source[i + 1] === '/') {
-      const end = source.indexOf('\n', i);
-      if (end < 0) return output + source.slice(i);
-      output += source.slice(i, end + 1); i = end + 1; continue;
-    }
-    if (source[i] === '"') {
-      const start = i++;
-      let escaped = false;
-      while (i < source.length) {
-        const c = source[i++];
-        if (escaped) escaped = false;
-        else if (c === '\\') escaped = true;
-        else if (c === '"') break;
-      }
-      output += source.slice(start, i); continue;
-    }
-    if (/[A-Za-z_]/.test(source[i])) {
-      const start = i++;
-      while (i < source.length && /[A-Za-z0-9_]/.test(source[i])) i++;
-      const id = source.slice(start, i);
-      output += renames.get(id) ?? id;
-      continue;
-    }
-    output += source[i++];
-  }
-  return output;
-}
-
 const sourceModules = [
   'src/model/ast.raz',
   'src/core/lexer.raz',
@@ -131,6 +103,44 @@ const targetModules = [
   'src/targets/cpp17/validate.raz',
 ];
 
+fs.mkdirSync(path.dirname(FLAT_BUNDLE), { recursive: true });
+fs.mkdirSync(path.dirname(CANDIDATE), { recursive: true });
+const front = sourceModules.map((p) => fs.readFileSync(path.join(GEN2, p), 'utf8')).join('\n\n');
+const backRaw = targetModules.map((p) => fs.readFileSync(path.join(GEN2, p), 'utf8')).join('\n\n');
+const back = stripMain(backRaw, 'Gen2 C++17 target');
+const frontNames = declaredNames(front);
+const backNames = declaredNames(back);
+const collisions = [...backNames].filter((name) => frontNames.has(name));
+if (collisions.length) {
+  throw new Error(`Gen2 include entry requires globally unique declarations; rename target helpers explicitly: ${collisions.join(', ')}`);
+}
+const driver = fs.readFileSync(path.join(GEN2, 'src/driver/main.raz'), 'utf8');
+const bundle = [
+  '// Raz compiler bundle. Generated from modular files under compiler/razc/src/.',
+  front,
+  back,
+  driver,
+].join('\n\n');
+fs.writeFileSync(FLAT_BUNDLE, bundle, 'utf8');
+if (process.argv.includes('--bundle-only')) {
+  console.log(`[gen2] temporary bootstrap bundle ready: ${FLAT_BUNDLE}`);
+  process.exit(0);
+}
+
+if (SELF_HOST) {
+  if (!fs.existsSync(SELF_HOST_BIN)) throw new Error(`Gen2 self-host compiler not found: ${SELF_HOST_BIN}`);
+  fs.rmSync(WORK, { recursive: true, force: true });
+  fs.mkdirSync(path.join(WORK, 'backend'), { recursive: true });
+  console.log('[gen2] compile canonical include-based compiler entry with the current Gen2 binary');
+  run(SELF_HOST_BIN, [ENTRY, '--emit-cpp', CPP, '-L', LIBRARY_ROOT], { label: 'Gen2 compiles its own compiler.raz entry' });
+  const optimization = process.env.RAZ_BUILD_OPT ?? '-O0';
+  console.log('[gen2] build self-hosted native candidate');
+  run(process.env.CXX ?? 'g++', ['-std=c++17', optimization, CPP, '-I', LIBRARY_ROOT, '-o', CANDIDATE], { label: 'build self-hosted Gen2 candidate' });
+  fs.chmodSync(CANDIDATE, 0o755);
+  console.log(`[gen2] self-hosted candidate ready: ${CANDIDATE}`);
+  process.exit(0);
+}
+
 if (!fs.existsSync(GEN1_BIN)) throw new Error(`Gen1 compiler not found: ${GEN1_BIN}`);
 if (GEN1_BIN === FROZEN_GEN1_BIN) {
   if (!fs.existsSync(GEN1_CHECKSUM)) throw new Error(`Gen1 checksum not found: ${GEN1_CHECKSUM}`);
@@ -139,36 +149,13 @@ if (GEN1_BIN === FROZEN_GEN1_BIN) {
   console.log('[gen2] bootstrapping with rebuilt Gen1 candidate (frozen binary remains untouched)');
 }
 
-fs.mkdirSync(path.dirname(BUNDLE), { recursive: true });
-fs.mkdirSync(path.dirname(CANDIDATE), { recursive: true });
-const front = sourceModules.map((p) => fs.readFileSync(path.join(GEN2, p), 'utf8')).join('\n\n');
-const backRaw = targetModules.map((p) => fs.readFileSync(path.join(GEN2, p), 'utf8')).join('\n\n');
-const back = stripMain(backRaw, 'Gen2 C++17 target');
-const frontNames = declaredNames(front);
-const backNames = declaredNames(back);
-const renames = new Map();
-for (const name of backNames) if (frontNames.has(name)) renames.set(name, `cpp17_${name}`);
-const renamedBack = renameIdentifiers(back, renames);
-const driver = fs.readFileSync(path.join(GEN2, 'src/driver/main.raz'), 'utf8');
-const bundle = [
-  '// Raz compiler bundle. Generated from modular files under final/compiler/src/.',
-  front,
-  renamedBack,
-  driver,
-].join('\n\n');
-fs.writeFileSync(BUNDLE, bundle, 'utf8');
-if (process.argv.includes('--bundle-only')) {
-  console.log(`[gen2] bundle ready: ${BUNDLE}`);
-  process.exit(0);
-}
-
 fs.rmSync(WORK, { recursive: true, force: true });
 fs.mkdirSync(path.join(WORK, 'frontend'), { recursive: true });
 fs.mkdirSync(path.join(WORK, 'backend'), { recursive: true });
 // The canonical Gen2 source imports std.io like user programs. Frozen Gen1
 // cannot parse source-backed module imports yet, so the
 // one-time bootstrap input removes only this directive and uses Gen1's legacy
-// I/O builtins. This is a build adapter, not part of the canonical source/bundle.
+// I/O builtins. This flattened file is temporary; canonical compiler.raz uses include directives.
 const bootstrapCore = adaptGen2SourceForGen1Bootstrap(bundle);
 const bootstrapBundle = `use "gen1_bootstrap_compat.hpp";\n${bootstrapCore}`;
 fs.writeFileSync(path.join(WORK, 'frontend', 'input.raz'), bootstrapBundle, 'utf8');

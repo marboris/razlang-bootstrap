@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Thin compatibility launcher for Gen2. Module parsing/resolution lives in Raz
-// (final/compiler/src/source/modules.raz); this script only launches razc and,
+// (compiler/razc/src/source/modules.raz); this script only launches razc and,
 // for `build`, invokes the native C++ compiler with the same search roots.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -8,7 +8,8 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const GEN2 = path.join(ROOT, 'final', 'compiler');
+const GEN2 = path.join(ROOT, 'compiler', 'razc');
+const STDLIB = path.join(ROOT, 'library', 'raz');
 const CANDIDATE = path.join(GEN2, 'build', process.platform === 'win32' ? 'razc-candidate.exe' : 'razc-candidate');
 
 function usage() {
@@ -85,7 +86,7 @@ function main() {
     const cpp = config.action === 'emit-cpp' ? config.output : (config.cppOutput || `${config.output}.cpp`);
     fs.mkdirSync(path.dirname(cpp), { recursive: true });
     fs.mkdirSync(path.dirname(config.output), { recursive: true });
-    const compilerArgs = [config.input, '--emit-cpp', cpp];
+    const compilerArgs = [config.input, '--emit-cpp', cpp, '-L', STDLIB];
     for (const root of config.moduleRoots) compilerArgs.push('-L', root);
     run(CANDIDATE, compilerArgs);
     if (config.action === 'emit-cpp') return 0;
@@ -93,7 +94,7 @@ function main() {
     const cppArgs = ['-std=c++17', config.release ? '-O2' : '-O0'];
     if (config.cpu === 'native') cppArgs.push('-march=native');
     else if (config.cpu !== 'generic') cppArgs.push(`-march=${config.cpu}`);
-    cppArgs.push(cpp, '-I', path.dirname(config.input), '-I', GEN2);
+    cppArgs.push(cpp, '-I', path.dirname(config.input), '-I', STDLIB);
     for (const root of config.moduleRoots) cppArgs.push('-I', root);
     for (const root of config.includeRoots) cppArgs.push('-I', root);
     cppArgs.push('-o', config.output);

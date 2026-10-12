@@ -9,14 +9,16 @@
 4. JavaScript فقط ریشه‌ی ساخت `gen_0` بود. بعد از freeze، اجرای compilerهای نسل‌ها به Node وابسته نیست؛ اسکریپت‌های Node فقط orchestration/build/test هستند.
 5. باینری هر نسل با checksum ثبت می‌شود؛ تغییر آن باعث توقف ساخت می‌شود.
 
-## ساختار پوشه‌ها
+## ساختار پوشه‌های تاریخی (پیش از بازآرایی)
 
-```
+این درخت صرفاً یادداشت نسخه‌ی قدیمی است؛ پوشه‌ی `generations/` در ساختار فعال وجود ندارد. ساختار فعال اکنون `compiler/razc/`، `compiler/releases/`، `library/raz/` و `legacy/` را از هم جدا می‌کند.
+
+```text
 generations/
   gen0/                    نسل صفر (منجمد)
     seed/                  seed.mjs و stage0.mjs (ساخت اولیه با JavaScript، یک‌بار)
     src/                   سورس Raz همین نسل: frontend، backend، ir
-    final/compiler.raz     فایل نهایی: یک فایل تکی که کامپایلر این نسل از آن ساخته می‌شود
+    compiler/razc.raz     فایل نهایی: یک فایل تکی که کامپایلر این نسل از آن ساخته می‌شود
     bin/razc               باینری نسل
     bin/razc.sha256        checksum باینری
     build/                 فایل‌های موقت ساخت (در git نیست)
@@ -31,7 +33,7 @@ tests/                     fixtureها و تست‌های native؛ harness قد�
 scripts/                   اسکریپت‌های ساخت
 ```
 
-قاعده‌ی هر نسل: سورس در `src/`، فایل نهایی در `final/`، باینری در `bin/`، و فایل‌های موقت در `build/`.
+قاعده‌ی مسیرهای داخل نمونه‌ی بالا فقط برای درخت تاریخی صدق می‌کند؛ در ساختار فعال، سورس اصلی کامپایلر در `compiler/razc/src/`، ورودی ماژولار در `compiler/razc/compiler.raz`، باینری فعال در `compiler/razc/bin/` و snapshot هر نسخه در `compiler/releases/<version>/` است.
 
 ## اسکریپت‌ها
 - `make build-gen0`: ساخت candidate نسل صفر از seed و سورس Gen0؛ `bin/` منجمد دست‌نخورده می‌ماند.

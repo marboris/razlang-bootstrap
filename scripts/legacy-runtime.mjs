@@ -1,4 +1,4 @@
-// Archived Gen0/Gen1 compatibility shim. The active final/compiler tree does
+// Archived Gen0/Gen1 compatibility shim. The active compiler/razc tree does
 // not contain or emit a global runtime header. Old bootstrap tools materialize
 // this source into their temporary build directories only when needed.
 import fs from 'node:fs';

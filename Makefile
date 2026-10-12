@@ -7,7 +7,7 @@ CMAKE ?= cmake
 CXX ?= g++
 NODE ?= node
 
-.PHONY: all configure driver test test-native clean build-gen0 build-gen1 build-gen2 bundle-gen2 bootstrap-candidates help
+.PHONY: all configure driver test test-native clean build-gen0 build-gen1 build-gen2 build-gen2-selfhost archive-gen2-version bundle-gen2 bootstrap-candidates help
 
 all: driver
 
@@ -17,6 +17,8 @@ help:
 	  '  make                 Configure/build the native razc driver with CMake (Ninja when available)' \
 	  '  make test            Run native CTest driver tests (does not build Gen2)' \
 	  '  make build-gen2      Build a Gen2 candidate with the frozen Gen1 baseline' \
+	  '  make build-gen2-selfhost Build Gen2 from its own include-based compiler.raz entry' \
+	  '  make archive-gen2-version VERSION=0.4.0-g2-015 Snapshot source+stdlib+binary, then promote candidate' \
 	  '  make bootstrap-candidates Build the active Gen2 candidate with the frozen Gen1 compiler' \
 	  '  make bundle-gen2     Assemble Gen2 source bundle only' \
 	  '  make build-gen1      Rebuild the archived Gen1 candidate (legacy only)' \
@@ -44,8 +46,15 @@ build-gen1:
 build-gen2:
 	$(NODE) scripts/build-gen2.mjs
 
-# Main development workflow: use the frozen Gen1 bootstrap binary and only
-# compile the active compiler under final/compiler. Rebuilding history is opt-in.
+build-gen2-selfhost:
+	RAZ_BUILD_KIND=gen2-selfhost $(NODE) scripts/build-gen2.mjs --self-host
+
+archive-gen2-version:
+	@test -n "$(VERSION)" || (echo 'usage: make archive-gen2-version VERSION=0.4.0-g2-015' >&2; exit 2)
+	$(NODE) scripts/archive-gen2-version.mjs $(VERSION)
+
+# Gen1 bootstrap remains available; prefer the explicit Gen2 self-host target once the
+# frozen Gen2 baseline can compile the canonical include-based source.
 bootstrap-candidates: build-gen2
 
 bundle-gen2:
