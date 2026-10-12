@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { legacyRuntimeHeader } from '../scripts/legacy-runtime.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.dirname(HERE);
@@ -10,10 +11,9 @@ const MANIFEST = JSON.parse(fs.readFileSync(path.join(HERE, 'manifest.json'), 'u
 const BOOTSTRAP = process.argv.includes('--bootstrap');
 const HOST = process.argv.includes('--host');
 const BACKEND = process.argv.includes('--backend');
-const COMPILER = path.join(ROOT, 'generations', 'gen0', 'seed', 'seed.mjs');
-const LANGUAGE = path.join(ROOT, 'config', 'language.json');
-const TARGET = path.join(ROOT, 'config', 'targets', 'cpp17.json');
-const RUNTIME = path.join(ROOT, 'runtime', 'raz_runtime.hpp');
+const COMPILER = path.join(ROOT, 'legacy', 'gen0', 'seed', 'seed.mjs');
+const LANGUAGE = path.join(ROOT, 'legacy', 'config', 'language.json');
+const TARGET = path.join(ROOT, 'legacy', 'config', 'targets', 'cpp17.json');
 const TMP = path.join(HERE, '.tmp');
 const WORK = path.join(TMP, 'work');
 fs.mkdirSync(TMP, { recursive: true });
@@ -31,7 +31,7 @@ function compileCase(spec) {
   const source = path.join(HERE, spec.source);
   const base = path.join(TMP, spec.name);
   const cpp = `${base}.cpp`;
-  fs.copyFileSync(RUNTIME, path.join(TMP, 'raz_runtime.hpp'));
+  fs.writeFileSync(path.join(TMP, 'raz_runtime.hpp'), legacyRuntimeHeader(), 'utf8');
   const language = spec.language ? path.join(HERE, spec.language) : LANGUAGE;
   const p = run(['compile', source, '-o', cpp, '--language', language, '--target', TARGET, '--emit-ir', '--run']);
   return { ...p, cpp, ir: `${p.stdout ?? ''}` };
@@ -73,8 +73,8 @@ function buildFrontend() {
   fs.mkdirSync(frontendTmp, { recursive: true });
   const cpp = path.join(frontendTmp, 'frontend.cpp');
   const bin = path.join(frontendTmp, process.platform === 'win32' ? 'frontend.exe' : 'frontend');
-  fs.copyFileSync(RUNTIME, path.join(frontendTmp, 'raz_runtime.hpp'));
-  const build = run(['compile', path.join(ROOT, 'generations', 'gen0', 'src', 'frontend', 'compiler.raz'), '-o', cpp, '--language', LANGUAGE, '--target', TARGET]);
+  fs.writeFileSync(path.join(frontendTmp, 'raz_runtime.hpp'), legacyRuntimeHeader(), 'utf8');
+  const build = run(['compile', path.join(ROOT, 'legacy', 'gen0', 'src', 'frontend', 'compiler.raz'), '-o', cpp, '--language', LANGUAGE, '--target', TARGET]);
   if (build.status !== 0) return { ok: false, details: `frontend build failed:\n${build.stdout ?? ''}\n${build.stderr ?? ''}` };
   const cc = spawnSync('c++', ['-std=c++17', '-O3', cpp, '-o', bin], { cwd: ROOT, encoding: 'utf8', timeout: 30000 });
   if (cc.status !== 0) return { ok: false, details: `native frontend build failed:\n${cc.stdout ?? ''}\n${cc.stderr ?? ''}` };
@@ -122,7 +122,7 @@ function testFrontend() {
     console.log('[BOOTSTRAP] frontend self-parse');
     const self = runFrontendInput(
       built.bin,
-      path.join(ROOT, 'generations', 'gen0', 'src', 'frontend', 'compiler.raz'),
+      path.join(ROOT, 'legacy', 'gen0', 'src', 'frontend', 'compiler.raz'),
       MANIFEST.frontend.self_contains
     );
     if (!self.ok) return { ok: false, details: `frontend self-parse/test failed:\n${self.details}` };
@@ -163,11 +163,11 @@ function testBackend() {
   fs.mkdirSync(backendTmp, { recursive: true });
   const backendCpp = path.join(backendTmp, 'cpp_backend.cpp');
   const backendBin = path.join(backendTmp, process.platform === 'win32' ? 'cpp_backend.exe' : 'cpp_backend');
-  fs.copyFileSync(RUNTIME, path.join(backendTmp, 'raz_runtime.hpp'));
+  fs.writeFileSync(path.join(backendTmp, 'raz_runtime.hpp'), legacyRuntimeHeader(), 'utf8');
 
   const backendBuild = run([
     'compile',
-    path.join(ROOT, 'generations', 'gen0', 'src', 'backend', 'cpp_backend.raz'),
+    path.join(ROOT, 'legacy', 'gen0', 'src', 'backend', 'cpp_backend.raz'),
     '-o', backendCpp,
     '--language', LANGUAGE,
     '--target', TARGET
@@ -186,7 +186,7 @@ function testBackend() {
   const rirPath = path.join(WORK, 'backend', 'input.rir');
   const cppPath = path.join(WORK, 'backend', 'output.cpp');
   const binPath = path.join(WORK, 'backend', process.platform === 'win32' ? 'output.exe' : 'output');
-  fs.copyFileSync(RUNTIME, path.join(WORK, 'backend', 'raz_runtime.hpp'));
+  fs.writeFileSync(path.join(WORK, 'backend', 'raz_runtime.hpp'), legacyRuntimeHeader(), 'utf8');
   fs.copyFileSync(source, input);
   const frontend = spawnSync(built.bin, [], { cwd: WORK, encoding: 'utf8', timeout: 30000 });
   if (frontend.status !== 0 || !fs.existsSync(path.join(WORK, 'frontend', 'output.rir'))) {
@@ -242,8 +242,8 @@ function buildVerifier() {
   fs.mkdirSync(verifierTmp, { recursive: true });
   const cpp = path.join(verifierTmp, 'rir_verify.cpp');
   const bin = path.join(verifierTmp, process.platform === 'win32' ? 'rir_verify.exe' : 'rir_verify');
-  fs.copyFileSync(RUNTIME, path.join(verifierTmp, 'raz_runtime.hpp'));
-  const build = run(['compile', path.join(ROOT, 'generations', 'gen0', 'src', 'ir', 'rir_verify.raz'), '-o', cpp, '--language', LANGUAGE, '--target', TARGET]);
+  fs.writeFileSync(path.join(verifierTmp, 'raz_runtime.hpp'), legacyRuntimeHeader(), 'utf8');
+  const build = run(['compile', path.join(ROOT, 'legacy', 'gen0', 'src', 'ir', 'rir_verify.raz'), '-o', cpp, '--language', LANGUAGE, '--target', TARGET]);
   if (build.status !== 0) return { ok: false, details: `RIR verifier build failed:\n${build.stdout ?? ''}\n${build.stderr ?? ''}` };
   const cc = spawnSync('c++', ['-std=c++17', '-O0', cpp, '-o', bin], { cwd: verifierTmp, encoding: 'utf8', timeout: 30000 });
   if (cc.status !== 0) return { ok: false, details: `native RIR verifier build failed:\n${cc.stdout ?? ''}\n${cc.stderr ?? ''}` };
@@ -342,7 +342,7 @@ function testHostSelfCompile() {
   const output = path.join(TMP, 'host-self-compiler.cpp');
   const binary = path.join(TMP, process.platform === 'win32' ? 'host-self-compiler.exe' : 'host-self-compiler');
   console.log('[TRACE] host compiler start');
-  const p = spawnSync(process.execPath, [driver, 'compile', path.join(ROOT, 'generations', 'gen0', 'src', 'frontend', 'compiler.raz'), '-o', output], {
+  const p = spawnSync(process.execPath, [driver, 'compile', path.join(ROOT, 'legacy', 'gen0', 'src', 'frontend', 'compiler.raz'), '-o', output], {
     cwd: ROOT,
     encoding: 'utf8',
     timeout: 360000,
@@ -350,12 +350,12 @@ function testHostSelfCompile() {
   });
   console.log('[TRACE] host compiler done status=' + p.status);
   if (p.status !== 0) return { ok: false, details: `host self-compile failed\n${p.stdout ?? ''}\n${p.stderr ?? ''}` };
-  fs.copyFileSync(RUNTIME, path.join(TMP, 'raz_runtime.hpp'));
+  fs.writeFileSync(path.join(TMP, 'raz_runtime.hpp'), legacyRuntimeHeader(), 'utf8');
   console.log('[TRACE] native c++ start');
   const cc = spawnSync('c++', ['-std=c++17', '-O0', output, '-o', binary], { cwd: ROOT, encoding: 'utf8', timeout: 360000 });
   console.log('[TRACE] native c++ done status=' + cc.status);
   if (cc.status !== 0) return { ok: false, details: `native self-compiler build failed\n${cc.stdout ?? ''}\n${cc.stderr ?? ''}` };
-  fs.copyFileSync(path.join(ROOT, 'generations', 'gen0', 'src', 'frontend', 'compiler.raz'), path.join(WORK, 'frontend', 'input.raz'));
+  fs.copyFileSync(path.join(ROOT, 'legacy', 'gen0', 'src', 'frontend', 'compiler.raz'), path.join(WORK, 'frontend', 'input.raz'));
   console.log('[TRACE] native self run start');
   const self = spawnSync(binary, [], { cwd: WORK, encoding: 'utf8', timeout: 180000 });
   console.log('[TRACE] native self run done status=' + self.status);

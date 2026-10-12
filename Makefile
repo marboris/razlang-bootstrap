@@ -17,10 +17,10 @@ help:
 	  '  make                 Configure/build the native razc driver with CMake (Ninja when available)' \
 	  '  make test            Run native CTest driver tests (does not build Gen2)' \
 	  '  make build-gen2      Build a Gen2 candidate with the frozen Gen1 baseline' \
-	  '  make bootstrap-candidates Rebuild Gen0 -> Gen1 -> Gen2 candidates using optimized bootstrap tools' \
+	  '  make bootstrap-candidates Build the active Gen2 candidate with the frozen Gen1 compiler' \
 	  '  make bundle-gen2     Assemble Gen2 source bundle only' \
-	  '  make build-gen1      Rebuild the historical Gen1 candidate' \
-	  '  make build-gen0      Rebuild the legacy Gen0 native candidate' \
+	  '  make build-gen1      Rebuild the archived Gen1 candidate (legacy only)' \
+	  '  make build-gen0      Rebuild the archived Gen0 native candidate (legacy only)' \
 	  '  make clean           Remove the CMake/Ninja build directory'
 
 configure:
@@ -44,11 +44,9 @@ build-gen1:
 build-gen2:
 	$(NODE) scripts/build-gen2.mjs
 
-# Rebuild the candidate chain without overwriting frozen bin/ artifacts.
-# The rebuilt Gen0/Gen1 candidates are explicitly used for downstream stages.
-bootstrap-candidates: build-gen0
-	RAZ_BOOTSTRAP_USE_CANDIDATES=1 $(NODE) scripts/build-gen1.mjs
-	RAZ_BOOTSTRAP_USE_CANDIDATES=1 $(NODE) scripts/build-gen2.mjs
+# Main development workflow: use the frozen Gen1 bootstrap binary and only
+# compile the active compiler under final/compiler. Rebuilding history is opt-in.
+bootstrap-candidates: build-gen2
 
 bundle-gen2:
 	$(NODE) scripts/build-gen2.mjs --bundle-only

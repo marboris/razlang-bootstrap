@@ -46,7 +46,7 @@ RAZ_BOOTSTRAP_USE_CANDIDATES=1 npm run build:gen2
 - ساخت Gen2 native candidate با `g++ -O0`: `3.1 s`
 - `make test`: پس از ساخت candidate واقعی Gen2، ۲۰ تست CTest موفق؛ کل تست‌ها حدود `2.05 s`
 
-این زمان‌ها اندازه‌گیری محیط بررسی هستند، نه تضمین برای همهٔ سخت‌افزارها. تست یکپارچهٔ `generations/gen2/examples/hello.raz` نیز با درایور native، C++ تولیدشده و `g++` اجرا شد.
+این زمان‌ها اندازه‌گیری محیط بررسی هستند، نه تضمین برای همهٔ سخت‌افزارها. تست یکپارچهٔ `final/compiler/examples/hello.raz` نیز با درایور native، C++ تولیدشده و `g++` اجرا شد.
 
 ## کوتاه‌مدار بودن `&&` و `||` در bootstrap
 
@@ -65,7 +65,7 @@ RAZ_GLIBCXX_ASSERTIONS=1 make bootstrap-candidates
 
 ## به‌روزرسانی باینری‌های frozen در 2026-10-11
 
-پس از اصلاح کوتاه‌مدار، candidate تازهٔ Gen0 و Gen1 از سورس ساخته شد. باینری‌های `generations/gen0/bin/razc` و `generations/gen1/bin/razc` اکنون با checksumهای تازه freeze شده‌اند؛ Gen1 نسخهٔ نهایی `-O2` است و پیش از freeze با یک candidate دارای `_GLIBCXX_ASSERTIONS` اعتبارسنجی شد. سابقهٔ checksum قبلی/جدید در `gen.json` ثبت شده و `scripts/freeze.sh N --replace-frozen` هنگام ارتقای آگاهانه، rollback backup را زیر `generations/genN/build/previous-frozen/` نگه می‌دارد.
+پس از اصلاح کوتاه‌مدار، candidate تازهٔ Gen0 و Gen1 از سورس ساخته شد. باینری‌های `legacy/gen0/bin/razc` و `legacy/gen1/bin/razc` اکنون با checksumهای تازه freeze شده‌اند؛ Gen1 نسخهٔ نهایی `-O2` است و پیش از freeze با یک candidate دارای `_GLIBCXX_ASSERTIONS` اعتبارسنجی شد. سابقهٔ checksum قبلی/جدید در `gen.json` ثبت شده و `scripts/freeze.sh N --replace-frozen` هنگام ارتقای آگاهانه، rollback backup را زیر `generations/genN/build/previous-frozen/` نگه می‌دارد.
 
 ## Resolver Gen2
 

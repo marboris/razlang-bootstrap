@@ -193,7 +193,7 @@ gen_2
 ...
 ```
 
-**مثال Gen1:** `S_1` با Gen0 ساخته می‌شود. بعد از freeze شدن Gen1، فایل `generations/gen1/examples/hello.raz` باید با Gen1 ساخته شود، نه Gen0. هم‌زمان Gen1 می‌تواند `S_2` را برای ساخت Gen2 کامپایل کند.
+**مثال Gen1:** `S_1` با Gen0 ساخته می‌شود. بعد از freeze شدن Gen1، فایل `legacy/gen1/examples/hello.raz` باید با Gen1 ساخته شود، نه Gen0. هم‌زمان Gen1 می‌تواند `S_2` را برای ساخت Gen2 کامپایل کند.
 
 ---
 

@@ -59,7 +59,7 @@ CMake با Ninja (اگر نصب باشد) درایور `build/native/bin/razc` �
 make build-gen2
 ```
 
-این دستور checksum باینری frozen Gen1 را بررسی می‌کند، bundle را از سورس ماژولار Gen2 می‌سازد و آن را با Gen1 کامپایل می‌کند. به‌دلیل نقص نوع‌دهی tempهای Gen1 برای local/field/list، یک repair pass محدود فقط روی C++ تولیدشده برای خود compiler اجرا می‌شود؛ سورس و باینری Gen1 و خروجی برنامه‌های کاربر دست‌کاری نمی‌شوند. سپس candidate بومی در `generations/gen2/build/razc-candidate` قرار می‌گیرد. candidate هنوز به `generations/gen2/bin/razc` منتقل یا freeze نمی‌شود.
+این دستور checksum باینری frozen Gen1 را بررسی می‌کند، bundle را از سورس ماژولار Gen2 می‌سازد و آن را با Gen1 کامپایل می‌کند. به‌دلیل نقص نوع‌دهی tempهای Gen1 برای local/field/list، یک repair pass محدود فقط روی C++ تولیدشده برای خود compiler اجرا می‌شود؛ سورس و باینری Gen1 و خروجی برنامه‌های کاربر دست‌کاری نمی‌شوند. سپس candidate بومی در `final/compiler/build/razc-candidate` قرار می‌گیرد. candidate هنوز به `final/compiler/bin/razc` منتقل یا freeze نمی‌شود.
 
 ## استفاده از candidate و درایور GNU-like
 
@@ -70,14 +70,14 @@ make build-gen2
 make
 
 # Raz -> C++ -> g++؛ تمام flagهای GNU به مرحله‌ی C++ منتقل می‌شوند
-build/native/bin/razc generations/gen2/examples/hello.raz -O2 -g -march=native -o build/hello
+build/native/bin/razc final/compiler/examples/hello.raz -O2 -g -march=native -o build/hello
 ./build/hello
 
 # فقط C++ تولید کن
-build/native/bin/razc generations/gen2/examples/hello.raz --emit-cpp build/hello.cpp
+build/native/bin/razc final/compiler/examples/hello.raz --emit-cpp build/hello.cpp
 
 # یا دستورات دقیق را بدون اجرای مراحل ببین
-build/native/bin/razc --dry-run generations/gen2/examples/hello.raz -O2 -g -march=native -o build/hello
+build/native/bin/razc --dry-run final/compiler/examples/hello.raz -O2 -g -march=native -o build/hello
 ```
 
 `-march`، `-mtune`، `-O`، `-g`، `-I`، `-L`، `-l`، `-pthread`، `-fPIC`، `-Wl,...` و سایر گزینه‌های native به `g++` پاس داده می‌شوند. مسیر ماژول‌های Raz با `--module-path` و `--std-path` مشخص می‌شود؛ `-L` برای لینک native رزرو است. `CXX` کامپایلر مقصد را عوض می‌کند و با `-g -O0` می‌توان خروجی را با `gdb` دیباگ کرد.
@@ -117,7 +117,7 @@ function raz_module_init_my_module() {
 
 ```raz
 use "cstdint"; // هدر مستقیم C++
-use std.io;     // کتابخانه‌ی Raz از مسیر generations/gen2/std/io/io.raz
+use std.io;     // کتابخانه‌ی Raz از مسیر final/compiler/std/io/io.raz
 
 print("Hello from Raz");
 return 0;

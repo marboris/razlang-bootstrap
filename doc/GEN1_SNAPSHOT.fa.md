@@ -33,7 +33,7 @@ self-compile شدن `S_n` توسط `gen_n` شرط freeze نیست.
 - `unsafe`، `char*` و `nullptr` با diagnostics؛
 - RIR verifier برای global/use؛
 - C++17 backend و runtime bridge؛
-- example داخل `generations/gen1/examples/hello.raz`؛
+- example داخل `legacy/gen1/examples/hello.raz`؛
 - اجرای example با harness جاوااسکریپتی قدیمی (اکنون حذف‌شده).
 
 ## نتایج تاریخی suite قدیمی (اکنون حذف‌شده)
@@ -44,9 +44,9 @@ self-compile شدن `S_n` توسط `gen_n` شرط freeze نیست.
 
 `gen0/bin/razc` با checksum ثبت‌شده منجمد است و منبع Gen1 با آن سازگار طراحی شده است.
 
-این snapshot برای تاریخچه نگه داشته شده است. وضعیت واقعی artifact را از `generations/gen1/gen.json`، وجود `generations/gen1/bin/razc` و checksum بخوانید؛ بخش‌های مربوط به suite تست قدیمی در workflow فعلی اجرا نمی‌شوند.
+این snapshot برای تاریخچه نگه داشته شده است. وضعیت واقعی artifact را از `legacy/gen1/gen.json`، وجود `legacy/gen1/bin/razc` و checksum بخوانید؛ بخش‌های مربوط به suite تست قدیمی در workflow فعلی اجرا نمی‌شوند.
 
-این فایل snapshot تاریخی است؛ وضعیت freeze معتبر را از `generations/gen1/gen.json` و checksum فعلی بخوانید.
+این فایل snapshot تاریخی است؛ وضعیت freeze معتبر را از `legacy/gen1/gen.json` و checksum فعلی بخوانید.
 
 ## خروجی بعدی
 

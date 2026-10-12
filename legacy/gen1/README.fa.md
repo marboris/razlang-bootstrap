@@ -8,7 +8,7 @@ Gen1 یک نسل منجمد و تاریخی است که با Gen0 ساخته ش�
 Gen0 ──build──> Gen1 ──build Gen2──> Gen2
 ```
 
-Gen1 سورس Raz خود را از `generations/gen1/src/` و bundle قابل‌ساخت را از `generations/gen1/final/compiler.raz` می‌گیرد. باینری منجمد در `generations/gen1/bin/razc` و checksum آن در `generations/gen1/bin/razc.sha256` است.
+Gen1 سورس Raz خود را از `legacy/gen1/src/` و bundle قابل‌ساخت را از `legacy/gen1/final/compiler.raz` می‌گیرد. باینری منجمد در `legacy/gen1/bin/razc` و checksum آن در `legacy/gen1/bin/razc.sha256` است.
 
 ## بازسازی در صورت نیاز
 
@@ -20,7 +20,7 @@ make build-gen1
 scripts/freeze.sh 1 --replace-frozen
 ```
 
-`make build-gen1` candidate را در `generations/gen1/build/razc-candidate` می‌سازد. اسکریپت freeze فقط artifact و checksum را ثبت می‌کند؛ تست خودکار Gen1 اجرا نمی‌کند و به‌صورت پیش‌فرض باینری frozen را بازنویسی نمی‌کند. گزینهٔ `--replace-frozen` برای ارتقای عمدی، checksum جدید را ثبت می‌کند و نسخهٔ قبلی را به‌عنوان rollback در `generations/gen1/build/previous-frozen/` نگه می‌دارد.
+`make build-gen1` candidate را در `legacy/gen1/build/razc-candidate` می‌سازد. اسکریپت freeze فقط artifact و checksum را ثبت می‌کند؛ تست خودکار Gen1 اجرا نمی‌کند و به‌صورت پیش‌فرض باینری frozen را بازنویسی نمی‌کند. گزینهٔ `--replace-frozen` برای ارتقای عمدی، checksum جدید را ثبت می‌کند و نسخهٔ قبلی را به‌عنوان rollback در `legacy/gen1/build/previous-frozen/` نگه می‌دارد.
 
 ## مثال‌ها
 

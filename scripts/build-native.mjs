@@ -3,18 +3,18 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { legacyRuntimeHeader } from './legacy-runtime.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // Candidate outputs only. Frozen binaries in bin/ are never written here.
-const BUILD = path.join(ROOT, 'generations', 'gen0', 'build');
+const BUILD = path.join(ROOT, 'legacy', 'gen0', 'build');
 const WORK = path.join(BUILD, 'native-work');
-const FRONTEND = path.join(ROOT, 'generations', 'gen0', 'src', 'frontend', 'compiler.raz');
-const BACKEND = path.join(ROOT, 'generations', 'gen0', 'src', 'backend', 'cpp_backend.raz');
-const SEED = path.join(ROOT, 'generations', 'gen0', 'seed', 'seed.mjs');
-const LANGUAGE = path.join(ROOT, 'config', 'language.json');
-const TARGET = path.join(ROOT, 'config', 'targets', 'cpp17.json');
-const RUNTIME = path.join(ROOT, 'runtime', 'raz_runtime.hpp');
-const BUNDLE = path.join(ROOT, 'generations', 'gen0', 'final', 'compiler.raz');
+const FRONTEND = path.join(ROOT, 'legacy', 'gen0', 'src', 'frontend', 'compiler.raz');
+const BACKEND = path.join(ROOT, 'legacy', 'gen0', 'src', 'backend', 'cpp_backend.raz');
+const SEED = path.join(ROOT, 'legacy', 'gen0', 'seed', 'seed.mjs');
+const LANGUAGE = path.join(ROOT, 'legacy', 'config', 'language.json');
+const TARGET = path.join(ROOT, 'legacy', 'config', 'targets', 'cpp17.json');
+const BUNDLE = path.join(ROOT, 'legacy', 'gen0', 'final', 'compiler.raz');
 const CPP = path.join(BUILD, 'compiler.cpp');
 const BINARY = path.join(BUILD, process.platform === 'win32' ? 'razc-candidate.exe' : 'razc-candidate');
 
@@ -110,8 +110,8 @@ function run(command, args) {
 fs.mkdirSync(path.dirname(BUNDLE), { recursive: true });
 fs.mkdirSync(path.join(WORK, 'frontend'), { recursive: true });
 fs.mkdirSync(path.join(WORK, 'backend'), { recursive: true });
-fs.copyFileSync(RUNTIME, path.join(BUILD, 'raz_runtime.hpp'));
-fs.copyFileSync(RUNTIME, path.join(WORK, 'backend', 'raz_runtime.hpp'));
+fs.writeFileSync(path.join(BUILD, 'raz_runtime.hpp'), legacyRuntimeHeader(), 'utf8');
+fs.writeFileSync(path.join(WORK, 'backend', 'raz_runtime.hpp'), legacyRuntimeHeader(), 'utf8');
 
 const frontend = stripMain(fs.readFileSync(FRONTEND, 'utf8'), 'frontend');
 const backend = stripMain(fs.readFileSync(BACKEND, 'utf8'), 'backend');

@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const GEN2 = path.join(ROOT, 'generations', 'gen2');
+const GEN2 = path.join(ROOT, 'final', 'compiler');
 const WORK = path.join(GEN2, 'build', 'fast-check');
 const CANDIDATE = process.env.RAZC ?? path.join(GEN2, 'build', process.platform === 'win32' ? 'razc-candidate.exe' : 'razc-candidate');
 const STD_ROOT = GEN2;
@@ -150,7 +150,7 @@ if (!bareNativeResult.output.includes('native C++ headers must be quoted in use 
   throw new Error('bare native use should be rejected with a quote-contract diagnostic');
 }
 
-const hello = path.join(ROOT, 'generations', 'gen2', 'examples', 'hello.raz');
+const hello = path.join(ROOT, 'final', 'compiler', 'examples', 'hello.raz');
 const helloCpp = path.join(WORK, 'hello.cpp');
 const emittedHello = run(process.execPath, [RAZ_DRIVER, 'emit-cpp', hello, '-o', helloCpp], { status: 0 });
 if (!emittedHello.output.includes('razc: wrote')) throw new Error('CLI did not report output path');

@@ -68,5 +68,5 @@ scripts/                   اسکریپت‌های ساخت
 - RIR verifier Gen1 با `use-*` و `global` هم‌تراز شده است.
 - `gen0` منجمد و تغییرناپذیر باقی مانده است.
 - suite تست JavaScript قدیمی در بازطراحی native حذف شد؛ تست‌های فعال با `make test` اجرا می‌شوند.
-- bundle Gen1 در `generations/gen1/final/compiler.raz` آماده است.
+- bundle Gen1 در `legacy/gen1/final/compiler.raz` آماده است.
 - پذیرش نهایی هنوز وابسته به ساخت باینری Gen1 با Gen0 و freeze است؛ بعد از freeze exampleهای L1 با خود Gen1 اجرا می‌شوند.

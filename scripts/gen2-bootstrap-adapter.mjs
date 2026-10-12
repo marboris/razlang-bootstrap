@@ -1,18 +1,22 @@
 // Temporary compatibility layer used only while frozen Gen1 compiles Gen2.
-// Gen2's canonical source requires quoted native headers (use "cstdint"),
-// while Gen1 uses bare native names to emit angle-bracket C++ includes.
+// Gen1's backend has a built-in mapping to raz::* functions. Gen2's normal
+// compiler does not use this shim: its standard library declares native
+// headers/modules explicitly and emitted user programs do not include it.
+import { legacyRuntimeHeader } from './legacy-runtime.mjs';
+
 const NATIVE_HEADERS = ['cstdint', 'cstddef', 'string', 'vector'];
+
+export function gen1BootstrapCompatHeader() {
+  return legacyRuntimeHeader();
+}
 
 export function adaptGen2SourceForGen1Bootstrap(bundle) {
   let adapted = bundle
     .replace(/^use std\.(?:io|text|containers);\r?$/gm, '')
     .replace(/^use "(cstdint|cstddef|string|vector)";\r?$/gm, 'use $1;');
 
-  // Frozen Gen1 models writeFile as void, while Gen2's source std.io module
-  // returns bool. Preserve the canonical Gen2 failure path, but lower this one
-  // call to a write + read-back check in the temporary Gen1 bootstrap input.
-  // This remains a compatibility shim only; Gen2 source continues to use the
-  // bool-returning std.io.writeFile API.
+  // Frozen Gen1 models writeFile as void, while Gen2's source std.io returns
+  // bool. In the bootstrap-only copy, lower the checked write to write + readback.
   const checkedWrite = /    if \(!writeFile\(gOutputPath, gCpp\)\) \{\r?\n        print\("razc: cannot write output: " \+ gOutputPath\);\r?\n        return 1;\r?\n    \}/g;
   const matches = [...adapted.matchAll(checkedWrite)];
   if (matches.length > 1) {
@@ -33,11 +37,11 @@ export function validateGen2BootstrapIncludes(cpp) {
       throw new Error(`Gen2 compiler bootstrap source omitted explicit native dependency: ${expected}`);
     }
   }
-  if (!includes.includes('#include "raz_runtime.hpp"')) {
-    throw new Error('Gen2 compiler bootstrap source omitted explicit native dependency: #include "raz_runtime.hpp"');
+  if (!includes.includes('#include "gen1_bootstrap_compat.hpp"')) {
+    throw new Error('Gen2 bootstrap output omitted its temporary Gen1 compatibility adapter');
   }
   if (includes.some((line) => line.includes('iostream') || line.includes('fstream'))) {
-    throw new Error('Gen2 compiler output unexpectedly includes runtime transitive headers');
+    throw new Error('Gen2 compiler output unexpectedly includes bootstrap-only transitive headers');
   }
   return true;
 }

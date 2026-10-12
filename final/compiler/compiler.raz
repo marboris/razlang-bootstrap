@@ -1,4 +1,4 @@
-// Raz Gen2 preview bundle. Generated from modular files under generations/gen2/src/.
+// Raz compiler bundle. Generated from modular files under final/compiler/src/.
 
 // Native frontend, written in Raz.
 //
@@ -4402,7 +4402,7 @@ function runCompiler() -> i64 {
     // The source standard library is located beside the candidate by default.
     // `-L` and `--module-path` append caller-supplied library roots.
     gDefaultModuleRoot = pathDir(pathDir(argAt(0)));
-    if (gDefaultModuleRoot == "") gDefaultModuleRoot = "generations/gen2";
+    if (gDefaultModuleRoot == "") gDefaultModuleRoot = "final/compiler";
     let moduleRoots: List<string> = [];
     push(moduleRoots, gDefaultModuleRoot);
 

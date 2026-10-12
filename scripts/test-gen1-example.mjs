@@ -3,15 +3,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { legacyRuntimeHeader } from './legacy-runtime.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const GEN = path.join(ROOT, 'generations', 'gen1');
+const GEN = path.join(ROOT, 'legacy', 'gen1');
 const BIN = process.env.RAZC
   ? path.resolve(ROOT, process.env.RAZC)
   : path.join(GEN, 'bin', process.platform === 'win32' ? 'razc.exe' : 'razc');
 const EXAMPLE = path.join(GEN, 'examples', 'hello.raz');
 const WORK = path.join(GEN, 'build', 'example');
-const RUNTIME = path.join(ROOT, 'runtime', 'raz_runtime.hpp');
 
 function run(command, args, cwd) {
   const r = spawnSync(command, args, { cwd, encoding: 'utf8', stdio: ['inherit', 'pipe', 'pipe'] });
@@ -31,7 +31,7 @@ if (!fs.existsSync(BIN)) {
 fs.rmSync(WORK, { recursive: true, force: true });
 fs.mkdirSync(path.join(WORK, 'frontend'), { recursive: true });
 fs.mkdirSync(path.join(WORK, 'backend'), { recursive: true });
-fs.copyFileSync(RUNTIME, path.join(WORK, 'backend', 'raz_runtime.hpp'));
+fs.writeFileSync(path.join(WORK, 'backend', 'raz_runtime.hpp'), legacyRuntimeHeader(), 'utf8');
 
 function compileAndRun(name, source, args, expectedOutput) {
   fs.writeFileSync(path.join(WORK, 'frontend', 'input.raz'), source, 'utf8');

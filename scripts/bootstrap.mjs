@@ -3,14 +3,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { legacyRuntimeHeader } from './legacy-runtime.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const TMP = path.join(ROOT, '.build', 'bootstrap');
-const SEED = path.join(ROOT, 'generations', 'gen0', 'seed', 'seed.mjs');
-const LANGUAGE = path.join(ROOT, 'config', 'language.json');
-const TARGET = path.join(ROOT, 'config', 'targets', 'cpp17.json');
-const SOURCE = path.join(ROOT, 'generations', 'gen0', 'src', 'frontend', 'compiler.raz');
-const RUNTIME = path.join(ROOT, 'runtime', 'raz_runtime.hpp');
+const SEED = path.join(ROOT, 'legacy', 'gen0', 'seed', 'seed.mjs');
+const LANGUAGE = path.join(ROOT, 'legacy', 'config', 'language.json');
+const TARGET = path.join(ROOT, 'legacy', 'config', 'targets', 'cpp17.json');
+const SOURCE = path.join(ROOT, 'legacy', 'gen0', 'src', 'frontend', 'compiler.raz');
 
 fs.rmSync(TMP, { recursive: true, force: true });
 fs.mkdirSync(TMP, { recursive: true });
@@ -35,13 +35,13 @@ function buildGeneration(label) {
   const dir = path.join(TMP, label);
   const frontendDir = path.join(dir, 'frontend');
   fs.mkdirSync(frontendDir, { recursive: true });
-  fs.copyFileSync(RUNTIME, path.join(frontendDir, 'raz_runtime.hpp'));
+  fs.writeFileSync(path.join(frontendDir, 'raz_runtime.hpp'), legacyRuntimeHeader(), 'utf8');
   fs.copyFileSync(SOURCE, path.join(frontendDir, 'input.raz'));
   const cpp = path.join(dir, 'compiler.cpp');
   const bin = path.join(dir, 'compiler');
 
   run(process.execPath, [SEED, 'compile', SOURCE, '-o', cpp, '--language', LANGUAGE, '--target', TARGET]);
-  fs.copyFileSync(RUNTIME, path.join(dir, 'raz_runtime.hpp'));
+  fs.writeFileSync(path.join(dir, 'raz_runtime.hpp'), legacyRuntimeHeader(), 'utf8');
   run('c++', ['-std=c++17', '-O2', cpp, '-o', bin]);
   run(bin, [], { cwd: dir, timeout: 60000 });
 

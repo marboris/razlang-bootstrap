@@ -3,17 +3,17 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { legacyRuntimeHeader } from './legacy-runtime.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const BUILD = path.join(ROOT, 'generations', 'gen1', 'build', 'fast-check');
+const BUILD = path.join(ROOT, 'legacy', 'gen1', 'build', 'fast-check');
 const BIN = path.join(BUILD, 'bin');
-const FRONTEND = path.join(ROOT, 'generations', 'gen1', 'src', 'frontend', 'compiler.raz');
-const BACKEND = path.join(ROOT, 'generations', 'gen1', 'src', 'backend', 'cpp_backend.raz');
-const VERIFY = path.join(ROOT, 'generations', 'gen1', 'src', 'ir', 'rir_verify.raz');
-const SEED = path.join(ROOT, 'generations', 'gen0', 'seed', 'seed.mjs');
-const LANGUAGE = path.join(ROOT, 'config', 'language.json');
-const TARGET = path.join(ROOT, 'config', 'targets', 'cpp17.json');
-const RUNTIME = path.join(ROOT, 'runtime', 'raz_runtime.hpp');
+const FRONTEND = path.join(ROOT, 'legacy', 'gen1', 'src', 'frontend', 'compiler.raz');
+const BACKEND = path.join(ROOT, 'legacy', 'gen1', 'src', 'backend', 'cpp_backend.raz');
+const VERIFY = path.join(ROOT, 'legacy', 'gen1', 'src', 'ir', 'rir_verify.raz');
+const SEED = path.join(ROOT, 'legacy', 'gen0', 'seed', 'seed.mjs');
+const LANGUAGE = path.join(ROOT, 'legacy', 'config', 'language.json');
+const TARGET = path.join(ROOT, 'legacy', 'config', 'targets', 'cpp17.json');
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -30,7 +30,7 @@ function ensureBuilt() {
   fs.mkdirSync(path.join(BUILD, 'backend'), { recursive: true });
   fs.mkdirSync(path.join(BUILD, 'ir'), { recursive: true });
   fs.mkdirSync(BIN, { recursive: true });
-  fs.copyFileSync(RUNTIME, path.join(BUILD, 'raz_runtime.hpp'));
+  fs.writeFileSync(path.join(BUILD, 'raz_runtime.hpp'), legacyRuntimeHeader(), 'utf8');
   const missing = ['frontendc', 'backendc', 'rirverify'].filter((name) => !fs.existsSync(path.join(BIN, name)));
   if (missing.length) {
     throw new Error(`Gen1 fast-check binaries missing: ${missing.join(', ')}. Run: npm run build:gen1:fast`);
@@ -104,7 +104,7 @@ function testIncludeDeclarationInBlock() {
 }
 
 function testGen1ExampleSource() {
-  const example = fs.readFileSync(path.join(ROOT, 'generations', 'gen1', 'examples', 'hello.raz'), 'utf8');
+  const example = fs.readFileSync(path.join(ROOT, 'legacy', 'gen1', 'examples', 'hello.raz'), 'utf8');
   if (!example.includes('print(\"Hello, Raz Gen1!\");') || !example.includes('return 0;')) {
     throw new Error('gen1-example: hello source does not contain the documented program');
   }

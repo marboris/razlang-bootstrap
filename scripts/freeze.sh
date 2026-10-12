@@ -1,5 +1,5 @@
 #!/bin/sh
-# Freeze the candidate binary of generation N into generations/genN/bin/ with its checksum.
+# Freeze a historical generation or the active final compiler, preserving its checksum.
 # After this point genN is the operational compiler for L_N and the builder of genN+1.
 # usage: scripts/freeze.sh <N> [--replace-pending|--replace-frozen]
 # Frozen binaries are immutable by default. --replace-pending is only for provisional
@@ -8,7 +8,11 @@ set -eu
 N="$1"
 MODE="${2:-}"
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-GEN="$ROOT/generations/gen$N"
+case "$N" in
+  0|1) GEN="$ROOT/legacy/gen$N"; REL="legacy/gen$N" ;;
+  2) GEN="$ROOT/final/compiler"; REL="final/compiler" ;;
+  *) echo "unsupported generation: $N (use 0, 1, or 2)" >&2; exit 2 ;;
+esac
 CAND="$GEN/build/razc-candidate"
 
 case "$MODE" in
@@ -70,14 +74,15 @@ node --input-type=module -e '
   const mode = process.argv[3];
   const previousSha = process.argv[4] || null;
   const newSha = process.argv[5];
+  const relativeRoot = process.argv[6];
   const metadata = JSON.parse(fs.readFileSync(file, "utf8"));
   const date = new Date().toISOString().slice(0, 10);
   metadata.status = "frozen";
   metadata.freeze_history ??= [];
-  metadata.freeze_history.push({ date, action: mode === "--replace-frozen" ? "replace-frozen" : (mode === "--replace-pending" ? "replace-pending" : "freeze"), candidate_binary: `generations/gen${generation}/build/razc-candidate`, sha256: newSha, previous_sha256: previousSha });
+  metadata.freeze_history.push({ date, action: mode === "--replace-frozen" ? "replace-frozen" : (mode === "--replace-pending" ? "replace-pending" : "freeze"), candidate_binary: `${relativeRoot}/build/razc-candidate`, sha256: newSha, previous_sha256: previousSha });
   if (generation === 1) metadata.milestone = "M1-M5 complete; Gen1 build frozen (legacy generation)";
   if (generation === 0) metadata.frozen_binary_note = "Frozen binary updated from the rebuilt JavaScript-seed candidate; see freeze_history for provenance.";
   if (generation === 1) metadata.frozen_binary_note = "Frozen binary updated from the rebuilt Gen0 candidate; see freeze_history for provenance.";
   fs.writeFileSync(file, JSON.stringify(metadata, null, 2) + "\n", "utf8");
-' "$GEN/gen.json" "$N" "$MODE" "$PREVIOUS_SHA" "$NEW_SHA"
-echo "generation $N frozen: $GEN/bin/razc"
+' "$GEN/gen.json" "$N" "$MODE" "$PREVIOUS_SHA" "$NEW_SHA" "$REL"
+echo "compiler $N frozen: $GEN/bin/razc"

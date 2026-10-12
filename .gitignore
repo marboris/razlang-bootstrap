@@ -40,6 +40,8 @@ tests/last-run.txt
 
 *.zip
 
-# Generations: build caches only (binaries and final files are tracked)
-generations/*/build/*
-!generations/*/build/.gitkeep
+# Legacy and active compiler build caches (frozen compiler binaries remain tracked)
+legacy/*/build/*
+!legacy/*/build/.gitkeep
+final/compiler/build/*
+!final/compiler/build/.gitkeep

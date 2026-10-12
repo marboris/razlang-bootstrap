@@ -4,7 +4,11 @@
 set -eu
 N="$1"; SRC="$2"; OUT="$3"
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-GEN="$ROOT/generations/gen$N"
+case "$N" in
+  0|1) GEN="$ROOT/legacy/gen$N" ;;
+  2) GEN="$ROOT/final/compiler" ;;
+  *) echo "unsupported generation: $N (use 0, 1, or 2)" >&2; exit 2 ;;
+esac
 COMPILER="$GEN/bin/razc"
 WORK="$GEN/build/work"
 
@@ -12,7 +16,7 @@ WORK="$GEN/build/work"
 
 rm -rf "$WORK"
 mkdir -p "$WORK/frontend" "$WORK/backend"
-cp "$ROOT/runtime/raz_runtime.hpp" "$WORK/backend/raz_runtime.hpp"
+node "$ROOT/scripts/legacy-runtime.mjs" "$WORK/backend/raz_runtime.hpp"
 cp "$SRC" "$WORK/frontend/input.raz"
 
 cd "$WORK"

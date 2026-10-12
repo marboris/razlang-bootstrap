@@ -5,9 +5,9 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const BUILD = path.join(ROOT, 'generations', 'gen0', 'build');
+const BUILD = path.join(ROOT, 'legacy', 'gen0', 'build');
 const WORK = path.join(BUILD, 'native-work');
-const BUNDLE = path.join(ROOT, 'generations', 'gen0', 'final', 'compiler.raz');
+const BUNDLE = path.join(ROOT, 'legacy', 'gen0', 'final', 'compiler.raz');
 const FIRST_CPP = path.join(BUILD, 'candidate.cpp');
 const SECOND_CPP = path.join(WORK, 'backend', 'output.cpp');
 // Candidate built from the seed (never the frozen bin/razc) and its self-built successor.

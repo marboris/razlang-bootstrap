@@ -3,15 +3,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { legacyRuntimeHeader } from './legacy-runtime.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const GEN = path.join(ROOT, 'generations', 'gen1');
+const GEN = path.join(ROOT, 'legacy', 'gen1');
 const BUILD = path.join(GEN, 'build');
 const WORK = path.join(BUILD, 'native-work');
 const FRONTEND = path.join(GEN, 'src', 'frontend', 'compiler.raz');
 const BACKEND = path.join(GEN, 'src', 'backend', 'cpp_backend.raz');
-const RUNTIME = path.join(ROOT, 'runtime', 'raz_runtime.hpp');
-const GEN0 = path.join(ROOT, 'generations', 'gen0');
+const GEN0 = path.join(ROOT, 'legacy', 'gen0');
 const FROZEN_SEED = path.join(GEN0, 'bin', 'razc');
 const FROZEN_CHECKSUM = path.join(GEN0, 'bin', 'razc.sha256');
 const NATIVE_SEED_CANDIDATE = path.join(GEN0, 'build', process.platform === 'win32' ? 'razc-candidate.exe' : 'razc-candidate');
@@ -126,8 +126,8 @@ function renameIdentifiers(source, renames) {
 fs.mkdirSync(path.join(GEN, 'final'), { recursive: true });
 fs.mkdirSync(path.join(WORK, 'frontend'), { recursive: true });
 fs.mkdirSync(path.join(WORK, 'backend'), { recursive: true });
-fs.copyFileSync(RUNTIME, path.join(WORK, 'backend', 'raz_runtime.hpp'));
-fs.copyFileSync(RUNTIME, path.join(BUILD, 'raz_runtime.hpp'));
+fs.writeFileSync(path.join(WORK, 'backend', 'raz_runtime.hpp'), legacyRuntimeHeader(), 'utf8');
+fs.writeFileSync(path.join(BUILD, 'raz_runtime.hpp'), legacyRuntimeHeader(), 'utf8');
 
 console.log('[gen1] bundle frontend + backend');
 const frontend = stripMain(fs.readFileSync(FRONTEND, 'utf8'), 'Gen1 frontend');
@@ -162,7 +162,7 @@ fs.rmSync(WORK, { recursive: true, force: true });
 fs.mkdirSync(path.join(WORK, 'frontend'), { recursive: true });
 fs.mkdirSync(path.join(WORK, 'backend'), { recursive: true });
 fs.copyFileSync(BUNDLE, path.join(WORK, 'frontend', 'input.raz'));
-fs.copyFileSync(RUNTIME, path.join(WORK, 'backend', 'raz_runtime.hpp'));
+fs.writeFileSync(path.join(WORK, 'backend', 'raz_runtime.hpp'), legacyRuntimeHeader(), 'utf8');
 
 console.log(`[gen1] compile final bundle with ${SEED_CANDIDATE === FROZEN_SEED ? 'frozen Gen0' : 'rebuilt Gen0 candidate'}`);
 run(SEED_CANDIDATE, [], { cwd: WORK });

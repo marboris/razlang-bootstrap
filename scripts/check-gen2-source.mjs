@@ -4,16 +4,16 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const GEN1 = path.join(ROOT, 'generations', 'gen1');
-const GEN2 = path.join(ROOT, 'generations', 'gen2');
-const source = fs.readFileSync(path.join(GEN2, 'final', 'compiler.raz'), 'utf8');
+const GEN1 = path.join(ROOT, 'legacy', 'gen1');
+const GEN2 = path.join(ROOT, 'final', 'compiler');
+const source = fs.readFileSync(path.join(GEN2, 'compiler.raz'), 'utf8');
 const resolver = fs.readFileSync(path.join(GEN2, 'src', 'source', 'modules.raz'), 'utf8');
 const includes = fs.readFileSync(path.join(GEN2, 'src', 'source', 'includes.raz'), 'utf8');
 const parser = fs.readFileSync(path.join(GEN2, 'src', 'core', 'parser.raz'), 'utf8');
 const lexer = fs.readFileSync(path.join(GEN2, 'src', 'core', 'lexer.raz'), 'utf8');
 const languageMap = fs.readFileSync(path.join(GEN2, 'LANGUAGE-MAP.md'), 'utf8');
 const rirEmitter = fs.readFileSync(path.join(GEN2, 'src', 'core', 'rir.raz'), 'utf8');
-const targetParser = fs.readFileSync(path.join(GEN2, 'src', 'targets', 'cpp17', 'parser.raz'), 'utf8');
+const targetParser = fs.readFileSync(path.join(GEN2, 'src', 'targets', 'cpp17', 'rir_parser.raz'), 'utf8');
 const launcher = fs.readFileSync(path.join(ROOT, 'scripts', 'raz.mjs'), 'utf8');
 const stdIo = fs.readFileSync(path.join(GEN2, 'std', 'io', 'io.raz'), 'utf8');
 const stdText = fs.readFileSync(path.join(GEN2, 'std', 'text', 'text.raz'), 'utf8');
@@ -37,7 +37,7 @@ const expectedModules = [
   'src/validation/semantics.raz',
   'src/core/rir.raz',
   'src/targets/cpp17/model.raz',
-  'src/targets/cpp17/parser.raz',
+  'src/targets/cpp17/rir_parser.raz',
   'src/targets/cpp17/types.raz',
   'src/targets/cpp17/emitter.raz',
   'src/driver/main.raz',
@@ -75,8 +75,8 @@ if (!fs.existsSync(path.join(ROOT, 'scripts', 'test-gen2-resolver-fast.mjs'))) t
 if (!fs.existsSync(path.join(ROOT, 'scripts', 'test-gen2-io-native-fast.mjs'))) throw new Error('fast native std.io tests are missing');
 if (/JSON\.parse|readFile\([^)]*module\.json/i.test(resolver)) throw new Error('Raz module resolver must not read JSON metadata');
 if (!resolver.includes('function resolveRazModules(')) throw new Error('module resolution must be implemented in Raz');
-if (!resolver.includes('let sourceWithPrelude: string = \"use std.core;\\n\" + source;')) throw new Error('std.core must be injected as the implicit standard-library prelude');
-if (!fs.existsSync(path.join(GEN2, 'std', 'core', 'core.raz'))) throw new Error('std.core prelude module is missing');
+if (resolver.includes('sourceWithPrelude') || /use\s+std\.core\s*;/.test(resolver)) throw new Error('std.core must not be injected as an implicit prelude');
+if (!fs.existsSync(path.join(GEN2, 'std', 'core', 'core.raz'))) throw new Error('explicit std.core module is missing');
 if (!includes.includes('function normalizeIncludePath(') || !includes.includes('function isPathSeparator(')) throw new Error('include paths must be normalized before deduplication/cycle checks');
 if (!includes.includes('charCodeAt(source, scan + 1) == 47') || !includes.includes('charCodeAt(source, scan + 1) == 42')) throw new Error('include expansion must ignore directive-like text in comments');
 if (!includes.includes('let quote: i64 = charCodeAt(source, scan)')) throw new Error('include expansion must ignore directive-like text in string/character literals');

@@ -140,8 +140,8 @@ fs::path absoluteFromCwd(const std::string& value) {
 }
 
 bool isProjectRoot(const fs::path& candidate) {
-    return fs::exists(candidate / "generations" / "gen2" / "src" / "driver" / "main.raz") &&
-           fs::exists(candidate / "generations" / "gen1" / "gen.json");
+    return fs::exists(candidate / "final" / "compiler" / "src" / "driver" / "main.raz") &&
+           fs::exists(candidate / "legacy" / "gen1" / "gen.json");
 }
 
 fs::path findProjectRoot(const char* argv0) {
@@ -176,9 +176,9 @@ std::string frontendPath(const fs::path& root, const Options& options) {
     const char* fromEnv = std::getenv("RAZ_FRONTEND");
     if (fromEnv && *fromEnv) return absoluteFromCwd(fromEnv).string();
 #ifdef _WIN32
-    return (root / "generations" / "gen2" / "build" / "razc-candidate.exe").string();
+    return (root / "final" / "compiler" / "build" / "razc-candidate.exe").string();
 #else
-    return (root / "generations" / "gen2" / "build" / "razc-candidate").string();
+    return (root / "final" / "compiler" / "build" / "razc-candidate").string();
 #endif
 }
 
@@ -577,7 +577,7 @@ std::vector<std::string> makeNativeCommand(
     command.push_back("-I");
     command.push_back(fs::path(options.input).parent_path().string());
     command.push_back("-I");
-    command.push_back((root / "generations" / "gen2").string());
+    command.push_back((root / "final" / "compiler").string());
     for (const auto& moduleRoot : options.moduleRoots) {
         command.push_back("-I");
         command.push_back(moduleRoot);

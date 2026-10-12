@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Thin compatibility launcher for Gen2. Module parsing/resolution lives in Raz
-// (generations/gen2/src/source/modules.raz); this script only launches razc and,
+// (final/compiler/src/source/modules.raz); this script only launches razc and,
 // for `build`, invokes the native C++ compiler with the same search roots.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -8,7 +8,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const GEN2 = path.join(ROOT, 'generations', 'gen2');
+const GEN2 = path.join(ROOT, 'final', 'compiler');
 const CANDIDATE = path.join(GEN2, 'build', process.platform === 'win32' ? 'razc-candidate.exe' : 'razc-candidate');
 
 function usage() {

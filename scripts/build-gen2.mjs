@@ -1,20 +1,19 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
 import path from 'node:path';
-import { adaptGen2SourceForGen1Bootstrap, validateGen2BootstrapIncludes } from './gen2-bootstrap-adapter.mjs';
+import { adaptGen2SourceForGen1Bootstrap, validateGen2BootstrapIncludes, gen1BootstrapCompatHeader } from './gen2-bootstrap-adapter.mjs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const GEN0 = path.join(ROOT, 'generations', 'gen0');
-const GEN1 = path.join(ROOT, 'generations', 'gen1');
-const GEN2 = path.join(ROOT, 'generations', 'gen2');
+const GEN1 = path.join(ROOT, 'legacy', 'gen1');
+const GEN2 = path.join(ROOT, 'final', 'compiler');
 const WORK = path.join(GEN2, 'build', 'native-work');
-const BUNDLE = path.join(GEN2, 'final', 'compiler.raz');
+const BUNDLE = path.join(GEN2, 'compiler.raz');
 const CPP = path.join(WORK, 'backend', 'output.cpp');
 const REPAIRED_CPP = path.join(WORK, 'backend', 'output.bootstrap-fixed.cpp');
 const CANDIDATE = path.join(GEN2, 'build', process.platform === 'win32' ? 'razc-candidate.exe' : 'razc-candidate');
-const RUNTIME = path.join(ROOT, 'runtime', 'raz_runtime.hpp');
+const BOOTSTRAP_COMPAT = path.join(WORK, 'gen1_bootstrap_compat.hpp');
 const FROZEN_GEN1_BIN = path.join(GEN1, 'bin', process.platform === 'win32' ? 'razc.exe' : 'razc');
 const GEN1_CANDIDATE = path.join(GEN1, 'build', process.platform === 'win32' ? 'razc-candidate.exe' : 'razc-candidate');
 const GEN1_CHECKSUM = path.join(GEN1, 'bin', 'razc.sha256');
@@ -126,7 +125,7 @@ const sourceModules = [
 ];
 const targetModules = [
   'src/targets/cpp17/model.raz',
-  'src/targets/cpp17/parser.raz',
+  'src/targets/cpp17/rir_parser.raz',
   'src/targets/cpp17/types.raz',
   'src/targets/cpp17/emitter.raz',
   'src/targets/cpp17/validate.raz',
@@ -152,7 +151,7 @@ for (const name of backNames) if (frontNames.has(name)) renames.set(name, `cpp17
 const renamedBack = renameIdentifiers(back, renames);
 const driver = fs.readFileSync(path.join(GEN2, 'src/driver/main.raz'), 'utf8');
 const bundle = [
-  '// Raz Gen2 preview bundle. Generated from modular files under generations/gen2/src/.',
+  '// Raz compiler bundle. Generated from modular files under final/compiler/src/.',
   front,
   renamedBack,
   driver,
@@ -171,10 +170,9 @@ fs.mkdirSync(path.join(WORK, 'backend'), { recursive: true });
 // one-time bootstrap input removes only this directive and uses Gen1's legacy
 // I/O builtins. This is a build adapter, not part of the canonical source/bundle.
 const bootstrapCore = adaptGen2SourceForGen1Bootstrap(bundle);
-const bootstrapBundle = `use "raz_runtime.hpp";
-${bootstrapCore}`;
+const bootstrapBundle = `use "gen1_bootstrap_compat.hpp";\n${bootstrapCore}`;
 fs.writeFileSync(path.join(WORK, 'frontend', 'input.raz'), bootstrapBundle, 'utf8');
-fs.copyFileSync(RUNTIME, path.join(WORK, 'raz_runtime.hpp'));
+fs.writeFileSync(BOOTSTRAP_COMPAT, gen1BootstrapCompatHeader(), 'utf8');
 
 console.log(`[gen2] compile modular bundle with ${GEN1_BIN === FROZEN_GEN1_BIN ? 'frozen Gen1' : 'rebuilt Gen1 candidate'}`);
 run(GEN1_BIN, [], { cwd: WORK, label: `compile modular bundle with ${GEN1_BIN === FROZEN_GEN1_BIN ? 'frozen Gen1' : 'rebuilt Gen1 candidate'}` });
