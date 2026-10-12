@@ -166,7 +166,7 @@ function runCompiler() -> i64 {
         return 0;
     }
     if (gInputPath == "--version" || gInputPath == "-V") {
-        print("razc Gen2 preview 0.4.0-g2-013");
+        print("razc Gen2 preview 0.4.0-g2-014");
         return 0;
     }
 
