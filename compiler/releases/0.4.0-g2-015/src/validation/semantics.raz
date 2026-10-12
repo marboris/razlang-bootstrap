@@ -1,0 +1,634 @@
+function startsWithType(type: string, prefix: string) -> bool {
+    if (length(type) < length(prefix)) return false;
+    return slice(type, 0, length(prefix)) == prefix;
+}
+
+function innerGeneric(type: string, prefix: string) -> string {
+    if (!startsWithType(type, prefix)) return "";
+    if (length(type) <= length(prefix)) return "";
+    if (type[length(type) - 1] != 62) return "";
+    return slice(type, length(prefix), length(type) - 1);
+}
+
+function structIndex(program: Ref<Program>, name: string) -> i64 {
+    let i: i64 = 0;
+    while (i < listLength(program.structs)) {
+        if (program.structs[i].name == name) return i;
+        i = i + 1;
+    }
+    return -1;
+}
+
+function functionIndex(program: Ref<Program>, name: string) -> i64 {
+    let i: i64 = 0;
+    while (i < listLength(program.functions)) {
+        if (program.functions[i].name == name) return i;
+        i = i + 1;
+    }
+    return -1;
+}
+
+function fieldIndex(s: StructDef, name: string) -> i64 {
+    let i: i64 = 0;
+    while (i < listLength(s.fields)) {
+        if (s.fields[i].name == name) return i;
+        i = i + 1;
+    }
+    return -1;
+}
+
+function bindingType(scope: Ref<List<Binding>>, name: string) -> string {
+    // Most lookups target recently introduced locals; search newest bindings first.
+    let i: i64 = listLength(scope) - 1;
+    while (i >= 0) {
+        if (scope[i].name == name) return scope[i].type;
+        i = i - 1;
+    }
+    return "";
+}
+
+function bindingIsConst(scope: Ref<List<Binding>>, name: string) -> bool {
+    let i: i64 = listLength(scope) - 1;
+    while (i >= 0) {
+        if (scope[i].name == name) return scope[i].isConst;
+        i = i - 1;
+    }
+    return false;
+}
+
+function isConstPlace(program: Ref<Program>, scope: Ref<List<Binding>>, id: i64) -> bool {
+    if (id < 0 || id >= listLength(program.exprs)) return false;
+    let x: Expr = program.exprs[id];
+    if (x.kind == 5) return bindingIsConst(scope, x.text);
+    if (x.kind == 9 || x.kind == 10) return isConstPlace(program, scope, x.left);
+    return false;
+}
+
+function cloneBindings(scope: Ref<List<Binding>>) -> List<Binding> {
+    let out: List<Binding> = [];
+    let i: i64 = 0;
+    while (i < listLength(scope)) {
+        push(out, scope[i]);
+        i = i + 1;
+    }
+    return out;
+}
+
+function semanticFail(state: Ref<SemanticState>, message: string) -> string {
+    if (state.ok) {
+        state.ok = false;
+        state.message = message;
+        print("semantic-error: " + message);
+    }
+    return "";
+}
+
+// Resolve source-level local names to unique symbols before RIR lowering.
+// RIR control-flow is currently flattened, so relying on C++ block scopes would
+// be incorrect. Binding.type is the normalized symbol name in this pass.
+function normalizeExprNames(program: Ref<Program>, names: Ref<List<Binding>>, id: i64) {
+    if (id < 0 || id >= listLength(program.exprs)) return;
+    let x: Expr = program.exprs[id];
+    if (x.kind == 5) {
+        let target: string = bindingType(names, x.text);
+        if (target != "") program.exprs[id].text = target;
+        return;
+    }
+    if (x.kind == 6) {
+        normalizeExprNames(program, names, x.left);
+        normalizeExprNames(program, names, x.right);
+    } else if (x.kind == 7 || x.kind == 9) {
+        normalizeExprNames(program, names, x.left);
+    } else if (x.kind == 10) {
+        normalizeExprNames(program, names, x.left);
+        normalizeExprNames(program, names, x.right);
+    }
+    let i: i64 = 0;
+    while (i < listLength(x.args)) {
+        normalizeExprNames(program, names, x.args[i]);
+        i = i + 1;
+    }
+}
+
+function normalizeStatementNames(program: Ref<Program>, ids: List<i64>, names: Ref<List<Binding>>, nextSymbol: Ref<i64>, state: Ref<SemanticState>) {
+    let i: i64 = 0;
+    while (i < listLength(ids) && state.ok) {
+        let stmtId: i64 = ids[i];
+        let s: Stmt = program.stmts[stmtId];
+        if (s.kind == 1) {
+            // Initializers see only bindings declared before this statement.
+            normalizeExprNames(program, names, s.expr);
+            if (bindingType(names, s.name) != "") {
+                semanticFail(state, "variable already defined or shadowed: " + s.name);
+                return;
+            }
+            // '$' cannot occur in a Raz identifier, so this namespace cannot
+            // collide with user source names. The monotonically increasing ID
+            // also keeps sibling branches distinct after RIR control-flow flattening.
+            let target: string = "raz$local$" + int_to_string(nextSymbol) + "$" + s.name;
+            nextSymbol = nextSymbol + 1;
+            program.stmts[stmtId].name = target;
+            let binding: Binding = new Binding();
+            binding.name = s.name;
+            binding.type = target;
+            binding.isConst = s.isConst;
+            push(names, binding);
+        } else if (s.kind == 2 || s.kind == 3) {
+            normalizeExprNames(program, names, s.expr);
+        } else if (s.kind == 4) {
+            normalizeExprNames(program, names, s.left);
+            normalizeExprNames(program, names, s.right);
+        } else if (s.kind == 5) {
+            normalizeExprNames(program, names, s.expr);
+            let thenNames: List<Binding> = cloneBindings(names);
+            normalizeStatementNames(program, s.thenStmts, thenNames, nextSymbol, state);
+            let elseNames: List<Binding> = cloneBindings(names);
+            normalizeStatementNames(program, s.elseStmts, elseNames, nextSymbol, state);
+        } else if (s.kind == 6) {
+            normalizeExprNames(program, names, s.expr);
+            let bodyNames: List<Binding> = cloneBindings(names);
+            normalizeStatementNames(program, s.body, bodyNames, nextSymbol, state);
+        } else if (s.kind == 9) {
+            // unsafe does not introduce a lexical scope in the semantic checker.
+            normalizeStatementNames(program, s.body, names, nextSymbol, state);
+        } else {
+            normalizeExprNames(program, names, s.expr);
+        }
+        i = i + 1;
+    }
+}
+
+function validateType(program: Ref<Program>, state: Ref<SemanticState>, type: string, allowVoid: bool) -> bool {
+    if (!state.ok) return false;
+    if (type == "void") {
+        if (allowVoid) return true;
+        semanticFail(state, "void is not valid here");
+        return false;
+    }
+    if (type == "i64" || type == "f64" || type == "bool" || type == "char" || type == "string") return true;
+    if (endsWith(type, "*")) {
+        if (state.unsafeDepth <= 0) { semanticFail(state, "pointer type " + type + " requires unsafe"); return false; }
+        let base: string = slice(type, 0, length(type) - 1);
+        if (base == "char") return true;
+        semanticFail(state, "only char* pointer types are currently supported by Gen2");
+        return false;
+    }
+    let listInner: string = innerGeneric(type, "List<");
+    if (listInner != "") return validateType(program, state, listInner, false);
+    let refInner: string = innerGeneric(type, "Ref<");
+    if (refInner != "") return validateType(program, state, refInner, false);
+    if (structIndex(program, type) >= 0) return true;
+    semanticFail(state, "unknown type " + type);
+    return false;
+}
+
+function valueTypeForParam(type: string) -> string {
+    let inner: string = innerGeneric(type, "Ref<");
+    if (inner != "") return inner;
+    return type;
+}
+
+function numericType(type: string) -> bool {
+    return type == "i64" || type == "f64" || type == "char";
+}
+
+function assignableType(expected: string, actual: string) -> bool {
+    if (actual == "Native") return expected != "void";
+    if (expected == actual) return true;
+    if (expected == "f64" && numericType(actual)) return true;
+    if (expected == "i64" && actual == "char") return true;
+    return false;
+}
+
+function builtinReturnType(name: string, args: List<i64>, program: Ref<Program>, state: Ref<SemanticState>, scope: Ref<List<Binding>>) -> string {
+    if (name == "listLength") return "i64";
+    if (name == "push") {
+        if (listLength(args) < 2) return semanticFail(state, "push requires a list and value");
+        if (!isLValue(program, args[0])) return semanticFail(state, "push first argument must be an lvalue");
+        if (isConstPlace(program, scope, args[0])) return semanticFail(state, "cannot mutate a const value");
+        let listType: string = checkExpr(program, state, scope, args[0]);
+        let inner: string = innerGeneric(listType, "List<");
+        if (inner == "") return semanticFail(state, "push first argument must be List<T>");
+        let valueType: string = checkExpr(program, state, scope, args[1]);
+        if (!assignableType(inner, valueType)) return semanticFail(state, "push value type mismatch");
+        return "void";
+    }
+    if (name == "append") {
+        if (listLength(args) == 0) return "";
+        let first: string = checkExpr(program, state, scope, args[0]);
+        let element: string = innerGeneric(first, "List<");
+        if (element == "") return semanticFail(state, "append requires a List value");
+        return first;
+    }
+    return "";
+}
+
+function checkExpr(program: Ref<Program>, state: Ref<SemanticState>, scope: Ref<List<Binding>>, id: i64) -> string {
+    if (!state.ok) return "";
+    if (id < 0 || id >= listLength(program.exprs)) return semanticFail(state, "invalid expression reference");
+    let x: Expr = program.exprs[id];
+    if (x.kind == 1) {
+        if (findText(x.valueText, ".", 0) >= 0) return "f64";
+        return "i64";
+    }
+    if (x.kind == 2) return "string";
+    if (x.kind == 3) return "char";
+    if (x.kind == 4) return "bool";
+    if (x.kind == 5) {
+        let t: string = bindingType(scope, x.text);
+        if (t == "") return semanticFail(state, "unknown name " + x.text);
+        return t;
+    }
+    if (x.kind == 7) {
+        let a: string = checkExpr(program, state, scope, x.left);
+        if (x.op == "!") {
+            if (a != "bool" && a != "Native") return semanticFail(state, "! requires bool");
+            return "bool";
+        }
+        if (!numericType(a)) return semanticFail(state, "unary " + x.op + " requires numeric operand");
+        return a;
+    }
+    if (x.kind == 6) {
+        let a: string = checkExpr(program, state, scope, x.left);
+        let b: string = checkExpr(program, state, scope, x.right);
+        if (x.op == "&&" || x.op == "||") {
+            if (a != "bool" || b != "bool") return semanticFail(state, x.op + " requires bool operands");
+            return "bool";
+        }
+        if (x.op == "==" || x.op == "!=" || x.op == "<" || x.op == "<=" || x.op == ">" || x.op == ">=") {
+            if (!((a == b) || (numericType(a) && numericType(b)))) return semanticFail(state, "cannot compare " + a + " and " + b);
+            return "bool";
+        }
+        if (x.op == "+" && a == "string" && b == "string") return "string";
+        if (!numericType(a) || !numericType(b)) return semanticFail(state, "operator " + x.op + " requires numeric operands");
+        if (a == "f64" || b == "f64") return "f64";
+        return "i64";
+    }
+    if (x.kind == 14) {
+        let i: i64 = 0;
+        while (i < listLength(x.args)) {
+            checkExpr(program, state, scope, x.args[i]);
+            if (!state.ok) return "";
+            i = i + 1;
+        }
+        // No Raz signature is required: the native compiler validates symbol,
+        // arity and C++ types after an explicit native header is included.
+        return "Native";
+    }
+    if (x.kind == 8) {
+        let calleeExpr: Expr = program.exprs[x.left];
+        let name: string = calleeExpr.text;
+        let builtin: string = builtinReturnType(name, x.args, program, state, scope);
+        if (builtin != "") return builtin;
+        let fi: i64 = functionIndex(program, name);
+        if (fi < 0) return semanticFail(state, "unknown function " + name);
+        let fnDef: FunctionDef = program.functions[fi];
+        if (listLength(x.args) != listLength(fnDef.params)) return semanticFail(state, "wrong argument count for " + name);
+        let i: i64 = 0;
+        while (i < listLength(x.args)) {
+            let actual: string = checkExpr(program, state, scope, x.args[i]);
+            let rawExpected: string = fnDef.params[i].type;
+            // Read-only text helpers accept literals and computed strings too: the
+            // backend materializes those rvalues in a temp before binding the Ref.
+            // Other Ref<T> parameters remain strict lvalue/inout parameters.
+            if (isRefType(rawExpected) && !isLValue(program, x.args[i]) && name != "length" && name != "slice") return semanticFail(state, "argument must be an lvalue in " + name);
+            let expected: string = valueTypeForParam(rawExpected);
+            if (!assignableType(expected, actual)) return semanticFail(state, "argument type mismatch in " + name);
+            i = i + 1;
+        }
+        return fnDef.returnType;
+    }
+    if (x.kind == 9) {
+        let base: string = checkExpr(program, state, scope, x.left);
+        let si: i64 = structIndex(program, base);
+        if (si < 0) return semanticFail(state, "type " + base + " has no fields");
+        let structDef: StructDef = program.structs[si];
+        let fi: i64 = fieldIndex(structDef, x.text);
+        if (fi < 0) return semanticFail(state, "unknown field " + base + "." + x.text);
+        return structDef.fields[fi].type;
+    }
+    if (x.kind == 10) {
+        let base: string = checkExpr(program, state, scope, x.left);
+        let idx: string = checkExpr(program, state, scope, x.right);
+        if (idx != "i64" && idx != "char") return semanticFail(state, "index must be i64");
+        let referenced: string = innerGeneric(base, "Ref<");
+        if (referenced != "") base = referenced;
+        let inner: string = innerGeneric(base, "List<");
+        if (inner != "") return inner;
+        if (base == "string") return "i64";
+        return semanticFail(state, "type " + base + " is not indexable");
+    }
+    if (x.kind == 11) {
+        if (!validateType(program, state, x.text, false)) return "";
+        return x.text;
+    }
+    if (x.kind == 13) {
+        if (state.unsafeDepth <= 0) return semanticFail(state, "nullptr requires unsafe");
+        return "char*";
+    }
+    if (x.kind == 12) {
+        if (listLength(x.args) == 0) return semanticFail(state, "empty list requires a type context");
+        let element: string = checkExpr(program, state, scope, x.args[0]);
+        let i: i64 = 1;
+        while (i < listLength(x.args)) {
+            let currentType: string = checkExpr(program, state, scope, x.args[i]);
+            if (!assignableType(element, currentType)) return semanticFail(state, "list elements have incompatible types");
+            i = i + 1;
+        }
+        return "List<" + element + ">";
+    }
+    return semanticFail(state, "unsupported expression kind");
+}
+
+function checkStatement(program: Ref<Program>, state: Ref<SemanticState>, scope: Ref<List<Binding>>, stmtId: i64, returnType: string) {
+    if (!state.ok) return;
+    if (stmtId < 0 || stmtId >= listLength(program.stmts)) {
+        semanticFail(state, "invalid statement reference");
+        return;
+    }
+    let s: Stmt = program.stmts[stmtId];
+    if (s.kind == 1) {
+        if (bindingType(scope, s.name) != "") {
+            semanticFail(state, "variable already defined: " + s.name);
+            return;
+        }
+        let actual: string = "";
+        let declared: string = s.type;
+        if (declared != "" && program.exprs[s.expr].kind == 12 && listLength(program.exprs[s.expr].args) == 0) actual = declared;
+        else actual = checkExpr(program, state, scope, s.expr);
+        if (declared == "" && actual == "Native") {
+            semanticFail(state, "native call return type is unknown; annotate the variable");
+            return;
+        }
+        if (declared == "") declared = actual;
+        else if (!validateType(program, state, declared, false)) return;
+        program.stmts[stmtId].type = declared;
+        if (!assignableType(declared, actual)) semanticFail(state, "cannot initialize " + declared + " with " + actual);
+        let b: Binding = new Binding();
+        b.name = s.name;
+        b.type = declared;
+        b.isConst = s.isConst;
+        push(scope, b);
+        return;
+    }
+    if (s.kind == 2) {
+        let actual: string = "void";
+        if (s.expr >= 0) actual = checkExpr(program, state, scope, s.expr);
+        if (!assignableType(returnType, actual)) semanticFail(state, "cannot return " + actual + " from " + returnType + " function");
+        return;
+    }
+    if (s.kind == 3) {
+        checkExpr(program, state, scope, s.expr);
+        return;
+    }
+    if (s.kind == 4) {
+        if (isConstPlace(program, scope, s.left)) {
+            semanticFail(state, "cannot assign to const value");
+            return;
+        }
+        let lhs: string = checkExpr(program, state, scope, s.left);
+        let rhs: string = "";
+        if (program.exprs[s.right].kind == 12 && listLength(program.exprs[s.right].args) == 0) rhs = lhs;
+        else rhs = checkExpr(program, state, scope, s.right);
+        if (!assignableType(lhs, rhs)) semanticFail(state, "cannot assign " + rhs + " to " + lhs);
+        return;
+    }
+    if (s.kind == 5) {
+        let cond: string = checkExpr(program, state, scope, s.expr);
+        if (cond != "bool" && cond != "Native") {
+            semanticFail(state, "if condition must be bool");
+            return;
+        }
+        let thenScope: List<Binding> = cloneBindings(scope);
+        let i: i64 = 0;
+        while (i < listLength(s.thenStmts)) {
+            checkStatement(program, state, thenScope, s.thenStmts[i], returnType);
+            i = i + 1;
+        }
+        let elseScope: List<Binding> = cloneBindings(scope);
+        i = 0;
+        while (i < listLength(s.elseStmts)) {
+            checkStatement(program, state, elseScope, s.elseStmts[i], returnType);
+            i = i + 1;
+        }
+        return;
+    }
+    if (s.kind == 7) {
+        semanticFail(state, "use directives are only allowed at file scope");
+        return;
+    }
+    if (s.kind == 8) {
+        semanticFail(state, "include must be expanded before semantic analysis");
+        return;
+    }
+    if (s.kind == 9) {
+        state.unsafeDepth = state.unsafeDepth + 1;
+        let i: i64 = 0;
+        while (i < listLength(s.body)) {
+            checkStatement(program, state, scope, s.body[i], returnType);
+            i = i + 1;
+        }
+        state.unsafeDepth = state.unsafeDepth - 1;
+        return;
+    }
+    if (s.kind == 6) {
+        let cond: string = checkExpr(program, state, scope, s.expr);
+        if (cond != "bool" && cond != "Native") {
+            semanticFail(state, "while condition must be bool");
+            return;
+        }
+        let bodyScope: List<Binding> = cloneBindings(scope);
+        let i: i64 = 0;
+        while (i < listLength(s.body)) {
+            checkStatement(program, state, bodyScope, s.body[i], returnType);
+            i = i + 1;
+        }
+        return;
+    }
+    semanticFail(state, "unsupported statement kind");
+}
+
+// Control-flow validation belongs to semantic analysis, before RIR/C++ lowering.
+// A non-void Raz function must not be able to fall through the end of its body.
+function statementAlwaysReturns(program: Ref<Program>, stmtId: i64) -> bool {
+    if (stmtId < 0 || stmtId >= listLength(program.stmts)) return false;
+    let s: Stmt = program.stmts[stmtId];
+    if (s.kind == 2) return true;
+    if (s.kind == 5) {
+        // An if only guarantees a return when both paths do. An absent else
+        // is represented by an empty elseStmts list and therefore returns false.
+        return blockAlwaysReturns(program, s.thenStmts) && blockAlwaysReturns(program, s.elseStmts);
+    }
+    if (s.kind == 9) return blockAlwaysReturns(program, s.body);
+    return false;
+}
+
+function blockAlwaysReturns(program: Ref<Program>, ids: List<i64>) -> bool {
+    let i: i64 = 0;
+    while (i < listLength(ids)) {
+        if (statementAlwaysReturns(program, ids[i])) return true;
+        i = i + 1;
+    }
+    return false;
+}
+
+function analyzeProgram(program: Ref<Program>) -> i64 {
+    let state: SemanticState = new SemanticState();
+    state.ok = true;
+    state.message = "";
+    state.unsafeDepth = 0;
+
+    let i: i64 = 0;
+    while (i < listLength(program.structs)) {
+        let s: StructDef = program.structs[i];
+        if (structIndex(program, s.name) != i) {
+            semanticFail(state, "duplicate struct " + s.name);
+            return 1;
+        }
+        let j: i64 = 0;
+        while (j < listLength(s.fields)) {
+            let field: Field = s.fields[j];
+            if (fieldIndex(s, field.name) != j) {
+                semanticFail(state, "duplicate field " + s.name + "." + field.name);
+                return 1;
+            }
+            if (!validateType(program, state, field.type, false)) return 1;
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+
+    // Normalize locals in top-level control-flow without renaming true globals.
+    let topNames: List<Binding> = [];
+    let nextSymbol: i64 = 0;
+    i = 0;
+    while (i < listLength(program.topStmts) && state.ok) {
+        let topId: i64 = program.topStmts[i];
+        let topStmt: Stmt = program.stmts[topId];
+        if (topStmt.kind == 1) {
+            normalizeExprNames(program, topNames, topStmt.expr);
+            let globalName: Binding = new Binding();
+            globalName.name = topStmt.name;
+            globalName.type = topStmt.name;
+            globalName.isConst = topStmt.isConst;
+            push(topNames, globalName);
+        } else {
+            let one: List<i64> = [];
+            push(one, topId);
+            normalizeStatementNames(program, one, topNames, nextSymbol, state);
+        }
+        i = i + 1;
+    }
+    if (!state.ok) return 1;
+
+    i = 0;
+    while (i < listLength(program.functions)) {
+        let f: FunctionDef = program.functions[i];
+        if (functionIndex(program, f.name) != i) {
+            semanticFail(state, "duplicate function " + f.name);
+            return 1;
+        }
+        if (starts(f.name, "raz_global_init_")) {
+            semanticFail(state, "function names beginning with raz_global_init_ are reserved by the compiler");
+            return 1;
+        }
+        if (starts(f.name, "raz_module_init_") && (length(f.name) <= 16 || f.returnType != "void" || listLength(f.params) != 0)) {
+            semanticFail(state, "module initializer must be named raz_module_init_<name>, take no parameters, and return void");
+            return 1;
+        }
+        if (!validateType(program, state, f.returnType, true)) return 1;
+        let j: i64 = 0;
+        while (j < listLength(f.params)) {
+            let p: Param = f.params[j];
+            let k: i64 = 0;
+            while (k < j) {
+                if (f.params[k].name == p.name) {
+                    semanticFail(state, "duplicate parameter " + p.name);
+                    return 1;
+                }
+                k = k + 1;
+            }
+            if (!validateType(program, state, p.type, false)) return 1;
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+
+    i = 0;
+    while (i < listLength(program.topStmts)) {
+        let sid: i64 = program.topStmts[i];
+        let ts: Stmt = program.stmts[sid];
+        if (ts.kind == 1) {
+            if (functionIndex(program, ts.name) >= 0) {
+                semanticFail(state, "global conflicts with function: " + ts.name);
+                return 1;
+            }
+            if (structIndex(program, ts.name) >= 0) {
+                semanticFail(state, "global conflicts with struct: " + ts.name);
+                return 1;
+            }
+        }
+        i = i + 1;
+    }
+
+    if (functionIndex(program, "main") >= 0) {
+        semanticFail(state, "user-defined main is not allowed in Raz 1.0; use top-level code");
+        return 1;
+    }
+
+    let topScope: List<Binding> = [];
+    i = 0;
+    while (i < listLength(program.topStmts)) {
+        let sid: i64 = program.topStmts[i];
+        if (program.stmts[sid].kind != 7) {
+            checkStatement(program, state, topScope, sid, "i64");
+            if (!state.ok) return 1;
+        }
+        i = i + 1;
+    }
+
+    i = 0;
+    while (i < listLength(program.functions)) {
+        let f: FunctionDef = program.functions[i];
+        let scope: List<Binding> = cloneBindings(topScope);
+        let j: i64 = 0;
+        while (j < listLength(f.params)) {
+            if (bindingType(scope, f.params[j].name) != "") {
+                semanticFail(state, "parameter shadows a global: " + f.params[j].name);
+                return 1;
+            }
+            let b: Binding = new Binding();
+            b.name = f.params[j].name;
+            b.type = valueTypeForParam(f.params[j].type);
+            b.isConst = false;
+            push(scope, b);
+            j = j + 1;
+        }
+        let functionNames: List<Binding> = cloneBindings(topNames);
+        j = 0;
+        while (j < listLength(f.params)) {
+            let paramName: Binding = new Binding();
+            paramName.name = f.params[j].name;
+            paramName.type = f.params[j].name;
+            paramName.isConst = false;
+            push(functionNames, paramName);
+            j = j + 1;
+        }
+        normalizeStatementNames(program, f.body, functionNames, nextSymbol, state);
+        if (!state.ok) return 1;
+
+        j = 0;
+        while (j < listLength(f.body)) {
+            checkStatement(program, state, scope, f.body[j], f.returnType);
+            if (!state.ok) return 1;
+            j = j + 1;
+        }
+        if (f.returnType != "void" && !blockAlwaysReturns(program, f.body)) {
+            semanticFail(state, "non-void function may exit without returning a value: " + f.name);
+            return 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+

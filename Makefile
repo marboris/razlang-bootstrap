@@ -17,7 +17,7 @@ help:
 	  '  make                 Configure/build the native razc driver with CMake (Ninja when available)' \
 	  '  make test            Run native CTest driver tests (does not build Gen2)' \
 	  '  make build-gen2      Build a Gen2 candidate with the frozen Gen1 baseline' \
-	  '  make build-gen2-selfhost Build Gen2 from its own include-based compiler.raz entry' \
+	  '  make build-gen2-selfhost Run two-stage Gen2 self-host; require identical stage-1/stage-2 C++ output' \
 	  '  make archive-gen2-version VERSION=0.4.0-g2-015 Snapshot source+stdlib+binary, then promote candidate' \
 	  '  make bootstrap-candidates Build the active Gen2 candidate with the frozen Gen1 compiler' \
 	  '  make bundle-gen2     Assemble Gen2 source bundle only' \

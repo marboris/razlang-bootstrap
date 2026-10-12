@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import path from 'node:path';
 import { adaptGen2SourceForGen1Bootstrap, validateGen2BootstrapIncludes, gen1BootstrapCompatHeader } from './gen2-bootstrap-adapter.mjs';
 import { spawnSync } from 'node:child_process';
@@ -15,6 +16,10 @@ const WORK = path.join(GEN2, 'build', 'native-work');
 const ENTRY = path.join(GEN2, 'compiler.raz');
 const FLAT_BUNDLE = path.join(GEN2, 'build', 'bootstrap', 'compiler.bundle.raz');
 const CPP = path.join(WORK, 'backend', 'output.cpp');
+const STAGE2_CPP = path.join(WORK, 'backend', 'output.stage2.cpp');
+const SELF_HOST_STAGE1 = path.join(GEN2, 'build', process.platform === 'win32' ? 'razc-candidate-stage1.exe' : 'razc-candidate-stage1');
+const SMOKE_CPP = path.join(WORK, 'backend', 'selfhost-smoke.cpp');
+const SMOKE_BIN = path.join(WORK, 'backend', process.platform === 'win32' ? 'selfhost-smoke.exe' : 'selfhost-smoke');
 const REPAIRED_CPP = path.join(WORK, 'backend', 'output.bootstrap-fixed.cpp');
 const CANDIDATE = path.join(GEN2, 'build', process.platform === 'win32' ? 'razc-candidate.exe' : 'razc-candidate');
 const BOOTSTRAP_COMPAT = path.join(WORK, 'gen1_bootstrap_compat.hpp');
@@ -23,6 +28,10 @@ const GEN1_CANDIDATE = path.join(GEN1, 'build', process.platform === 'win32' ? '
 const GEN1_CHECKSUM = path.join(GEN1, 'bin', 'razc.sha256');
 const USE_BOOTSTRAP_CANDIDATES = process.env.RAZ_BOOTSTRAP_USE_CANDIDATES === '1';
 const GEN1_BIN = USE_BOOTSTRAP_CANDIDATES && fs.existsSync(GEN1_CANDIDATE) ? GEN1_CANDIDATE : FROZEN_GEN1_BIN;
+
+function requireHash(value) {
+  return crypto.createHash('sha256').update(value).digest('hex');
+}
 
 function run(command, args, options = {}) {
   const started = Date.now();
@@ -51,75 +60,46 @@ function run(command, args, options = {}) {
   return result;
 }
 
-function stripMain(source, label) {
-  const match = /^function main\(\) -> i64[ \t]*\{/m.exec(source);
-  if (!match) return source;
-  const open = source.indexOf('{', match.index);
-  let depth = 0;
-  let quoted = false;
-  let escaped = false;
-  let lineComment = false;
-  for (let i = open; i < source.length; i++) {
-    const c = source[i];
-    if (lineComment) { if (c === '\n') lineComment = false; continue; }
-    if (quoted) {
-      if (escaped) escaped = false;
-      else if (c === '\\') escaped = true;
-      else if (c === '"') quoted = false;
+function expandCompilerIncludes(filePath, state = { active: new Set(), seen: new Set() }) {
+  const absolute = path.resolve(filePath);
+  if (state.active.has(absolute)) {
+    throw new Error(`compiler include cycle detected at ${path.relative(GEN2, absolute)}`);
+  }
+  if (state.seen.has(absolute)) return '';
+  if (!fs.existsSync(absolute)) throw new Error(`compiler include not found: ${absolute}`);
+
+  state.active.add(absolute);
+  state.seen.add(absolute);
+  const source = fs.readFileSync(absolute, 'utf8');
+  const output = [];
+  for (const line of source.split(/\r?\n/)) {
+    const match = /^\s*include\s+"([^"\n]+)"\s*;\s*(?:\/\/.*)?$/.exec(line);
+    if (!match) {
+      output.push(line);
       continue;
     }
-    if (c === '/' && source[i + 1] === '/') { lineComment = true; i++; continue; }
-    if (c === '"') { quoted = true; continue; }
-    if (c === '{') depth++;
-    else if (c === '}' && --depth === 0) return source.slice(0, match.index) + source.slice(i + 1);
+    const includedPath = path.resolve(path.dirname(absolute), match[1]);
+    output.push(expandCompilerIncludes(includedPath, state));
   }
-  throw new Error(`${label} has an unterminated main function`);
+  state.active.delete(absolute);
+  return output.join('\n');
 }
-
-function declaredNames(source) {
-  const names = new Set();
-  for (const match of source.matchAll(/^(?:struct|function)\s+([A-Za-z_][A-Za-z0-9_]*)/gm)) names.add(match[1]);
-  return names;
-}
-
-const sourceModules = [
-  'src/model/ast.raz',
-  'src/core/lexer.raz',
-  'src/core/parser.raz',
-  'src/core/text.raz',
-  'src/source/includes.raz',
-  'src/source/modules.raz',
-  'src/source/macros.raz',
-  'src/validation/semantics.raz',
-  'src/validation/lowering.raz',
-  'src/validation/rir.raz',
-  'src/core/rir.raz',
-];
-const targetModules = [
-  'src/targets/cpp17/model.raz',
-  'src/targets/cpp17/rir_parser.raz',
-  'src/targets/cpp17/types.raz',
-  'src/targets/cpp17/emitter.raz',
-  'src/targets/cpp17/validate.raz',
-];
 
 fs.mkdirSync(path.dirname(FLAT_BUNDLE), { recursive: true });
 fs.mkdirSync(path.dirname(CANDIDATE), { recursive: true });
-const front = sourceModules.map((p) => fs.readFileSync(path.join(GEN2, p), 'utf8')).join('\n\n');
-const backRaw = targetModules.map((p) => fs.readFileSync(path.join(GEN2, p), 'utf8')).join('\n\n');
-const back = stripMain(backRaw, 'Gen2 C++17 target');
-const frontNames = declaredNames(front);
-const backNames = declaredNames(back);
-const collisions = [...backNames].filter((name) => frontNames.has(name));
-if (collisions.length) {
-  throw new Error(`Gen2 include entry requires globally unique declarations; rename target helpers explicitly: ${collisions.join(', ')}`);
+const expandedEntry = expandCompilerIncludes(ENTRY);
+const declarations = new Map();
+for (const match of expandedEntry.matchAll(/^(?:struct|function)\s+([A-Za-z_][A-Za-z0-9_]*)/gm)) {
+  const owners = declarations.get(match[1]) ?? 0;
+  declarations.set(match[1], owners + 1);
 }
-const driver = fs.readFileSync(path.join(GEN2, 'src/driver/main.raz'), 'utf8');
+const collisions = [...declarations].filter(([, count]) => count > 1).map(([name]) => name);
+if (collisions.length) {
+  throw new Error(`compiler.raz includes duplicate top-level declarations: ${collisions.join(', ')}`);
+}
 const bundle = [
-  '// Raz compiler bundle. Generated from modular files under compiler/razc/src/.',
-  front,
-  back,
-  driver,
+  '// Raz compiler bundle. Generated from the canonical compiler.raz include graph.',
+  expandedEntry,
 ].join('\n\n');
 fs.writeFileSync(FLAT_BUNDLE, bundle, 'utf8');
 if (process.argv.includes('--bundle-only')) {
@@ -130,14 +110,44 @@ if (process.argv.includes('--bundle-only')) {
 if (SELF_HOST) {
   if (!fs.existsSync(SELF_HOST_BIN)) throw new Error(`Gen2 self-host compiler not found: ${SELF_HOST_BIN}`);
   fs.rmSync(WORK, { recursive: true, force: true });
+  fs.rmSync(SELF_HOST_STAGE1, { force: true });
   fs.mkdirSync(path.join(WORK, 'backend'), { recursive: true });
-  console.log('[gen2] compile canonical include-based compiler entry with the current Gen2 binary');
-  run(SELF_HOST_BIN, [ENTRY, '--emit-cpp', CPP, '-L', LIBRARY_ROOT], { label: 'Gen2 compiles its own compiler.raz entry' });
   const optimization = process.env.RAZ_BUILD_OPT ?? '-O0';
-  console.log('[gen2] build self-hosted native candidate');
-  run(process.env.CXX ?? 'g++', ['-std=c++17', optimization, CPP, '-I', LIBRARY_ROOT, '-o', CANDIDATE], { label: 'build self-hosted Gen2 candidate' });
+  const cxx = process.env.CXX ?? 'g++';
+
+  // Stage 1: the current Gen2 compiler translates the canonical include graph.
+  console.log('[gen2] stage 1/2: current Gen2 compiles compiler.raz');
+  run(SELF_HOST_BIN, [ENTRY, '--emit-cpp', CPP, '-L', LIBRARY_ROOT], { label: 'Gen2 stage 1 emits compiler C++' });
+  run(cxx, ['-std=c++17', optimization, CPP, '-I', LIBRARY_ROOT, '-o', SELF_HOST_STAGE1], { label: 'build stage-1 Gen2 candidate' });
+  fs.chmodSync(SELF_HOST_STAGE1, 0o755);
+
+  // Stage 2: the newly-built compiler compiles the exact same Raz source again.
+  // Identical emitted C++ is a useful fixed-point check for deterministic self-hosting.
+  console.log('[gen2] stage 2/2: stage-1 Gen2 recompiles compiler.raz');
+  run(SELF_HOST_STAGE1, [ENTRY, '--emit-cpp', STAGE2_CPP, '-L', LIBRARY_ROOT], { label: 'Gen2 stage 2 emits compiler C++' });
+  const firstCpp = fs.readFileSync(CPP, 'utf8');
+  const secondCpp = fs.readFileSync(STAGE2_CPP, 'utf8');
+  if (firstCpp !== secondCpp) {
+    const firstHash = requireHash(firstCpp);
+    const secondHash = requireHash(secondCpp);
+    throw new Error(`self-host fixed-point mismatch: stage 1 C++ sha256=${firstHash}, stage 2 sha256=${secondHash}`);
+  }
+  console.log(`[gen2] self-host fixed-point verified (${firstCpp.length.toLocaleString()} C++ characters)`);
+
+  run(cxx, ['-std=c++17', optimization, STAGE2_CPP, '-I', LIBRARY_ROOT, '-o', CANDIDATE], { label: 'build stage-2 Gen2 candidate' });
   fs.chmodSync(CANDIDATE, 0o755);
-  console.log(`[gen2] self-hosted candidate ready: ${CANDIDATE}`);
+  const stage1Version = run(SELF_HOST_STAGE1, ['--version'], { label: 'verify stage-1 version', capture: true });
+  const stage2Version = run(CANDIDATE, ['--version'], { label: 'verify stage-2 version', capture: true });
+  if ((stage1Version.stdout ?? '').trim() !== (stage2Version.stdout ?? '').trim()) {
+    throw new Error(`self-host version mismatch: stage 1='${(stage1Version.stdout ?? '').trim()}', stage 2='${(stage2Version.stdout ?? '').trim()}'`);
+  }
+
+  run(CANDIDATE, [path.join(GEN2, 'examples', 'hello.raz'), '--emit-cpp', SMOKE_CPP, '-L', LIBRARY_ROOT], { label: 'stage-2 candidate smoke emit' });
+  run(cxx, ['-std=c++17', optimization, SMOKE_CPP, '-I', LIBRARY_ROOT, '-o', SMOKE_BIN], { label: 'stage-2 candidate smoke build' });
+  const smoke = run(SMOKE_BIN, [], { label: 'stage-2 candidate smoke run', capture: true });
+  if (!(smoke.stdout ?? '').includes('Hello from Raz Gen2!')) throw new Error('stage-2 candidate smoke output mismatch');
+
+  console.log(`[gen2] two-stage self-host candidate ready: ${CANDIDATE}`);
   process.exit(0);
 }
 

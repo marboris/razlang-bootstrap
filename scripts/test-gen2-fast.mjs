@@ -52,7 +52,7 @@ fs.rmSync(WORK, { recursive: true, force: true });
 fs.mkdirSync(WORK, { recursive: true });
 
 const version = run(CANDIDATE, ['--version'], { status: 0 });
-if (!version.output.includes('razc Gen2 preview 0.4.0-g2-014')) throw new Error('CLI --version output mismatch');
+if (!version.output.includes('razc Gen2 preview 0.4.0-g2-015')) throw new Error('CLI --version output mismatch');
 run(CANDIDATE, ['--help'], { status: 0 });
 run(CANDIDATE, [], { status: 2 });
 
@@ -61,10 +61,8 @@ const simpleCpp = path.join(WORK, 'simple.cpp');
 run(CANDIDATE, [simple, '--emit-cpp', simpleCpp], { status: 0 });
 const simpleText = fs.readFileSync(simpleCpp, 'utf8');
 const includes = simpleText.split(/\r?\n/).filter((line) => line.startsWith('#include'));
-for (const header of ['<cstdint>', '<cstddef>', '<string>', '<vector>']) {
-  if (!includes.includes(`#include ${header}`)) {
-    throw new Error(`std.core prelude did not provide ${header}; emitted includes: ${includes.join(', ')}`);
-  }
+if (includes.length !== 0) {
+  throw new Error(`a Raz program without imports must not receive implicit C++ headers; emitted includes: ${includes.join(', ')}`);
 }
 const simpleExe = path.join(WORK, 'simple');
 compileGenerated(simpleCpp, simpleExe);
@@ -74,6 +72,7 @@ run(simpleExe, [], { status: 7 });
 // auto-based storage. Runtime initializer evaluation still occurs at the store
 // site for locals/mutable globals; const globals use their initializer function.
 const typeElision = writeSource('type-elision.raz', [
+  'use "string";',
   'let globalMessage = "Raz";',
   'const constantMessage = "Const";',
   'function inferredBindingsRun() -> i64 {',
@@ -97,8 +96,8 @@ if (!typeElisionText.includes(`auto ${cppVariable('globalMessage')} = decltype($
 if (!typeElisionText.includes(`const auto ${cppVariable('constantMessage')} = ${constInitName}();`)) {
   throw new Error('untyped const global must use C++ const auto');
 }
-const localName = cppVariable('localMessage');
-if (!new RegExp(`auto ${localName} = decltype\(tt\d+\)\{\};`).test(typeElisionText)) {
+const localName = cppVariable('raz$local$0$localMessage');
+if (!new RegExp(String.raw`auto ${localName} = decltype\(tt\d+\)\{\};`).test(typeElisionText)) {
   throw new Error('untyped local must use auto-based storage without moving initializer side effects');
 }
 const typeElisionExe = path.join(WORK, 'type-elision');
@@ -128,8 +127,8 @@ const namesExe = path.join(WORK, 'cpp-name-mangling');
 compileGenerated(namesCpp, namesExe);
 run(namesExe, [], { status: 0 });
 
-// Until AST/RIR carry Symbol IDs, distinct same-spelled locals in flattened
-// branch scopes are rejected rather than silently sharing one C++ object.
+// Same-spelled locals in sibling branches are normalized to distinct compiler
+// symbols because RIR control-flow is flattened before C++ emission.
 const duplicateSiblingLocal = writeSource('duplicate-sibling-local.raz', [
   'function choose(flag: bool) -> i64 {',
   '  if (flag) { let value: i64 = 1; } else { let value: i64 = 2; }',
@@ -138,10 +137,15 @@ const duplicateSiblingLocal = writeSource('duplicate-sibling-local.raz', [
   'return choose(true);',
   '',
 ].join('\n'));
-const duplicateSiblingResult = run(CANDIDATE, [duplicateSiblingLocal, '--emit-cpp', path.join(WORK, 'duplicate-sibling-local.cpp')], { status: 1 });
-if (!duplicateSiblingResult.output.includes('duplicate local name across flattened control-flow scopes')) {
-  throw new Error('same-spelled locals in sibling control-flow scopes must not collide in C++');
+const duplicateSiblingCpp = path.join(WORK, 'duplicate-sibling-local.cpp');
+run(CANDIDATE, [duplicateSiblingLocal, '--emit-cpp', duplicateSiblingCpp], { status: 0 });
+const duplicateSiblingText = fs.readFileSync(duplicateSiblingCpp, 'utf8');
+for (const localSymbol of [cppVariable('raz$local$0$value'), cppVariable('raz$local$1$value')]) {
+  if (!duplicateSiblingText.includes(localSymbol)) throw new Error(`sibling local was not normalized to unique C++ symbol ${localSymbol}`);
 }
+const duplicateSiblingExe = path.join(WORK, 'duplicate-sibling-local');
+compileGenerated(duplicateSiblingCpp, duplicateSiblingExe);
+run(duplicateSiblingExe, [], { status: 0 });
 
 // Bare native names are ambiguous and must be rejected; C++ headers are quoted.
 const bareNativeUse = writeSource('bare-native-use.raz', 'use cstdint;\nreturn 0;\n');
@@ -209,7 +213,7 @@ const moduleMain = writeSource('module-case.raz', 'use demo.wrapper;\nuse demo.m
 const moduleCpp = path.join(WORK, 'module-case.cpp');
 run(process.execPath, [RAZ_DRIVER, 'emit-cpp', moduleMain, '-L', moduleRoot, '-o', moduleCpp], { status: 0 });
 const moduleText = fs.readFileSync(moduleCpp, 'utf8');
-if ((moduleText.match(new RegExp(`std::int64_t ${cppFunction('answer')}\\(\\) \\{`, 'g')) ?? []).length !== 1) throw new Error('module was duplicated or not resolved once');
+if ((moduleText.match(new RegExp(`raz_i64 ${cppFunction('answer')}\\(\\) \\{`, 'g')) ?? []).length !== 1) throw new Error('module was duplicated or not resolved once');
 const moduleExe = path.join(WORK, 'module-case-bin');
 compileGenerated(moduleCpp, moduleExe);
 run(moduleExe, [], { status: 42 });

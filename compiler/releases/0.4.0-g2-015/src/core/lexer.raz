@@ -1,0 +1,157 @@
+function tokenValue(kind: i64, text: string, pos: i64) -> Token {
+    let t: Token = new Token();
+    t.kind = kind;
+    t.text = text;
+    t.pos = pos;
+    return t;
+}
+
+function isSpace(c: i64) -> bool {
+    return c == 32 || c == 9 || c == 10 || c == 13;
+}
+
+function isDigit(c: i64) -> bool {
+    return c >= 48 && c <= 57;
+}
+
+function isAlpha(c: i64) -> bool {
+    return (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c == 95;
+}
+
+function isAlphaNum(c: i64) -> bool {
+    return isAlpha(c) || isDigit(c);
+}
+
+function keywordKind(word: string) -> i64 {
+    if (word == "function") return 10;
+    if (word == "struct") return 11;
+    if (word == "let") return 12;
+    if (word == "return") return 13;
+    if (word == "if") return 14;
+    if (word == "else") return 15;
+    if (word == "while") return 16;
+    if (word == "true") return 17;
+    if (word == "false") return 18;
+    if (word == "new") return 19;
+    if (word == "use") return 46;
+    if (word == "include") return 47;
+    if (word == "unsafe") return 48;
+    if (word == "nullptr") return 49;
+    if (word == "const") return 51;
+    if (word == "define") return 52;
+    return 1;
+}
+
+function operatorKind(text: string) -> i64 {
+    if (text == "(") return 20;
+    if (text == ")") return 21;
+    if (text == "{") return 22;
+    if (text == "}") return 23;
+    if (text == ";") return 24;
+    if (text == ":") return 25;
+    if (text == ",") return 26;
+    if (text == ".") return 27;
+    if (text == "[") return 28;
+    if (text == "]") return 29;
+    if (text == "=") return 30;
+    if (text == "+") return 31;
+    if (text == "-") return 32;
+    if (text == "*") return 33;
+    if (text == "/") return 34;
+    if (text == "%") return 35;
+    if (text == "!") return 36;
+    if (text == "==") return 37;
+    if (text == "!=") return 38;
+    if (text == "<") return 39;
+    if (text == "<=") return 40;
+    if (text == ">") return 41;
+    if (text == ">=") return 42;
+    if (text == "&&") return 43;
+    if (text == "||") return 44;
+    if (text == "->") return 45;
+    return 99;
+}
+
+function lex(source: string) -> List<Token> {
+    let out: List<Token> = [];
+    let i: i64 = 0;
+    let n: i64 = length(source);
+    while (i < n) {
+        let c: i64 = charCodeAt(source, i);
+        if (isSpace(c)) {
+            i = i + 1;
+        } else if (c == 47 && i + 1 < n && charCodeAt(source, i + 1) == 47) {
+            i = i + 2;
+            while (i < n && charCodeAt(source, i) != 10) i = i + 1;
+        } else if (c == 47 && i + 1 < n && charCodeAt(source, i + 1) == 42) {
+            i = i + 2;
+            while (i + 1 < n && !(charCodeAt(source, i) == 42 && charCodeAt(source, i + 1) == 47)) i = i + 1;
+            if (i + 1 < n) i = i + 2;
+        } else if (isDigit(c)) {
+            let start: i64 = i;
+            i = i + 1;
+            while (i < n && isDigit(charCodeAt(source, i))) i = i + 1;
+            if (i < n && charCodeAt(source, i) == 46 && i + 1 < n && isDigit(charCodeAt(source, i + 1))) {
+                i = i + 1;
+                while (i < n && isDigit(charCodeAt(source, i))) i = i + 1;
+            }
+            push(out, tokenValue(2, slice(source, start, i), start));
+        } else if (isAlpha(c)) {
+            let start: i64 = i;
+            i = i + 1;
+            while (i < n && isAlphaNum(charCodeAt(source, i))) i = i + 1;
+            let word: string = slice(source, start, i);
+            push(out, tokenValue(keywordKind(word), word, start));
+        } else if (c == 34) {
+            let start: i64 = i;
+            i = i + 1;
+            let value: string = "";
+            while (i < n && charCodeAt(source, i) != 34) {
+                if (charCodeAt(source, i) == 92 && i + 1 < n) {
+                    i = i + 1;
+                    if (charCodeAt(source, i) == 110) value = value + "\n";
+                    else if (charCodeAt(source, i) == 116) value = value + "\t";
+                    else if (charCodeAt(source, i) == 114) value = value + "\r";
+                    else value = value + slice(source, i, i + 1);
+                    i = i + 1;
+                } else {
+                    value = value + slice(source, i, i + 1);
+                    i = i + 1;
+                }
+            }
+            if (i < n) i = i + 1;
+            push(out, tokenValue(3, value, start));
+        } else if (c == 39) {
+            let start: i64 = i;
+            i = i + 1;
+            let code: i64 = 0;
+            if (i < n && charCodeAt(source, i) == 92 && i + 1 < n) {
+                i = i + 1;
+                if (charCodeAt(source, i) == 110) code = 10;
+                else if (charCodeAt(source, i) == 116) code = 9;
+                else if (charCodeAt(source, i) == 114) code = 13;
+                else code = charCodeAt(source, i);
+                i = i + 1;
+            } else if (i < n) {
+                code = charCodeAt(source, i);
+                i = i + 1;
+            }
+            if (i < n && charCodeAt(source, i) == 39) i = i + 1;
+            push(out, tokenValue(4, int_to_string(code), start));
+        } else {
+            let two: string = "";
+            if (i + 1 < n) two = slice(source, i, i + 2);
+            if (two == "==" || two == "!=" || two == "<=" || two == ">=" || two == "&&" || two == "||" || two == "->") {
+                push(out, tokenValue(operatorKind(two), two, i));
+                i = i + 2;
+            } else {
+                let one: string = slice(source, i, i + 1);
+                push(out, tokenValue(operatorKind(one), one, i));
+                i = i + 1;
+            }
+        }
+    }
+    push(out, tokenValue(0, "", n));
+    return out;
+}
+

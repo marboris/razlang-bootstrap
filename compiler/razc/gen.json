@@ -2,13 +2,13 @@
   "generation": 2,
   "language": "raz-1.0 subset (Gen1 bootstrap compatible)",
   "status": "development-preview",
-  "compiled_by": "Original binary retained from the supplied archive. The default build pipeline bootstraps via frozen Gen1; a Gen2 self-hosted rebuild is available but was not run as part of this restructuring.",
+  "compiled_by": "gen2-selfhost",
   "source": "compiler/razc/src/",
   "final_file": "compiler/razc/compiler.raz",
   "binary": "compiler/razc/bin/razc",
   "checksum": "compiler/razc/bin/razc.sha256",
   "build_dir": "compiler/razc/build/",
-  "milestone": "G2-014: structured RIR instruction model and typed C++ lowering",
+  "milestone": "G2-015: modular compiler entry, two-stage Gen2 self-host fixed point, and immutable release snapshots",
   "operational_role": "Unfrozen development compiler; module resolution runs in Raz; native GNU-like driver and CMake/Ninja/CTest workflow",
   "bootstrap_contract": "Frozen Gen1 compiles a temporary flattened bundle assembled from modular Gen2 sources; the canonical compiler.raz uses Gen2 include directives.",
   "source_modules": [
@@ -20,13 +20,18 @@
     "src/targets/cpp17/",
     "src/driver/"
   ],
-  "active_binary_version": "0.4.0-g2-014",
-  "active_binary_sha256": "44a21af2f67da662a1c8a01345535aa6d4dfd0dcd8ed72d22413115ba5c5e6b6",
+  "active_binary_version": "0.4.0-g2-015",
+  "active_binary_sha256": "75544cd93d44fa28a55f20dc4b0a8dcbb43baf3da539a8b265d37f7d9d8892c6",
   "release_history": [
     {
       "version": "0.4.0-g2-014",
       "sha256": "44a21af2f67da662a1c8a01345535aa6d4dfd0dcd8ed72d22413115ba5c5e6b6",
       "release": "compiler/releases/0.4.0-g2-014/"
+    },
+    {
+      "version": "0.4.0-g2-015",
+      "sha256": "75544cd93d44fa28a55f20dc4b0a8dcbb43baf3da539a8b265d37f7d9d8892c6",
+      "release": "compiler/releases/0.4.0-g2-015/"
     }
   ]
 }

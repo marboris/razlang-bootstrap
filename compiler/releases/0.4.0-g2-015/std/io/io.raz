@@ -1,0 +1,24 @@
+// std.io public API. The implementation lives in Raz wrappers; only the OS/native
+// boundary is provided by the module-owned C++ bridge header. Native calls use !;
+// there are no Raz-side extern declarations or duplicated native signatures.
+use "std/io/io_native.hpp";
+
+function print(value: string) {
+    std_io_print!(value);
+}
+
+function readFile(path: string) -> string {
+    return std_io_read_file!(path);
+}
+
+function writeFile(path: string, value: string) -> bool {
+    return std_io_write_file!(path, value);
+}
+
+function argCount() -> i64 {
+    return std_io_arg_count!();
+}
+
+function argAt(index: i64) -> string {
+    return std_io_arg_at!(index);
+}

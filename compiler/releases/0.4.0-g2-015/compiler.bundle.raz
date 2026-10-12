@@ -1,0 +1,4507 @@
+// Raz compiler bundle. Generated from the canonical compiler.raz include graph.
+
+// Canonical Gen2 compiler entry point.
+// Keep implementation modular; the frozen Gen1 bootstrap builder creates a temporary flat bundle.
+// Native frontend, written in Raz.
+//
+// Important implementation rule:
+// Compiler state is explicit and passed as Ref<T>. There is no JS/OOP state.
+// Mutable lists use push() so compiler state is updated without copying the full list.
+//
+// Compiler data model shared by the native Raz frontend and C++17 target.
+//
+// Pipeline:
+//   source -> lexer/parser -> AST -> semantic analysis/name normalization
+//          -> target capability validation -> RIR-1 -> RIR verification
+//          -> C++17 lowering -> generated-C++ structural validation
+//
+// RIR-1 is currently serialized as text between the frontend and target parser.
+// The external C++ compiler remains responsible for full C++ grammar/type checking.
+
+struct Token {
+    kind: i64;
+    text: string;
+    pos: i64;
+}
+
+struct Expr {
+    kind: i64;
+    op: string;
+    text: string;
+    left: i64;
+    right: i64;
+    valueText: string;
+    args: List<i64>;
+}
+
+struct Stmt {
+    kind: i64;
+    name: string;
+    type: string;
+    isTypeExplicit: bool;
+    isConst: bool;
+    expr: i64;
+    left: i64;
+    right: i64;
+    thenStmts: List<i64>;
+    elseStmts: List<i64>;
+    body: List<i64>;
+}
+
+struct Param {
+    name: string;
+    type: string;
+}
+
+struct Field {
+    name: string;
+    type: string;
+}
+
+struct FunctionDef {
+    name: string;
+    params: List<Param>;
+    returnType: string;
+    body: List<i64>;
+}
+
+struct StructDef {
+    name: string;
+    fields: List<Field>;
+}
+
+struct Program {
+    exprs: List<Expr>;
+    stmts: List<Stmt>;
+    topStmts: List<i64>;
+    uses: List<string>;
+    functions: List<FunctionDef>;
+    structs: List<StructDef>;
+    valid: bool;
+    error: string;
+}
+
+struct ParserState {
+    tokens: List<Token>;
+    pos: i64;
+    exprs: List<Expr>;
+    stmts: List<Stmt>;
+    functions: List<FunctionDef>;
+    structs: List<StructDef>;
+    lastTokenKind: i64;
+    lastTokenText: string;
+    lastExpr: i64;
+    lastStmt: i64;
+    lastList: List<i64>;
+    lastArgs: List<i64>;
+    lastType: string;
+    lastFunction: FunctionDef;
+    lastStruct: StructDef;
+    blockDepth: i64;
+    parseError: bool;
+    parseErrorText: string;
+}
+
+struct EmitState {
+    lines: List<string>;
+    temp: i64;
+    label: i64;
+    lastValue: string;
+}
+
+struct Binding {
+    name: string;
+    type: string;
+    isConst: bool;
+}
+
+struct SemanticState {
+    ok: bool;
+    message: string;
+    unsafeDepth: i64;
+}
+
+
+function tokenValue(kind: i64, text: string, pos: i64) -> Token {
+    let t: Token = new Token();
+    t.kind = kind;
+    t.text = text;
+    t.pos = pos;
+    return t;
+}
+
+function isSpace(c: i64) -> bool {
+    return c == 32 || c == 9 || c == 10 || c == 13;
+}
+
+function isDigit(c: i64) -> bool {
+    return c >= 48 && c <= 57;
+}
+
+function isAlpha(c: i64) -> bool {
+    return (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c == 95;
+}
+
+function isAlphaNum(c: i64) -> bool {
+    return isAlpha(c) || isDigit(c);
+}
+
+function keywordKind(word: string) -> i64 {
+    if (word == "function") return 10;
+    if (word == "struct") return 11;
+    if (word == "let") return 12;
+    if (word == "return") return 13;
+    if (word == "if") return 14;
+    if (word == "else") return 15;
+    if (word == "while") return 16;
+    if (word == "true") return 17;
+    if (word == "false") return 18;
+    if (word == "new") return 19;
+    if (word == "use") return 46;
+    if (word == "include") return 47;
+    if (word == "unsafe") return 48;
+    if (word == "nullptr") return 49;
+    if (word == "const") return 51;
+    if (word == "define") return 52;
+    return 1;
+}
+
+function operatorKind(text: string) -> i64 {
+    if (text == "(") return 20;
+    if (text == ")") return 21;
+    if (text == "{") return 22;
+    if (text == "}") return 23;
+    if (text == ";") return 24;
+    if (text == ":") return 25;
+    if (text == ",") return 26;
+    if (text == ".") return 27;
+    if (text == "[") return 28;
+    if (text == "]") return 29;
+    if (text == "=") return 30;
+    if (text == "+") return 31;
+    if (text == "-") return 32;
+    if (text == "*") return 33;
+    if (text == "/") return 34;
+    if (text == "%") return 35;
+    if (text == "!") return 36;
+    if (text == "==") return 37;
+    if (text == "!=") return 38;
+    if (text == "<") return 39;
+    if (text == "<=") return 40;
+    if (text == ">") return 41;
+    if (text == ">=") return 42;
+    if (text == "&&") return 43;
+    if (text == "||") return 44;
+    if (text == "->") return 45;
+    return 99;
+}
+
+function lex(source: string) -> List<Token> {
+    let out: List<Token> = [];
+    let i: i64 = 0;
+    let n: i64 = length(source);
+    while (i < n) {
+        let c: i64 = charCodeAt(source, i);
+        if (isSpace(c)) {
+            i = i + 1;
+        } else if (c == 47 && i + 1 < n && charCodeAt(source, i + 1) == 47) {
+            i = i + 2;
+            while (i < n && charCodeAt(source, i) != 10) i = i + 1;
+        } else if (c == 47 && i + 1 < n && charCodeAt(source, i + 1) == 42) {
+            i = i + 2;
+            while (i + 1 < n && !(charCodeAt(source, i) == 42 && charCodeAt(source, i + 1) == 47)) i = i + 1;
+            if (i + 1 < n) i = i + 2;
+        } else if (isDigit(c)) {
+            let start: i64 = i;
+            i = i + 1;
+            while (i < n && isDigit(charCodeAt(source, i))) i = i + 1;
+            if (i < n && charCodeAt(source, i) == 46 && i + 1 < n && isDigit(charCodeAt(source, i + 1))) {
+                i = i + 1;
+                while (i < n && isDigit(charCodeAt(source, i))) i = i + 1;
+            }
+            push(out, tokenValue(2, slice(source, start, i), start));
+        } else if (isAlpha(c)) {
+            let start: i64 = i;
+            i = i + 1;
+            while (i < n && isAlphaNum(charCodeAt(source, i))) i = i + 1;
+            let word: string = slice(source, start, i);
+            push(out, tokenValue(keywordKind(word), word, start));
+        } else if (c == 34) {
+            let start: i64 = i;
+            i = i + 1;
+            let value: string = "";
+            while (i < n && charCodeAt(source, i) != 34) {
+                if (charCodeAt(source, i) == 92 && i + 1 < n) {
+                    i = i + 1;
+                    if (charCodeAt(source, i) == 110) value = value + "\n";
+                    else if (charCodeAt(source, i) == 116) value = value + "\t";
+                    else if (charCodeAt(source, i) == 114) value = value + "\r";
+                    else value = value + slice(source, i, i + 1);
+                    i = i + 1;
+                } else {
+                    value = value + slice(source, i, i + 1);
+                    i = i + 1;
+                }
+            }
+            if (i < n) i = i + 1;
+            push(out, tokenValue(3, value, start));
+        } else if (c == 39) {
+            let start: i64 = i;
+            i = i + 1;
+            let code: i64 = 0;
+            if (i < n && charCodeAt(source, i) == 92 && i + 1 < n) {
+                i = i + 1;
+                if (charCodeAt(source, i) == 110) code = 10;
+                else if (charCodeAt(source, i) == 116) code = 9;
+                else if (charCodeAt(source, i) == 114) code = 13;
+                else code = charCodeAt(source, i);
+                i = i + 1;
+            } else if (i < n) {
+                code = charCodeAt(source, i);
+                i = i + 1;
+            }
+            if (i < n && charCodeAt(source, i) == 39) i = i + 1;
+            push(out, tokenValue(4, int_to_string(code), start));
+        } else {
+            let two: string = "";
+            if (i + 1 < n) two = slice(source, i, i + 2);
+            if (two == "==" || two == "!=" || two == "<=" || two == ">=" || two == "&&" || two == "||" || two == "->") {
+                push(out, tokenValue(operatorKind(two), two, i));
+                i = i + 2;
+            } else {
+                let one: string = slice(source, i, i + 1);
+                push(out, tokenValue(operatorKind(one), one, i));
+                i = i + 1;
+            }
+        }
+    }
+    push(out, tokenValue(0, "", n));
+    return out;
+}
+
+
+function currentKind(state: Ref<ParserState>) -> i64 {
+    if (state.pos < 0 || state.pos >= listLength(state.tokens)) return 0;
+    return state.tokens[state.pos].kind;
+}
+
+function currentTokenText(state: Ref<ParserState>) -> string {
+    if (state.pos < 0 || state.pos >= listLength(state.tokens)) return "";
+    return state.tokens[state.pos].text;
+}
+
+// Consume a token when its value is not needed. This avoids copying Token.text
+// for the overwhelmingly common parser advance operation.
+function consume(state: Ref<ParserState>, kind: i64) {
+    state.pos = state.pos + 1;
+}
+
+function take(state: Ref<ParserState>, kind: i64) -> Token {
+    let t: Token = state.tokens[state.pos];
+    state.pos = state.pos + 1;
+    if (t.kind != kind) return t;
+    return t;
+}
+
+function maybe(state: Ref<ParserState>, kind: i64) -> bool {
+    if (currentKind(state) == kind) {
+        state.pos = state.pos + 1;
+        return true;
+    }
+    return false;
+}
+
+function emptyExpr(kind: i64) -> Expr {
+    let e: Expr = new Expr();
+    e.kind = kind;
+    e.left = -1;
+    e.right = -1;
+    e.valueText = "";
+    e.args = [];
+    return e;
+}
+
+function emptyStmt(kind: i64) -> Stmt {
+    let s: Stmt = new Stmt();
+    s.kind = kind;
+    s.isTypeExplicit = false;
+    s.isConst = false;
+    s.expr = -1;
+    s.left = -1;
+    s.right = -1;
+    s.thenStmts = [];
+    s.elseStmts = [];
+    s.body = [];
+    return s;
+}
+
+function addExpr(state: Ref<ParserState>, e: Expr) -> i64 {
+    let id: i64 = listLength(state.exprs);
+    push(state.exprs, e);
+    return id;
+}
+
+function addStmt(state: Ref<ParserState>, s: Stmt) -> i64 {
+    let id: i64 = listLength(state.stmts);
+    push(state.stmts, s);
+    return id;
+}
+
+function precedence(kind: i64) -> i64 {
+    if (kind == 44) return 10;
+    if (kind == 43) return 20;
+    if (kind == 37 || kind == 38) return 30;
+    if (kind == 39 || kind == 40 || kind == 41 || kind == 42) return 40;
+    if (kind == 31 || kind == 32) return 50;
+    if (kind == 33 || kind == 34 || kind == 35) return 60;
+    return -1;
+}
+
+function parseType(state: Ref<ParserState>) -> string {
+    let t: Token = take(state, 1);
+    let out: string = t.text;
+    if (currentKind(state) == 39) {
+        consume(state, 39);
+        let inner: string = parseType(state);
+        out = out + "<" + inner;
+        while (currentKind(state) == 26) {
+            consume(state, 26);
+            let arg: string = parseType(state);
+            out = out + "," + arg;
+        }
+        maybe(state, 41);
+        out = out + ">";
+    }
+    while (currentKind(state) == 33) {
+        consume(state, 33);
+        out = out + "*";
+    }
+    return out;
+}
+
+function parseExpression(state: Ref<ParserState>, minPrec: i64) -> i64 {
+    let left: i64 = parseUnary(state);
+    let p: i64 = precedence(currentKind(state));
+    while (p >= minPrec) {
+        let op: string = currentTokenText(state);
+        consume(state, currentKind(state));
+        let right: i64 = parseExpression(state, p + 1);
+        let e: Expr = emptyExpr(6);
+        e.op = op;
+        e.left = left;
+        e.right = right;
+        left = addExpr(state, e);
+        p = precedence(currentKind(state));
+    }
+    return left;
+}
+
+function parseCallArgs(state: Ref<ParserState>) -> List<i64> {
+    let args: List<i64> = [];
+    if (currentKind(state) != 21) {
+        push(args, parseExpression(state, 0));
+        while (currentKind(state) == 26) {
+            consume(state, 26);
+            push(args, parseExpression(state, 0));
+        }
+    }
+    maybe(state, 21);
+    return args;
+}
+
+function parsePrimary(state: Ref<ParserState>) -> i64 {
+    let tokenKind: i64 = currentKind(state);
+    let tokenText: string = currentTokenText(state);
+    if (tokenKind == 2) {
+        consume(state, 2);
+        let e: Expr = emptyExpr(1);
+        e.text = tokenText;
+        e.valueText = tokenText;
+        return addExpr(state, e);
+    }
+    if (tokenKind == 3) {
+        consume(state, 3);
+        let e: Expr = emptyExpr(2);
+        e.text = tokenText;
+        return addExpr(state, e);
+    }
+    if (tokenKind == 4) {
+        consume(state, 4);
+        let e: Expr = emptyExpr(3);
+        e.valueText = tokenText;
+        return addExpr(state, e);
+    }
+    if (tokenKind == 17 || tokenKind == 18) {
+        consume(state, tokenKind);
+        let e: Expr = emptyExpr(4);
+        if (tokenKind == 17) e.valueText = "true";
+        else e.valueText = "false";
+        return addExpr(state, e);
+    }
+    if (tokenKind == 49) {
+        consume(state, 49);
+        let e: Expr = emptyExpr(13);
+        e.valueText = "nullptr";
+        return addExpr(state, e);
+    }
+    if (tokenKind == 1) {
+        consume(state, 1);
+        let e: Expr = emptyExpr(5);
+        e.text = tokenText;
+        return addExpr(state, e);
+    }
+    if (tokenKind == 19) {
+        consume(state, 19);
+        let e: Expr = emptyExpr(11);
+        e.text = parseType(state);
+        maybe(state, 20);
+        e.args = parseCallArgs(state);
+        return addExpr(state, e);
+    }
+    if (tokenKind == 28) {
+        consume(state, 28);
+        let e: Expr = emptyExpr(12);
+        if (currentKind(state) != 29) {
+            push(e.args, parseExpression(state, 0));
+            while (currentKind(state) == 26) {
+                consume(state, 26);
+                push(e.args, parseExpression(state, 0));
+            }
+        }
+        maybe(state, 29);
+        return addExpr(state, e);
+    }
+    if (tokenKind == 20) {
+        consume(state, 20);
+        let id: i64 = parseExpression(state, 0);
+        maybe(state, 21);
+        return id;
+    }
+    return -1;
+}
+
+function parsePostfix(state: Ref<ParserState>, id: i64) -> i64 {
+    let out: i64 = id;
+    let more: bool = true;
+    while (more && !state.parseError) {
+        if (currentKind(state) == 36) {
+            let followedByParen: bool = false;
+            if (state.pos + 1 < listLength(state.tokens)) {
+                if (state.tokens[state.pos + 1].kind == 20) followedByParen = true;
+            }
+            if (followedByParen) {
+                let callee: Expr = state.exprs[out];
+                if (callee.kind != 5) {
+                    state.parseError = true;
+                    state.parseErrorText = "native call marker '!' must follow a bare function name";
+                    state.pos = listLength(state.tokens) - 1;
+                } else {
+                    consume(state, 36);
+                    consume(state, 20);
+                    let e: Expr = emptyExpr(14);
+                    e.text = callee.text;
+                    e.args = parseCallArgs(state);
+                    out = addExpr(state, e);
+                }
+            } else {
+                state.parseError = true;
+                state.parseErrorText = "native call marker '!' must be followed by '(...)'";
+                state.pos = listLength(state.tokens) - 1;
+            }
+        } else if (currentKind(state) == 20) {
+            let args: List<i64> = [] ;
+            consume(state, 20);
+            args = parseCallArgs(state);
+            let e: Expr = emptyExpr(8);
+            e.left = out;
+            e.args = args;
+            out = addExpr(state, e);
+        } else if (currentKind(state) == 27) {
+            consume(state, 27);
+            let member: Token = take(state, 1);
+            let e: Expr = emptyExpr(9);
+            e.left = out;
+            e.text = member.text;
+            out = addExpr(state, e);
+        } else if (currentKind(state) == 28) {
+            consume(state, 28);
+            let idx: i64 = parseExpression(state, 0);
+            maybe(state, 29);
+            let e: Expr = emptyExpr(10);
+            e.left = out;
+            e.right = idx;
+            out = addExpr(state, e);
+        } else {
+            more = false;
+        }
+    }
+    return out;
+}
+
+function parseUnary(state: Ref<ParserState>) -> i64 {
+    let k: i64 = currentKind(state);
+    if (k == 36 || k == 31 || k == 32) {
+        let op: string = currentTokenText(state);
+        consume(state, k);
+        let operand: i64 = parseUnary(state);
+        let e: Expr = emptyExpr(7);
+        e.op = op;
+        e.left = operand;
+        return addExpr(state, e);
+    }
+    let id: i64 = parsePrimary(state);
+    if (id < 0) return id;
+    return parsePostfix(state, id);
+}
+
+function parseBlock(state: Ref<ParserState>) -> List<i64> {
+    let body: List<i64> = [];
+    maybe(state, 22);
+    state.blockDepth = state.blockDepth + 1;
+    while (!state.parseError && currentKind(state) != 23 && currentKind(state) != 0) {
+        let stmtId: i64 = parseStatement(state);
+        if (stmtId >= 0) push(body, stmtId);
+    }
+    state.blockDepth = state.blockDepth - 1;
+    maybe(state, 23);
+    return body;
+}
+
+function parseControlledBody(state: Ref<ParserState>) -> List<i64> {
+    let body: List<i64> = [];
+    if (currentKind(state) == 22) return parseBlock(state);
+    state.blockDepth = state.blockDepth + 1;
+    push(body, parseStatement(state));
+    state.blockDepth = state.blockDepth - 1;
+    return body;
+}
+
+function parseStatement(state: Ref<ParserState>) -> i64 {
+    let k: i64 = currentKind(state);
+    if (state.blockDepth > 0 && (k == 10 || k == 11)) {
+        state.parseError = true;
+        state.parseErrorText = "declaration is only allowed at file scope";
+        state.pos = listLength(state.tokens) - 1;
+        return -1;
+    }
+    if (k == 46) {
+        consume(state, 46);
+        let s: Stmt = emptyStmt(7);
+        let tKind: i64 = currentKind(state);
+        let tText: string = currentTokenText(state);
+        if (tKind == 3) {
+            consume(state, 3);
+            s.name = tText;
+            s.type = "quoted";
+            maybe(state, 24);
+            return addStmt(state, s);
+        }
+        if (tKind == 1) {
+            state.parseError = true;
+            state.parseErrorText = "native C++ headers must be quoted in use directives; Raz modules use dotted names";
+            state.pos = listLength(state.tokens) - 1;
+            return -1;
+        }
+        state.parseError = true;
+        state.parseErrorText = "use expects a quoted C++ header or a resolved Raz module";
+        state.pos = listLength(state.tokens) - 1;
+        return -1;
+    }
+    if (k == 47) {
+        consume(state, 47);
+        let s: Stmt = emptyStmt(8);
+        if (currentKind(state) == 3) {
+            s.name = take(state, 3).text;
+        }
+        maybe(state, 24);
+        return addStmt(state, s);
+    }
+    if (k == 48) {
+        consume(state, 48);
+        let s: Stmt = emptyStmt(9);
+        s.body = parseControlledBody(state);
+        return addStmt(state, s);
+    }
+    if (k == 12 || k == 51) {
+        consume(state, k);
+        let s: Stmt = emptyStmt(1);
+        s.isConst = k == 51;
+        let name: Token = take(state, 1);
+        s.name = name.text;
+        if (currentKind(state) == 25) {
+            consume(state, 25);
+            s.type = parseType(state);
+            s.isTypeExplicit = true;
+        }
+        maybe(state, 30);
+        s.expr = parseExpression(state, 0);
+        maybe(state, 24);
+        return addStmt(state, s);
+    }
+    if (k == 13) {
+        consume(state, 13);
+        let s: Stmt = emptyStmt(2);
+        if (currentKind(state) != 24) s.expr = parseExpression(state, 0);
+        maybe(state, 24);
+        return addStmt(state, s);
+    }
+    if (k == 14) {
+        consume(state, 14);
+        let s: Stmt = emptyStmt(5);
+        maybe(state, 20);
+        s.expr = parseExpression(state, 0);
+        maybe(state, 21);
+        s.thenStmts = parseControlledBody(state);
+        if (currentKind(state) == 15) {
+            consume(state, 15);
+            if (currentKind(state) == 14) push(s.elseStmts, parseStatement(state));
+            else if (currentKind(state) == 22) s.elseStmts = parseBlock(state);
+            else push(s.elseStmts, parseStatement(state));
+        }
+        return addStmt(state, s);
+    }
+    if (k == 16) {
+        consume(state, 16);
+        let s: Stmt = emptyStmt(6);
+        maybe(state, 20);
+        s.expr = parseExpression(state, 0);
+        maybe(state, 21);
+        s.body = parseControlledBody(state);
+        return addStmt(state, s);
+    }
+
+    let first: i64 = parseExpression(state, 0);
+    if (first < 0) {
+        state.pos = state.pos + 1;
+        return -1;
+    }
+    if (currentKind(state) == 30) {
+        consume(state, 30);
+        let s: Stmt = emptyStmt(4);
+        s.left = first;
+        s.right = parseExpression(state, 0);
+        maybe(state, 24);
+        return addStmt(state, s);
+    }
+    let s: Stmt = emptyStmt(3);
+    s.expr = first;
+    maybe(state, 24);
+    return addStmt(state, s);
+}
+
+function parseFunction(state: Ref<ParserState>) -> FunctionDef {
+    consume(state, 10);
+    let f: FunctionDef = new FunctionDef();
+    let name: Token = take(state, 1);
+    f.name = name.text;
+    f.params = [];
+    f.returnType = "void";
+    maybe(state, 20);
+    if (currentKind(state) != 21) {
+        let more: bool = true;
+        while (more) {
+            let p: Param = new Param();
+            let pname: Token = take(state, 1);
+            p.name = pname.text;
+            maybe(state, 25);
+            p.type = parseType(state);
+            push(f.params, p);
+            if (!maybe(state, 26)) more = false;
+        }
+    }
+    maybe(state, 21);
+    if (currentKind(state) == 45) {
+        consume(state, 45);
+        f.returnType = parseType(state);
+    }
+    f.body = parseBlock(state);
+    return f;
+}
+
+function parseStruct(state: Ref<ParserState>) -> StructDef {
+    consume(state, 11);
+    let s: StructDef = new StructDef();
+    let name: Token = take(state, 1);
+    s.name = name.text;
+    s.fields = [];
+    maybe(state, 22);
+    while (currentKind(state) != 23 && currentKind(state) != 0) {
+        let f: Field = new Field();
+        let fname: Token = take(state, 1);
+        f.name = fname.text;
+        maybe(state, 25);
+        f.type = parseType(state);
+        push(s.fields, f);
+        maybe(state, 24);
+    }
+    maybe(state, 23);
+    return s;
+}
+
+
+function parseProgram(source: string) -> Program {
+    let state: ParserState = new ParserState();
+    state.tokens = lex(source);
+    state.pos = 0;
+    state.exprs = [];
+    state.stmts = [];
+    state.functions = [];
+    state.structs = [];
+    state.lastList = [];
+    state.blockDepth = 0;
+    state.parseError = false;
+    state.parseErrorText = "";
+
+    while (!state.parseError && currentKind(state) != 0) {
+        if (currentKind(state) == 10) push(state.functions, parseFunction(state));
+        else if (currentKind(state) == 50) {
+            consume(state, 50);
+            state.parseError = true;
+            state.parseErrorText = "extern declarations are not supported; use name!(...) for native calls";
+            state.pos = listLength(state.tokens) - 1;
+        }
+        else if (currentKind(state) == 11) push(state.structs, parseStruct(state));
+        else {
+            let stmtId: i64 = parseStatement(state);
+            if (stmtId >= 0) push(state.lastList, stmtId);
+        }
+    }
+
+    let p: Program = new Program();
+    p.exprs = state.exprs;
+    p.stmts = state.stmts;
+    p.topStmts = state.lastList;
+    p.uses = [];
+    let i: i64 = 0;
+    while (i < listLength(state.lastList)) {
+        let sid: i64 = state.lastList[i];
+        if (state.stmts[sid].kind == 7 && state.stmts[sid].type == "quoted") {
+            push(p.uses, "quoted:" + state.stmts[sid].name);
+        }
+        i = i + 1;
+    }
+    p.functions = state.functions;
+    p.structs = state.structs;
+    p.valid = !state.parseError;
+    p.error = state.parseErrorText;
+    if (!p.valid) print("parse-error: " + p.error);
+    return p;
+}
+
+
+function charCodeAt(value: Ref<string>, index: i64) -> i64 {
+    if (index < 0) return -1;
+    if (index >= length(value)) return -1;
+    return value[index];
+}
+
+function findText(s: string, needle: string, from: i64) -> i64 {
+    let n: i64 = length(needle);
+    let i: i64 = from;
+    if (n == 0) return from;
+    while (i + n <= length(s)) {
+        let j: i64 = 0;
+        while (j < n && s[i + j] == needle[j]) j = j + 1;
+        if (j == n) return i;
+        i = i + 1;
+    }
+    return -1;
+}
+
+function starts(s: string, prefix: string) -> bool {
+    if (length(s) < length(prefix)) return false;
+    return slice(s, 0, length(prefix)) == prefix;
+}
+
+function endsWith(s: string, suffix: string) -> bool {
+    if (length(s) < length(suffix)) return false;
+    return slice(s, length(s) - length(suffix), length(s)) == suffix;
+}
+
+function containsText(xs: List<string>, value: string) -> bool {
+    let i: i64 = 0;
+    while (i < listLength(xs)) {
+        if (xs[i] == value) return true;
+        i = i + 1;
+    }
+    return false;
+}
+
+
+
+// Join fragments as a balanced tree. Repeated `out = out + fragment` copies
+// the growing prefix and becomes quadratic when compiling the compiler itself.
+function joinTextChunks(chunks: List<string>) -> string {
+    let work: List<string> = chunks;
+    while (listLength(work) > 1) {
+        let next: List<string> = [];
+        let i: i64 = 0;
+        while (i < listLength(work)) {
+            if (i + 1 < listLength(work)) push(next, work[i] + work[i + 1]);
+            else push(next, work[i]);
+            i = i + 2;
+        }
+        work = next;
+    }
+    if (listLength(work) == 0) return "";
+    return work[0];
+}
+
+function pathDir(path: string) -> string {
+    let i: i64 = length(path) - 1;
+    while (i >= 0) {
+        if (charCodeAt(path, i) == 47 || charCodeAt(path, i) == 92) return slice(path, 0, i);
+        i = i - 1;
+    }
+    return "";
+}
+
+function isPathSeparator(c: i64) -> bool {
+    return c == 47 || c == 92;
+}
+
+function dropLastIncludeSegment(values: List<string>) -> List<string> {
+    let out: List<string> = [];
+    let i: i64 = 0;
+    while (i + 1 < listLength(values)) {
+        push(out, values[i]);
+        i = i + 1;
+    }
+    return out;
+}
+
+// Lexically normalize paths so aliases such as a/./b and a/x/../b share one
+// identity for include de-duplication and cycle detection. This intentionally
+// avoids filesystem-dependent canonicalization so the compiler stays portable.
+function normalizeIncludePath(path: string) -> string {
+    let size: i64 = length(path);
+    if (size == 0) return "";
+
+    let prefix: string = "";
+    let absolute: bool = false;
+    let cursor: i64 = 0;
+    if (isPathSeparator(charCodeAt(path, 0))) {
+        absolute = true;
+        prefix = "/";
+        cursor = 1;
+        if (cursor < size && isPathSeparator(charCodeAt(path, cursor))) {
+            prefix = "//";
+            while (cursor < size && isPathSeparator(charCodeAt(path, cursor))) cursor = cursor + 1;
+        }
+    } else if (size >= 2 && isAlpha(charCodeAt(path, 0)) && charCodeAt(path, 1) == 58) {
+        prefix = slice(path, 0, 2);
+        cursor = 2;
+        if (cursor < size && isPathSeparator(charCodeAt(path, cursor))) {
+            absolute = true;
+            prefix = prefix + "/";
+            while (cursor < size && isPathSeparator(charCodeAt(path, cursor))) cursor = cursor + 1;
+        }
+    }
+
+    let segments: List<string> = [];
+    while (cursor < size) {
+        let end: i64 = cursor;
+        while (end < size && !isPathSeparator(charCodeAt(path, end))) end = end + 1;
+        let segment: string = slice(path, cursor, end);
+        if (segment != "" && segment != ".") {
+            if (segment == "..") {
+                let segmentCount: i64 = listLength(segments);
+                let canCollapse: bool = false;
+                if (segmentCount > 0) {
+                    let lastSegment: string = segments[segmentCount - 1];
+                    canCollapse = lastSegment != "..";
+                }
+                if (canCollapse) segments = dropLastIncludeSegment(segments);
+                else if (!absolute) push(segments, segment);
+            } else {
+                push(segments, segment);
+            }
+        }
+        cursor = end;
+        while (cursor < size && isPathSeparator(charCodeAt(path, cursor))) cursor = cursor + 1;
+    }
+
+    let normalized: string = prefix;
+    let i: i64 = 0;
+    while (i < listLength(segments)) {
+        let needsSeparator: bool = false;
+        if (normalized != "") {
+            let lastNormalized: i64 = charCodeAt(normalized, length(normalized) - 1);
+            needsSeparator = lastNormalized != 47;
+        }
+        if (needsSeparator) normalized = normalized + "/";
+        normalized = normalized + segments[i];
+        i = i + 1;
+    }
+    if (normalized == "") return ".";
+    return normalized;
+}
+
+function joinPath(base: string, child: string) -> string {
+    if (child == "") return base;
+    if (isPathSeparator(charCodeAt(child, 0))) return child;
+    if (length(child) >= 2 && isAlpha(charCodeAt(child, 0)) && charCodeAt(child, 1) == 58) return child;
+    if (base == "") return child;
+    return base + "/" + child;
+}
+
+function expandIncludes(source: string, filePath: string, seen: Ref<List<string>>, active: string) -> string {
+    let canonicalFilePath: string = normalizeIncludePath(filePath);
+    let marker: string = "|" + canonicalFilePath + "|";
+    if (findText(active, marker, 0) >= 0) {
+        print("include-error: include cycle detected at " + canonicalFilePath);
+        return "";
+    }
+    if (containsText(seen, canonicalFilePath)) return "";
+    push(seen, canonicalFilePath);
+    let nextActive: string = active + marker;
+
+    let out: string = "";
+    let cursor: i64 = 0;
+    let scan: i64 = 0;
+    while (scan < length(source)) {
+        let nextScan: i64 = scan + 1;
+
+        // Ignore directive-like text inside line and block comments.
+        if (charCodeAt(source, scan) == 47 && scan + 1 < length(source) && charCodeAt(source, scan + 1) == 47) {
+            nextScan = scan + 2;
+            while (nextScan < length(source) && charCodeAt(source, nextScan) != 10) nextScan = nextScan + 1;
+        } else if (charCodeAt(source, scan) == 47 && scan + 1 < length(source) && charCodeAt(source, scan + 1) == 42) {
+            nextScan = scan + 2;
+            while (nextScan + 1 < length(source) && !(charCodeAt(source, nextScan) == 42 && charCodeAt(source, nextScan + 1) == 47)) {
+                nextScan = nextScan + 1;
+            }
+            if (nextScan + 1 < length(source)) nextScan = nextScan + 2;
+            else nextScan = length(source);
+        } else if (charCodeAt(source, scan) == 34 || charCodeAt(source, scan) == 39) {
+            let quote: i64 = charCodeAt(source, scan);
+            let escaped: bool = false;
+            nextScan = scan + 1;
+            while (nextScan < length(source) && (escaped || charCodeAt(source, nextScan) != quote)) {
+                if (escaped) escaped = false;
+                else if (charCodeAt(source, nextScan) == 92) escaped = true;
+                nextScan = nextScan + 1;
+            }
+            if (nextScan < length(source)) nextScan = nextScan + 1;
+        } else {
+            let tokenOk: bool = scan + 7 <= length(source) && slice(source, scan, scan + 7) == "include";
+            // Keep potentially invalid indices out of boolean expressions. This
+            // also makes the bootstrap source safe with older eager emitters.
+            let beforeOk: bool = true;
+            if (scan > 0) beforeOk = !isAlphaNum(charCodeAt(source, scan - 1));
+            let afterOk: bool = true;
+            if (scan + 7 < length(source)) afterOk = !isAlphaNum(charCodeAt(source, scan + 7));
+            if (tokenOk && beforeOk && afterOk) {
+                let q: i64 = scan + 7;
+                while (q < length(source) && isSpace(charCodeAt(source, q))) q = q + 1;
+                if (q < length(source) && charCodeAt(source, q) == 34) {
+                    let endQuote: i64 = q + 1;
+                    let pathEscaped: bool = false;
+                    while (endQuote < length(source) && (pathEscaped || charCodeAt(source, endQuote) != 34)) {
+                        if (pathEscaped) pathEscaped = false;
+                        else if (charCodeAt(source, endQuote) == 92) pathEscaped = true;
+                        endQuote = endQuote + 1;
+                    }
+                    if (endQuote < length(source)) {
+                        let semi: i64 = endQuote + 1;
+                        while (semi < length(source) && isSpace(charCodeAt(source, semi))) semi = semi + 1;
+                        if (semi < length(source) && charCodeAt(source, semi) == 59) {
+                            let includePath: string = slice(source, q + 1, endQuote);
+                            let resolved: string = normalizeIncludePath(joinPath(pathDir(canonicalFilePath), includePath));
+                            let included: string = "";
+                            let resolvedMarker: string = "|" + resolved + "|";
+                            if (findText(nextActive, resolvedMarker, 0) >= 0) {
+                                print("include-error: include cycle detected at " + resolved);
+                                return "";
+                            }
+                            if (!containsText(seen, resolved)) {
+                                included = readFile(resolved);
+                                if (included == "") {
+                                    print("include-error: cannot read " + resolved);
+                                    return "";
+                                }
+                                included = expandIncludes(included, resolved, seen, nextActive);
+                                if (included == "") return "";
+                            }
+                            out = out + slice(source, cursor, scan);
+                            out = out + included;
+                            cursor = semi + 1;
+                            nextScan = cursor;
+                        }
+                    }
+                }
+            }
+        }
+        scan = nextScan;
+    }
+    out = out + slice(source, cursor, length(source));
+    return out;
+}
+
+// Module resolution is part of the Gen2 compiler and implemented in Raz.
+// module.json is optional documentation; source paths define the lookup contract.
+struct ModuleResolveState {
+    roots: List<string>;
+    seenModules: List<string>;
+    activeModules: List<string>;
+    seenIncludes: List<string>;
+    failed: bool;
+}
+
+struct ModuleScanState { blockComment: bool; blockCommentLine: i64; quote: i64; escaped: bool; }
+
+function validRazModuleName(name: string) -> bool {
+    if (length(name) < 3 || findText(name, ".", 0) < 1) return false;
+    let i: i64 = 0;
+    let start: bool = true;
+    while (i < length(name)) {
+        let c: i64 = charCodeAt(name, i);
+        if (c == 46) {
+            if (start || i + 1 == length(name)) return false;
+            start = true;
+        } else {
+            if (start && !isAlpha(c)) return false;
+            if (!isAlphaNum(c)) return false;
+            start = false;
+        }
+        i = i + 1;
+    }
+    return !start;
+}
+
+function maskModuleComments(line: string, scan: Ref<ModuleScanState>, lineNumber: i64) -> string {
+    let out: string = "";
+    let i: i64 = 0;
+    while (i < length(line)) {
+        let c: i64 = charCodeAt(line, i);
+        if (scan.blockComment) {
+            let closes: bool = false;
+            if (i + 1 < length(line)) {
+                if (c == 42 && charCodeAt(line, i + 1) == 47) closes = true;
+            }
+            if (closes) {
+                scan.blockComment = false;
+                out = out + "  ";
+                i = i + 2;
+            } else {
+                out = out + " ";
+                i = i + 1;
+            }
+        } else if (scan.quote != 0) {
+            out = out + slice(line, i, i + 1);
+            if (scan.escaped) scan.escaped = false;
+            else if (c == 92) scan.escaped = true;
+            else if (c == scan.quote) scan.quote = 0;
+            i = i + 1;
+        } else if (c == 34 || c == 39) {
+            scan.quote = c;
+            scan.escaped = false;
+            out = out + slice(line, i, i + 1);
+            i = i + 1;
+        } else {
+            let nextIsSlash: bool = false;
+            let nextIsStar: bool = false;
+            if (i + 1 < length(line)) {
+                nextIsSlash = charCodeAt(line, i + 1) == 47;
+                nextIsStar = charCodeAt(line, i + 1) == 42;
+            }
+            if (c == 47 && nextIsSlash) {
+                return out;
+            } else if (c == 47 && nextIsStar) {
+                scan.blockComment = true;
+                scan.blockCommentLine = lineNumber;
+                out = out + "  ";
+                i = i + 2;
+            } else {
+                out = out + slice(line, i, i + 1);
+                i = i + 1;
+            }
+        }
+    }
+    return out;
+}
+
+function noModuleNames() -> List<string> {
+    let names: List<string> = [];
+    return names;
+}
+
+// A module-directive line is one or more `use dotted.name;` directives.
+// Comments have already been masked, so whitespace from comments is accepted
+// between directives while strings remain intact and cannot become directives.
+function moduleUsesOnLine(line: string) -> List<string> {
+    let names: List<string> = [];
+    let cursor: i64 = 0;
+    while (cursor < length(line) && isSpace(charCodeAt(line, cursor))) cursor = cursor + 1;
+    while (cursor < length(line)) {
+        if (cursor + 3 > length(line) || slice(line, cursor, cursor + 3) != "use") return noModuleNames();
+        cursor = cursor + 3;
+        if (cursor < length(line) && !isSpace(charCodeAt(line, cursor))) return noModuleNames();
+        while (cursor < length(line) && isSpace(charCodeAt(line, cursor))) cursor = cursor + 1;
+        let start: i64 = cursor;
+        let nameDone: bool = false;
+        while (cursor < length(line) && !nameDone) {
+            let c: i64 = charCodeAt(line, cursor);
+            if (isAlphaNum(c) || c == 46) cursor = cursor + 1;
+            else nameDone = true;
+        }
+        let name: string = slice(line, start, cursor);
+        if (name == "" || !validRazModuleName(name)) return noModuleNames();
+        while (cursor < length(line) && isSpace(charCodeAt(line, cursor))) cursor = cursor + 1;
+        if (cursor >= length(line) || charCodeAt(line, cursor) != 59) return noModuleNames();
+        push(names, name);
+        cursor = cursor + 1;
+        while (cursor < length(line) && isSpace(charCodeAt(line, cursor))) cursor = cursor + 1;
+    }
+    return names;
+}
+
+function sourceLineNumber(source: string, offset: i64) -> i64 {
+    let line: i64 = 1;
+    let i: i64 = 0;
+    while (i < offset && i < length(source)) {
+        if (charCodeAt(source, i) == 10) line = line + 1;
+        i = i + 1;
+    }
+    return line;
+}
+
+function moduleRelativePath(name: string) -> string {
+    let out: string = "";
+    let i: i64 = 0;
+    while (i < length(name)) {
+        if (charCodeAt(name, i) == 46) out = out + "/";
+        else out = out + slice(name, i, i + 1);
+        i = i + 1;
+    }
+    return out;
+}
+
+function locateRazModule(state: Ref<ModuleResolveState>, name: string) -> string {
+    let relative: string = moduleRelativePath(name);
+    let dot: i64 = length(name) - 1;
+    let foundDot: bool = false;
+    while (dot >= 0 && !foundDot) {
+        if (charCodeAt(name, dot) == 46) foundDot = true;
+        else dot = dot - 1;
+    }
+    if (dot < 0) return "";
+    let leaf: string = slice(name, dot + 1, length(name));
+    let i: i64 = 0;
+    while (i < listLength(state.roots)) {
+        let nested: string = joinPath(state.roots[i], relative + "/" + leaf + ".raz");
+        if (readFile(nested) != "") return nested;
+        let flat: string = joinPath(state.roots[i], relative + ".raz");
+        if (readFile(flat) != "") return flat;
+        i = i + 1;
+    }
+    return "";
+}
+
+function dropLastModuleName(values: List<string>) -> List<string> {
+    let out: List<string> = [];
+    let i: i64 = 0;
+    while (i + 1 < listLength(values)) {
+        push(out, values[i]);
+        i = i + 1;
+    }
+    return out;
+}
+
+function moduleResolveFail(state: Ref<ModuleResolveState>, message: string) {
+    if (!state.failed) {
+        state.failed = true;
+        print("razc: " + message);
+    }
+}
+
+function resolveOneModule(state: Ref<ModuleResolveState>, name: string, filePath: string, lineNumber: i64) -> string {
+    if (containsText(state.activeModules, name)) {
+        moduleResolveFail(state, filePath + ":" + int_to_string(lineNumber) + ": module dependency cycle involving " + name);
+        return "";
+    }
+    if (containsText(state.seenModules, name)) return "";
+
+    let modulePath: string = locateRazModule(state, name);
+    if (modulePath == "") {
+        moduleResolveFail(state, filePath + ":" + int_to_string(lineNumber) + ": cannot resolve module " + name);
+        return "";
+    }
+
+    let moduleSource: string = readFile(modulePath);
+    moduleSource = expandIncludes(moduleSource, modulePath, state.seenIncludes, "");
+    if (moduleSource == "") {
+        moduleResolveFail(state, filePath + ":" + int_to_string(lineNumber) + ": cannot read or expand module " + name);
+        return "";
+    }
+
+    push(state.activeModules, name);
+    let resolvedModule: string = expandResolvedModules(state, moduleSource, modulePath);
+    state.activeModules = dropLastModuleName(state.activeModules);
+    if (!state.failed) push(state.seenModules, name);
+    return resolvedModule;
+}
+
+function expandResolvedModules(state: Ref<ModuleResolveState>, source: string, filePath: string) -> string {
+    let cursor: i64 = 0;
+    let lineNumber: i64 = 1;
+    let outputChunks: List<string> = [];
+    let scan: ModuleScanState = new ModuleScanState();
+    scan.blockComment = false;
+    scan.blockCommentLine = 0;
+    scan.quote = 0;
+    scan.escaped = false;
+    while (cursor < length(source) && !state.failed) {
+        let next: i64 = findText(source, "\n", cursor);
+        let end: i64 = next;
+        if (end < 0) end = length(source);
+        let line: string = slice(source, cursor, end);
+        let consumed: i64 = end;
+        if (next >= 0) consumed = next + 1;
+        let cleanLine: string = maskModuleComments(line, scan, lineNumber);
+        let names: List<string> = moduleUsesOnLine(cleanLine);
+        if (listLength(names) == 0) {
+            push(outputChunks, line);
+            if (next >= 0) push(outputChunks, "\n");
+        } else {
+            let i: i64 = 0;
+            while (i < listLength(names) && !state.failed) {
+                push(outputChunks, resolveOneModule(state, names[i], filePath, lineNumber));
+                i = i + 1;
+            }
+        }
+        // Removing a `use` line must not remove an open trailing block comment.
+        // Emit a comment opener in its place so following source remains masked
+        // until the matching `*/` is encountered on a later line.
+        if (listLength(names) > 0 && scan.blockComment) push(outputChunks, "\n/*");
+        cursor = consumed;
+        if (next >= 0) lineNumber = lineNumber + 1;
+    }
+    if (!state.failed && scan.blockComment) {
+        let startLine: i64 = scan.blockCommentLine;
+        if (startLine < 1) startLine = sourceLineNumber(source, length(source));
+        moduleResolveFail(state, filePath + ":" + int_to_string(startLine) + ": unterminated block comment");
+    }
+    if (state.failed) return "";
+    return joinTextChunks(outputChunks);
+}
+
+function resolveRazModules(source: string, entryPath: string, roots: List<string>) -> string {
+    let state: ModuleResolveState = new ModuleResolveState();
+    state.roots = roots;
+    state.seenModules = [];
+    state.activeModules = [];
+    state.seenIncludes = [];
+    state.failed = false;
+    // No implicit prelude: each program and each Raz library declares its own
+    // source-module and native-header dependencies with `use`. In particular,
+    // std.core is available as an explicit module but is never injected here.
+    let expanded: string = expandIncludes(source, entryPath, state.seenIncludes, "");
+    if (expanded == "") return "";
+    let result: string = expandResolvedModules(state, expanded, entryPath);
+    if (state.failed) return "";
+    return result;
+}
+
+// G2-012: token-aware source define expansion with direct-call syntax.
+// Syntax:
+//   define twice(x) { x + x }
+//   let value: i64 = twice(4);
+// Expansion happens after module resolution and before build-definition
+// rewriting, parsing, and semantic validation. It is deliberately not a C
+// preprocessor: there is no stringification, token-pasting, or conditional
+// compilation in this first milestone.
+
+struct RazMacroDefinition {
+    name: string;
+    params: List<string>;
+    body: string;
+}
+
+struct RazMacroState {
+    definitions: List<RazMacroDefinition>;
+    failed: bool;
+    error: string;
+    errorOffset: i64;
+    parsedEnd: i64;
+    changed: bool;
+    lastInvocationOffset: i64;
+}
+
+struct RazMacroCall {
+    name: string;
+    arguments: List<string>;
+    start: i64;
+    end: i64;
+    closeToken: i64;
+}
+
+function macroFail(state: Ref<RazMacroState>, message: string, offset: i64) {
+    if (!state.failed) {
+        state.failed = true;
+        state.error = message;
+        state.errorOffset = offset;
+    }
+}
+
+function macroSourceLine(source: string, offset: i64) -> i64 {
+    let line: i64 = 1;
+    let i: i64 = 0;
+    while (i < offset && i < length(source)) {
+        if (charCodeAt(source, i) == 10) line = line + 1;
+        i = i + 1;
+    }
+    return line;
+}
+
+function blankMacroRange(source: string, start: i64, end: i64) -> string {
+    let out: string = "";
+    let i: i64 = start;
+    while (i < end) {
+        let c: i64 = charCodeAt(source, i);
+        if (c == 10 || c == 13) out = out + slice(source, i, i + 1);
+        else out = out + " ";
+        i = i + 1;
+    }
+    return out;
+}
+
+function macroDefinitionIndex(state: Ref<RazMacroState>, name: string) -> i64 {
+    let i: i64 = 0;
+    while (i < listLength(state.definitions)) {
+        if (state.definitions[i].name == name) return i;
+        i = i + 1;
+    }
+    return -1;
+}
+
+function macroParameterIndex(params: List<string>, name: string) -> i64 {
+    let i: i64 = 0;
+    while (i < listLength(params)) {
+        if (params[i] == name) return i;
+        i = i + 1;
+    }
+    return -1;
+}
+
+function macroArgumentHasTokens(source: string) -> bool {
+    let tokens: List<Token> = lex(source);
+    return listLength(tokens) > 1;
+}
+
+function parseMacroDefinition(source: string, tokens: List<Token>, startIndex: i64, state: Ref<RazMacroState>) -> i64 {
+    let count: i64 = listLength(tokens);
+    if (startIndex + 2 >= count || tokens[startIndex + 1].kind != 1) {
+        macroFail(state, "expected name after 'define'", tokens[startIndex].pos);
+        return startIndex;
+    }
+    let name: string = tokens[startIndex + 1].text;
+    if (macroDefinitionIndex(state, name) >= 0) {
+        macroFail(state, "duplicate define '" + name + "'", tokens[startIndex + 1].pos);
+        return startIndex;
+    }
+    if (tokens[startIndex + 2].kind != 20) {
+        macroFail(state, "expected '(' after define name '" + name + "'", tokens[startIndex + 1].pos);
+        return startIndex;
+    }
+
+    let params: List<string> = [];
+    let cursor: i64 = startIndex + 3;
+    let paramsDone: bool = false;
+    if (cursor < count && tokens[cursor].kind == 21) {
+        paramsDone = true;
+        cursor = cursor + 1;
+    }
+    while (cursor < count && !paramsDone && !state.failed) {
+        if (tokens[cursor].kind != 1) {
+            macroFail(state, "expected identifier in parameter list for define '" + name + "'", tokens[cursor].pos);
+            return startIndex;
+        }
+        if (macroParameterIndex(params, tokens[cursor].text) >= 0) {
+            macroFail(state, "duplicate parameter '" + tokens[cursor].text + "' in define '" + name + "'", tokens[cursor].pos);
+            return startIndex;
+        }
+        push(params, tokens[cursor].text);
+        cursor = cursor + 1;
+        if (cursor < count && tokens[cursor].kind == 26) {
+            cursor = cursor + 1;
+        } else if (cursor < count && tokens[cursor].kind == 21) {
+            paramsDone = true;
+            cursor = cursor + 1;
+        } else {
+            if (cursor < count) macroFail(state, "expected ',' or ')' in define parameter list", tokens[cursor].pos);
+            else macroFail(state, "unterminated define parameter list", tokens[startIndex].pos);
+            return startIndex;
+        }
+    }
+
+    if (cursor >= count || tokens[cursor].kind != 22) {
+        let offset: i64 = tokens[startIndex].pos;
+        if (cursor < count) offset = tokens[cursor].pos;
+        macroFail(state, "expected '{' before body of macro '" + name + "'", offset);
+        return startIndex;
+    }
+    let bodyOpen: i64 = cursor;
+    let depth: i64 = 1;
+    cursor = cursor + 1;
+    while (cursor < count && depth > 0) {
+        if (tokens[cursor].kind == 22) depth = depth + 1;
+        else if (tokens[cursor].kind == 23) depth = depth - 1;
+        if (depth > 0) cursor = cursor + 1;
+    }
+    if (depth != 0 || cursor >= count) {
+        macroFail(state, "unterminated body for define '" + name + "'", tokens[startIndex].pos);
+        return startIndex;
+    }
+
+    let definition: RazMacroDefinition = new RazMacroDefinition();
+    definition.name = name;
+    definition.params = params;
+    definition.body = slice(source, tokens[bodyOpen].pos + 1, tokens[cursor].pos);
+    state.parsedEnd = tokens[cursor].pos + 1;
+    let nextIndex: i64 = cursor + 1;
+    if (nextIndex < count && tokens[nextIndex].kind == 24) {
+        state.parsedEnd = state.parsedEnd + 1;
+        nextIndex = nextIndex + 1;
+    }
+    push(state.definitions, definition);
+    return nextIndex;
+}
+
+function extractMacroDefinitions(source: string, state: Ref<RazMacroState>) -> string {
+    let tokens: List<Token> = lex(source);
+    let count: i64 = listLength(tokens);
+    let out: string = "";
+    let sourceCursor: i64 = 0;
+    let tokenCursor: i64 = 0;
+    let braceDepth: i64 = 0;
+    while (tokenCursor + 1 < count && !state.failed) {
+        let token: Token = tokens[tokenCursor];
+        if (braceDepth == 0 && token.kind == 52 && token.text == "define") {
+            let nextToken: i64 = parseMacroDefinition(source, tokens, tokenCursor, state);
+            if (state.failed) return "";
+            out = out + slice(source, sourceCursor, token.pos);
+            out = out + blankMacroRange(source, token.pos, state.parsedEnd);
+            sourceCursor = state.parsedEnd;
+            tokenCursor = nextToken;
+        } else {
+            if (token.kind == 22) braceDepth = braceDepth + 1;
+            else if (token.kind == 23 && braceDepth > 0) braceDepth = braceDepth - 1;
+            tokenCursor = tokenCursor + 1;
+        }
+    }
+    return out + slice(source, sourceCursor, length(source));
+}
+
+function parseMacroCall(source: string, tokens: List<Token>, nameIndex: i64, state: Ref<RazMacroState>) -> RazMacroCall {
+    let call: RazMacroCall = new RazMacroCall();
+    call.name = tokens[nameIndex].text;
+    call.arguments = [];
+    call.start = tokens[nameIndex].pos;
+    call.end = call.start + length(call.name);
+    call.closeToken = nameIndex;
+    let count: i64 = listLength(tokens);
+    if (nameIndex + 1 >= count || tokens[nameIndex + 1].kind != 20) {
+        macroFail(state, "expected '(' after macro invocation '" + call.name + "'", call.start);
+        return call;
+    }
+
+    let openIndex: i64 = nameIndex + 1;
+    let argStart: i64 = tokens[openIndex].pos + 1;
+    let roundDepth: i64 = 1;
+    let squareDepth: i64 = 0;
+    let braceDepth: i64 = 0;
+    let hadComma: bool = false;
+    let cursor: i64 = openIndex + 1;
+    let foundClose: bool = false;
+    while (cursor < count - 1 && !foundClose) {
+        let token: Token = tokens[cursor];
+        if (token.kind == 20) roundDepth = roundDepth + 1;
+        else if (token.kind == 21) {
+            roundDepth = roundDepth - 1;
+            if (roundDepth == 0) {
+                let finalArg: string = slice(source, argStart, token.pos);
+                if (hadComma || macroArgumentHasTokens(finalArg)) push(call.arguments, finalArg);
+                call.end = token.pos + 1;
+                call.closeToken = cursor;
+                foundClose = true;
+            }
+        } else if (token.kind == 28) squareDepth = squareDepth + 1;
+        else if (token.kind == 29 && squareDepth > 0) squareDepth = squareDepth - 1;
+        else if (token.kind == 22) braceDepth = braceDepth + 1;
+        else if (token.kind == 23 && braceDepth > 0) braceDepth = braceDepth - 1;
+        else if (token.kind == 26 && roundDepth == 1 && squareDepth == 0 && braceDepth == 0) {
+            push(call.arguments, slice(source, argStart, token.pos));
+            argStart = token.pos + 1;
+            hadComma = true;
+        }
+        cursor = cursor + 1;
+    }
+    if (!foundClose) macroFail(state, "unterminated invocation of macro '" + call.name + "'", call.start);
+    return call;
+}
+
+function substituteMacroArguments(body: string, definition: RazMacroDefinition, arguments: List<string>) -> string {
+    let tokens: List<Token> = lex(body);
+    let out: string = "";
+    let sourceCursor: i64 = 0;
+    let i: i64 = 0;
+    while (i + 1 < listLength(tokens)) {
+        let token: Token = tokens[i];
+        if (token.kind == 1) {
+            let param: i64 = macroParameterIndex(definition.params, token.text);
+            if (param >= 0) {
+                out = out + slice(body, sourceCursor, token.pos) + arguments[param];
+                sourceCursor = token.pos + length(token.text);
+            }
+        }
+        i = i + 1;
+    }
+    return out + slice(body, sourceCursor, length(body));
+}
+
+function expandMacroPass(source: string, state: Ref<RazMacroState>) -> string {
+    let tokens: List<Token> = lex(source);
+    let out: string = "";
+    let sourceCursor: i64 = 0;
+    let i: i64 = 0;
+    state.changed = false;
+    while (i + 1 < listLength(tokens) && !state.failed) {
+        let token: Token = tokens[i];
+        let definitionIndex: i64 = -1;
+        if (token.kind == 1) definitionIndex = macroDefinitionIndex(state, token.text);
+        if (definitionIndex >= 0 && i + 1 < listLength(tokens) && tokens[i + 1].kind == 20) {
+            state.lastInvocationOffset = token.pos;
+            let call: RazMacroCall = parseMacroCall(source, tokens, i, state);
+            if (state.failed) return "";
+            let definition: RazMacroDefinition = state.definitions[definitionIndex];
+            if (listLength(call.arguments) != listLength(definition.params)) {
+                macroFail(state, "define '" + call.name + "' expects " + int_to_string(listLength(definition.params)) + " argument(s), got " + int_to_string(listLength(call.arguments)), call.start);
+                return "";
+            }
+            let replacement: string = substituteMacroArguments(definition.body, definition, call.arguments);
+            out = out + slice(source, sourceCursor, call.start) + replacement;
+            sourceCursor = call.end;
+            state.changed = true;
+            i = call.closeToken + 1;
+        } else {
+            i = i + 1;
+        }
+    }
+    if (state.failed) return "";
+    if (!state.changed) return source;
+    out = out + slice(source, sourceCursor, length(source));
+    return out;
+}
+
+function expandRazMacros(source: string, sourcePath: string) -> string {
+    let state: RazMacroState = new RazMacroState();
+    state.definitions = [];
+    state.failed = false;
+    state.error = "";
+    state.errorOffset = 0;
+    state.parsedEnd = 0;
+    state.changed = false;
+    state.lastInvocationOffset = 0;
+
+    let expanded: string = extractMacroDefinitions(source, state);
+    if (state.failed) {
+        print("razc: " + sourcePath + ":" + int_to_string(macroSourceLine(source, state.errorOffset)) + ": define error: " + state.error);
+        return "";
+    }
+
+    let pass: i64 = 0;
+    let lastPassSource: string = expanded;
+    while (pass < 32) {
+        lastPassSource = expanded;
+        let passSource: string = expanded;
+        expanded = expandMacroPass(passSource, state);
+        if (state.failed) {
+            print("razc: " + sourcePath + ":" + int_to_string(macroSourceLine(passSource, state.errorOffset)) + ": define error: " + state.error);
+            return "";
+        }
+        if (!state.changed) return expanded;
+        if (length(expanded) > 1048576) {
+            print("razc: " + sourcePath + ": macro expansion exceeds 1 MiB");
+            return "";
+        }
+        pass = pass + 1;
+    }
+    print("razc: " + sourcePath + ":" + int_to_string(macroSourceLine(lastPassSource, state.lastInvocationOffset)) + ": macro expansion exceeded 32 passes (possible recursive define)");
+    return "";
+}
+
+function startsWithType(type: string, prefix: string) -> bool {
+    if (length(type) < length(prefix)) return false;
+    return slice(type, 0, length(prefix)) == prefix;
+}
+
+function innerGeneric(type: string, prefix: string) -> string {
+    if (!startsWithType(type, prefix)) return "";
+    if (length(type) <= length(prefix)) return "";
+    if (type[length(type) - 1] != 62) return "";
+    return slice(type, length(prefix), length(type) - 1);
+}
+
+function structIndex(program: Ref<Program>, name: string) -> i64 {
+    let i: i64 = 0;
+    while (i < listLength(program.structs)) {
+        if (program.structs[i].name == name) return i;
+        i = i + 1;
+    }
+    return -1;
+}
+
+function functionIndex(program: Ref<Program>, name: string) -> i64 {
+    let i: i64 = 0;
+    while (i < listLength(program.functions)) {
+        if (program.functions[i].name == name) return i;
+        i = i + 1;
+    }
+    return -1;
+}
+
+function fieldIndex(s: StructDef, name: string) -> i64 {
+    let i: i64 = 0;
+    while (i < listLength(s.fields)) {
+        if (s.fields[i].name == name) return i;
+        i = i + 1;
+    }
+    return -1;
+}
+
+function bindingType(scope: Ref<List<Binding>>, name: string) -> string {
+    // Most lookups target recently introduced locals; search newest bindings first.
+    let i: i64 = listLength(scope) - 1;
+    while (i >= 0) {
+        if (scope[i].name == name) return scope[i].type;
+        i = i - 1;
+    }
+    return "";
+}
+
+function bindingIsConst(scope: Ref<List<Binding>>, name: string) -> bool {
+    let i: i64 = listLength(scope) - 1;
+    while (i >= 0) {
+        if (scope[i].name == name) return scope[i].isConst;
+        i = i - 1;
+    }
+    return false;
+}
+
+function isConstPlace(program: Ref<Program>, scope: Ref<List<Binding>>, id: i64) -> bool {
+    if (id < 0 || id >= listLength(program.exprs)) return false;
+    let x: Expr = program.exprs[id];
+    if (x.kind == 5) return bindingIsConst(scope, x.text);
+    if (x.kind == 9 || x.kind == 10) return isConstPlace(program, scope, x.left);
+    return false;
+}
+
+function cloneBindings(scope: Ref<List<Binding>>) -> List<Binding> {
+    let out: List<Binding> = [];
+    let i: i64 = 0;
+    while (i < listLength(scope)) {
+        push(out, scope[i]);
+        i = i + 1;
+    }
+    return out;
+}
+
+function semanticFail(state: Ref<SemanticState>, message: string) -> string {
+    if (state.ok) {
+        state.ok = false;
+        state.message = message;
+        print("semantic-error: " + message);
+    }
+    return "";
+}
+
+// Resolve source-level local names to unique symbols before RIR lowering.
+// RIR control-flow is currently flattened, so relying on C++ block scopes would
+// be incorrect. Binding.type is the normalized symbol name in this pass.
+function normalizeExprNames(program: Ref<Program>, names: Ref<List<Binding>>, id: i64) {
+    if (id < 0 || id >= listLength(program.exprs)) return;
+    let x: Expr = program.exprs[id];
+    if (x.kind == 5) {
+        let target: string = bindingType(names, x.text);
+        if (target != "") program.exprs[id].text = target;
+        return;
+    }
+    if (x.kind == 6) {
+        normalizeExprNames(program, names, x.left);
+        normalizeExprNames(program, names, x.right);
+    } else if (x.kind == 7 || x.kind == 9) {
+        normalizeExprNames(program, names, x.left);
+    } else if (x.kind == 10) {
+        normalizeExprNames(program, names, x.left);
+        normalizeExprNames(program, names, x.right);
+    }
+    let i: i64 = 0;
+    while (i < listLength(x.args)) {
+        normalizeExprNames(program, names, x.args[i]);
+        i = i + 1;
+    }
+}
+
+function normalizeStatementNames(program: Ref<Program>, ids: List<i64>, names: Ref<List<Binding>>, nextSymbol: Ref<i64>, state: Ref<SemanticState>) {
+    let i: i64 = 0;
+    while (i < listLength(ids) && state.ok) {
+        let stmtId: i64 = ids[i];
+        let s: Stmt = program.stmts[stmtId];
+        if (s.kind == 1) {
+            // Initializers see only bindings declared before this statement.
+            normalizeExprNames(program, names, s.expr);
+            if (bindingType(names, s.name) != "") {
+                semanticFail(state, "variable already defined or shadowed: " + s.name);
+                return;
+            }
+            // '$' cannot occur in a Raz identifier, so this namespace cannot
+            // collide with user source names. The monotonically increasing ID
+            // also keeps sibling branches distinct after RIR control-flow flattening.
+            let target: string = "raz$local$" + int_to_string(nextSymbol) + "$" + s.name;
+            nextSymbol = nextSymbol + 1;
+            program.stmts[stmtId].name = target;
+            let binding: Binding = new Binding();
+            binding.name = s.name;
+            binding.type = target;
+            binding.isConst = s.isConst;
+            push(names, binding);
+        } else if (s.kind == 2 || s.kind == 3) {
+            normalizeExprNames(program, names, s.expr);
+        } else if (s.kind == 4) {
+            normalizeExprNames(program, names, s.left);
+            normalizeExprNames(program, names, s.right);
+        } else if (s.kind == 5) {
+            normalizeExprNames(program, names, s.expr);
+            let thenNames: List<Binding> = cloneBindings(names);
+            normalizeStatementNames(program, s.thenStmts, thenNames, nextSymbol, state);
+            let elseNames: List<Binding> = cloneBindings(names);
+            normalizeStatementNames(program, s.elseStmts, elseNames, nextSymbol, state);
+        } else if (s.kind == 6) {
+            normalizeExprNames(program, names, s.expr);
+            let bodyNames: List<Binding> = cloneBindings(names);
+            normalizeStatementNames(program, s.body, bodyNames, nextSymbol, state);
+        } else if (s.kind == 9) {
+            // unsafe does not introduce a lexical scope in the semantic checker.
+            normalizeStatementNames(program, s.body, names, nextSymbol, state);
+        } else {
+            normalizeExprNames(program, names, s.expr);
+        }
+        i = i + 1;
+    }
+}
+
+function validateType(program: Ref<Program>, state: Ref<SemanticState>, type: string, allowVoid: bool) -> bool {
+    if (!state.ok) return false;
+    if (type == "void") {
+        if (allowVoid) return true;
+        semanticFail(state, "void is not valid here");
+        return false;
+    }
+    if (type == "i64" || type == "f64" || type == "bool" || type == "char" || type == "string") return true;
+    if (endsWith(type, "*")) {
+        if (state.unsafeDepth <= 0) { semanticFail(state, "pointer type " + type + " requires unsafe"); return false; }
+        let base: string = slice(type, 0, length(type) - 1);
+        if (base == "char") return true;
+        semanticFail(state, "only char* pointer types are currently supported by Gen2");
+        return false;
+    }
+    let listInner: string = innerGeneric(type, "List<");
+    if (listInner != "") return validateType(program, state, listInner, false);
+    let refInner: string = innerGeneric(type, "Ref<");
+    if (refInner != "") return validateType(program, state, refInner, false);
+    if (structIndex(program, type) >= 0) return true;
+    semanticFail(state, "unknown type " + type);
+    return false;
+}
+
+function valueTypeForParam(type: string) -> string {
+    let inner: string = innerGeneric(type, "Ref<");
+    if (inner != "") return inner;
+    return type;
+}
+
+function numericType(type: string) -> bool {
+    return type == "i64" || type == "f64" || type == "char";
+}
+
+function assignableType(expected: string, actual: string) -> bool {
+    if (actual == "Native") return expected != "void";
+    if (expected == actual) return true;
+    if (expected == "f64" && numericType(actual)) return true;
+    if (expected == "i64" && actual == "char") return true;
+    return false;
+}
+
+function builtinReturnType(name: string, args: List<i64>, program: Ref<Program>, state: Ref<SemanticState>, scope: Ref<List<Binding>>) -> string {
+    if (name == "listLength") return "i64";
+    if (name == "push") {
+        if (listLength(args) < 2) return semanticFail(state, "push requires a list and value");
+        if (!isLValue(program, args[0])) return semanticFail(state, "push first argument must be an lvalue");
+        if (isConstPlace(program, scope, args[0])) return semanticFail(state, "cannot mutate a const value");
+        let listType: string = checkExpr(program, state, scope, args[0]);
+        let inner: string = innerGeneric(listType, "List<");
+        if (inner == "") return semanticFail(state, "push first argument must be List<T>");
+        let valueType: string = checkExpr(program, state, scope, args[1]);
+        if (!assignableType(inner, valueType)) return semanticFail(state, "push value type mismatch");
+        return "void";
+    }
+    if (name == "append") {
+        if (listLength(args) == 0) return "";
+        let first: string = checkExpr(program, state, scope, args[0]);
+        let element: string = innerGeneric(first, "List<");
+        if (element == "") return semanticFail(state, "append requires a List value");
+        return first;
+    }
+    return "";
+}
+
+function checkExpr(program: Ref<Program>, state: Ref<SemanticState>, scope: Ref<List<Binding>>, id: i64) -> string {
+    if (!state.ok) return "";
+    if (id < 0 || id >= listLength(program.exprs)) return semanticFail(state, "invalid expression reference");
+    let x: Expr = program.exprs[id];
+    if (x.kind == 1) {
+        if (findText(x.valueText, ".", 0) >= 0) return "f64";
+        return "i64";
+    }
+    if (x.kind == 2) return "string";
+    if (x.kind == 3) return "char";
+    if (x.kind == 4) return "bool";
+    if (x.kind == 5) {
+        let t: string = bindingType(scope, x.text);
+        if (t == "") return semanticFail(state, "unknown name " + x.text);
+        return t;
+    }
+    if (x.kind == 7) {
+        let a: string = checkExpr(program, state, scope, x.left);
+        if (x.op == "!") {
+            if (a != "bool" && a != "Native") return semanticFail(state, "! requires bool");
+            return "bool";
+        }
+        if (!numericType(a)) return semanticFail(state, "unary " + x.op + " requires numeric operand");
+        return a;
+    }
+    if (x.kind == 6) {
+        let a: string = checkExpr(program, state, scope, x.left);
+        let b: string = checkExpr(program, state, scope, x.right);
+        if (x.op == "&&" || x.op == "||") {
+            if (a != "bool" || b != "bool") return semanticFail(state, x.op + " requires bool operands");
+            return "bool";
+        }
+        if (x.op == "==" || x.op == "!=" || x.op == "<" || x.op == "<=" || x.op == ">" || x.op == ">=") {
+            if (!((a == b) || (numericType(a) && numericType(b)))) return semanticFail(state, "cannot compare " + a + " and " + b);
+            return "bool";
+        }
+        if (x.op == "+" && a == "string" && b == "string") return "string";
+        if (!numericType(a) || !numericType(b)) return semanticFail(state, "operator " + x.op + " requires numeric operands");
+        if (a == "f64" || b == "f64") return "f64";
+        return "i64";
+    }
+    if (x.kind == 14) {
+        let i: i64 = 0;
+        while (i < listLength(x.args)) {
+            checkExpr(program, state, scope, x.args[i]);
+            if (!state.ok) return "";
+            i = i + 1;
+        }
+        // No Raz signature is required: the native compiler validates symbol,
+        // arity and C++ types after an explicit native header is included.
+        return "Native";
+    }
+    if (x.kind == 8) {
+        let calleeExpr: Expr = program.exprs[x.left];
+        let name: string = calleeExpr.text;
+        let builtin: string = builtinReturnType(name, x.args, program, state, scope);
+        if (builtin != "") return builtin;
+        let fi: i64 = functionIndex(program, name);
+        if (fi < 0) return semanticFail(state, "unknown function " + name);
+        let fnDef: FunctionDef = program.functions[fi];
+        if (listLength(x.args) != listLength(fnDef.params)) return semanticFail(state, "wrong argument count for " + name);
+        let i: i64 = 0;
+        while (i < listLength(x.args)) {
+            let actual: string = checkExpr(program, state, scope, x.args[i]);
+            let rawExpected: string = fnDef.params[i].type;
+            // Read-only text helpers accept literals and computed strings too: the
+            // backend materializes those rvalues in a temp before binding the Ref.
+            // Other Ref<T> parameters remain strict lvalue/inout parameters.
+            if (isRefType(rawExpected) && !isLValue(program, x.args[i]) && name != "length" && name != "slice") return semanticFail(state, "argument must be an lvalue in " + name);
+            let expected: string = valueTypeForParam(rawExpected);
+            if (!assignableType(expected, actual)) return semanticFail(state, "argument type mismatch in " + name);
+            i = i + 1;
+        }
+        return fnDef.returnType;
+    }
+    if (x.kind == 9) {
+        let base: string = checkExpr(program, state, scope, x.left);
+        let si: i64 = structIndex(program, base);
+        if (si < 0) return semanticFail(state, "type " + base + " has no fields");
+        let structDef: StructDef = program.structs[si];
+        let fi: i64 = fieldIndex(structDef, x.text);
+        if (fi < 0) return semanticFail(state, "unknown field " + base + "." + x.text);
+        return structDef.fields[fi].type;
+    }
+    if (x.kind == 10) {
+        let base: string = checkExpr(program, state, scope, x.left);
+        let idx: string = checkExpr(program, state, scope, x.right);
+        if (idx != "i64" && idx != "char") return semanticFail(state, "index must be i64");
+        let referenced: string = innerGeneric(base, "Ref<");
+        if (referenced != "") base = referenced;
+        let inner: string = innerGeneric(base, "List<");
+        if (inner != "") return inner;
+        if (base == "string") return "i64";
+        return semanticFail(state, "type " + base + " is not indexable");
+    }
+    if (x.kind == 11) {
+        if (!validateType(program, state, x.text, false)) return "";
+        return x.text;
+    }
+    if (x.kind == 13) {
+        if (state.unsafeDepth <= 0) return semanticFail(state, "nullptr requires unsafe");
+        return "char*";
+    }
+    if (x.kind == 12) {
+        if (listLength(x.args) == 0) return semanticFail(state, "empty list requires a type context");
+        let element: string = checkExpr(program, state, scope, x.args[0]);
+        let i: i64 = 1;
+        while (i < listLength(x.args)) {
+            let currentType: string = checkExpr(program, state, scope, x.args[i]);
+            if (!assignableType(element, currentType)) return semanticFail(state, "list elements have incompatible types");
+            i = i + 1;
+        }
+        return "List<" + element + ">";
+    }
+    return semanticFail(state, "unsupported expression kind");
+}
+
+function checkStatement(program: Ref<Program>, state: Ref<SemanticState>, scope: Ref<List<Binding>>, stmtId: i64, returnType: string) {
+    if (!state.ok) return;
+    if (stmtId < 0 || stmtId >= listLength(program.stmts)) {
+        semanticFail(state, "invalid statement reference");
+        return;
+    }
+    let s: Stmt = program.stmts[stmtId];
+    if (s.kind == 1) {
+        if (bindingType(scope, s.name) != "") {
+            semanticFail(state, "variable already defined: " + s.name);
+            return;
+        }
+        let actual: string = "";
+        let declared: string = s.type;
+        if (declared != "" && program.exprs[s.expr].kind == 12 && listLength(program.exprs[s.expr].args) == 0) actual = declared;
+        else actual = checkExpr(program, state, scope, s.expr);
+        if (declared == "" && actual == "Native") {
+            semanticFail(state, "native call return type is unknown; annotate the variable");
+            return;
+        }
+        if (declared == "") declared = actual;
+        else if (!validateType(program, state, declared, false)) return;
+        program.stmts[stmtId].type = declared;
+        if (!assignableType(declared, actual)) semanticFail(state, "cannot initialize " + declared + " with " + actual);
+        let b: Binding = new Binding();
+        b.name = s.name;
+        b.type = declared;
+        b.isConst = s.isConst;
+        push(scope, b);
+        return;
+    }
+    if (s.kind == 2) {
+        let actual: string = "void";
+        if (s.expr >= 0) actual = checkExpr(program, state, scope, s.expr);
+        if (!assignableType(returnType, actual)) semanticFail(state, "cannot return " + actual + " from " + returnType + " function");
+        return;
+    }
+    if (s.kind == 3) {
+        checkExpr(program, state, scope, s.expr);
+        return;
+    }
+    if (s.kind == 4) {
+        if (isConstPlace(program, scope, s.left)) {
+            semanticFail(state, "cannot assign to const value");
+            return;
+        }
+        let lhs: string = checkExpr(program, state, scope, s.left);
+        let rhs: string = "";
+        if (program.exprs[s.right].kind == 12 && listLength(program.exprs[s.right].args) == 0) rhs = lhs;
+        else rhs = checkExpr(program, state, scope, s.right);
+        if (!assignableType(lhs, rhs)) semanticFail(state, "cannot assign " + rhs + " to " + lhs);
+        return;
+    }
+    if (s.kind == 5) {
+        let cond: string = checkExpr(program, state, scope, s.expr);
+        if (cond != "bool" && cond != "Native") {
+            semanticFail(state, "if condition must be bool");
+            return;
+        }
+        let thenScope: List<Binding> = cloneBindings(scope);
+        let i: i64 = 0;
+        while (i < listLength(s.thenStmts)) {
+            checkStatement(program, state, thenScope, s.thenStmts[i], returnType);
+            i = i + 1;
+        }
+        let elseScope: List<Binding> = cloneBindings(scope);
+        i = 0;
+        while (i < listLength(s.elseStmts)) {
+            checkStatement(program, state, elseScope, s.elseStmts[i], returnType);
+            i = i + 1;
+        }
+        return;
+    }
+    if (s.kind == 7) {
+        semanticFail(state, "use directives are only allowed at file scope");
+        return;
+    }
+    if (s.kind == 8) {
+        semanticFail(state, "include must be expanded before semantic analysis");
+        return;
+    }
+    if (s.kind == 9) {
+        state.unsafeDepth = state.unsafeDepth + 1;
+        let i: i64 = 0;
+        while (i < listLength(s.body)) {
+            checkStatement(program, state, scope, s.body[i], returnType);
+            i = i + 1;
+        }
+        state.unsafeDepth = state.unsafeDepth - 1;
+        return;
+    }
+    if (s.kind == 6) {
+        let cond: string = checkExpr(program, state, scope, s.expr);
+        if (cond != "bool" && cond != "Native") {
+            semanticFail(state, "while condition must be bool");
+            return;
+        }
+        let bodyScope: List<Binding> = cloneBindings(scope);
+        let i: i64 = 0;
+        while (i < listLength(s.body)) {
+            checkStatement(program, state, bodyScope, s.body[i], returnType);
+            i = i + 1;
+        }
+        return;
+    }
+    semanticFail(state, "unsupported statement kind");
+}
+
+// Control-flow validation belongs to semantic analysis, before RIR/C++ lowering.
+// A non-void Raz function must not be able to fall through the end of its body.
+function statementAlwaysReturns(program: Ref<Program>, stmtId: i64) -> bool {
+    if (stmtId < 0 || stmtId >= listLength(program.stmts)) return false;
+    let s: Stmt = program.stmts[stmtId];
+    if (s.kind == 2) return true;
+    if (s.kind == 5) {
+        // An if only guarantees a return when both paths do. An absent else
+        // is represented by an empty elseStmts list and therefore returns false.
+        return blockAlwaysReturns(program, s.thenStmts) && blockAlwaysReturns(program, s.elseStmts);
+    }
+    if (s.kind == 9) return blockAlwaysReturns(program, s.body);
+    return false;
+}
+
+function blockAlwaysReturns(program: Ref<Program>, ids: List<i64>) -> bool {
+    let i: i64 = 0;
+    while (i < listLength(ids)) {
+        if (statementAlwaysReturns(program, ids[i])) return true;
+        i = i + 1;
+    }
+    return false;
+}
+
+function analyzeProgram(program: Ref<Program>) -> i64 {
+    let state: SemanticState = new SemanticState();
+    state.ok = true;
+    state.message = "";
+    state.unsafeDepth = 0;
+
+    let i: i64 = 0;
+    while (i < listLength(program.structs)) {
+        let s: StructDef = program.structs[i];
+        if (structIndex(program, s.name) != i) {
+            semanticFail(state, "duplicate struct " + s.name);
+            return 1;
+        }
+        let j: i64 = 0;
+        while (j < listLength(s.fields)) {
+            let field: Field = s.fields[j];
+            if (fieldIndex(s, field.name) != j) {
+                semanticFail(state, "duplicate field " + s.name + "." + field.name);
+                return 1;
+            }
+            if (!validateType(program, state, field.type, false)) return 1;
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+
+    // Normalize locals in top-level control-flow without renaming true globals.
+    let topNames: List<Binding> = [];
+    let nextSymbol: i64 = 0;
+    i = 0;
+    while (i < listLength(program.topStmts) && state.ok) {
+        let topId: i64 = program.topStmts[i];
+        let topStmt: Stmt = program.stmts[topId];
+        if (topStmt.kind == 1) {
+            normalizeExprNames(program, topNames, topStmt.expr);
+            let globalName: Binding = new Binding();
+            globalName.name = topStmt.name;
+            globalName.type = topStmt.name;
+            globalName.isConst = topStmt.isConst;
+            push(topNames, globalName);
+        } else {
+            let one: List<i64> = [];
+            push(one, topId);
+            normalizeStatementNames(program, one, topNames, nextSymbol, state);
+        }
+        i = i + 1;
+    }
+    if (!state.ok) return 1;
+
+    i = 0;
+    while (i < listLength(program.functions)) {
+        let f: FunctionDef = program.functions[i];
+        if (functionIndex(program, f.name) != i) {
+            semanticFail(state, "duplicate function " + f.name);
+            return 1;
+        }
+        if (starts(f.name, "raz_global_init_")) {
+            semanticFail(state, "function names beginning with raz_global_init_ are reserved by the compiler");
+            return 1;
+        }
+        if (starts(f.name, "raz_module_init_") && (length(f.name) <= 16 || f.returnType != "void" || listLength(f.params) != 0)) {
+            semanticFail(state, "module initializer must be named raz_module_init_<name>, take no parameters, and return void");
+            return 1;
+        }
+        if (!validateType(program, state, f.returnType, true)) return 1;
+        let j: i64 = 0;
+        while (j < listLength(f.params)) {
+            let p: Param = f.params[j];
+            let k: i64 = 0;
+            while (k < j) {
+                if (f.params[k].name == p.name) {
+                    semanticFail(state, "duplicate parameter " + p.name);
+                    return 1;
+                }
+                k = k + 1;
+            }
+            if (!validateType(program, state, p.type, false)) return 1;
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+
+    i = 0;
+    while (i < listLength(program.topStmts)) {
+        let sid: i64 = program.topStmts[i];
+        let ts: Stmt = program.stmts[sid];
+        if (ts.kind == 1) {
+            if (functionIndex(program, ts.name) >= 0) {
+                semanticFail(state, "global conflicts with function: " + ts.name);
+                return 1;
+            }
+            if (structIndex(program, ts.name) >= 0) {
+                semanticFail(state, "global conflicts with struct: " + ts.name);
+                return 1;
+            }
+        }
+        i = i + 1;
+    }
+
+    if (functionIndex(program, "main") >= 0) {
+        semanticFail(state, "user-defined main is not allowed in Raz 1.0; use top-level code");
+        return 1;
+    }
+
+    let topScope: List<Binding> = [];
+    i = 0;
+    while (i < listLength(program.topStmts)) {
+        let sid: i64 = program.topStmts[i];
+        if (program.stmts[sid].kind != 7) {
+            checkStatement(program, state, topScope, sid, "i64");
+            if (!state.ok) return 1;
+        }
+        i = i + 1;
+    }
+
+    i = 0;
+    while (i < listLength(program.functions)) {
+        let f: FunctionDef = program.functions[i];
+        let scope: List<Binding> = cloneBindings(topScope);
+        let j: i64 = 0;
+        while (j < listLength(f.params)) {
+            if (bindingType(scope, f.params[j].name) != "") {
+                semanticFail(state, "parameter shadows a global: " + f.params[j].name);
+                return 1;
+            }
+            let b: Binding = new Binding();
+            b.name = f.params[j].name;
+            b.type = valueTypeForParam(f.params[j].type);
+            b.isConst = false;
+            push(scope, b);
+            j = j + 1;
+        }
+        let functionNames: List<Binding> = cloneBindings(topNames);
+        j = 0;
+        while (j < listLength(f.params)) {
+            let paramName: Binding = new Binding();
+            paramName.name = f.params[j].name;
+            paramName.type = f.params[j].name;
+            paramName.isConst = false;
+            push(functionNames, paramName);
+            j = j + 1;
+        }
+        normalizeStatementNames(program, f.body, functionNames, nextSymbol, state);
+        if (!state.ok) return 1;
+
+        j = 0;
+        while (j < listLength(f.body)) {
+            checkStatement(program, state, scope, f.body[j], f.returnType);
+            if (!state.ok) return 1;
+            j = j + 1;
+        }
+        if (f.returnType != "void" && !blockAlwaysReturns(program, f.body)) {
+            semanticFail(state, "non-void function may exit without returning a value: " + f.name);
+            return 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+
+// Target capability checks. Keep these checks before RIR emission so an AST
+// node is never silently translated to an operation the C++17 backend cannot lower.
+
+function gen2SupportsBinaryOperator(op: string) -> bool {
+    return op == "+" || op == "-" || op == "*" || op == "/" || op == "%" ||
+        op == "==" || op == "!=" || op == "<" || op == "<=" || op == ">" ||
+        op == ">=" || op == "&&" || op == "||";
+}
+
+function gen2SupportsUnaryOperator(op: string) -> bool {
+    return op == "+" || op == "-" || op == "!";
+}
+
+function validateCpp17Lowering(program: Ref<Program>) -> string {
+    let i: i64 = 0;
+    while (i < listLength(program.exprs)) {
+        let e: Expr = program.exprs[i];
+        if (e.kind == 6 && !gen2SupportsBinaryOperator(e.op)) {
+            return "C++17 lowering does not support binary operator '" + e.op + "'";
+        }
+        if (e.kind == 7 && !gen2SupportsUnaryOperator(e.op)) {
+            return "C++17 lowering does not support unary operator '" + e.op + "'";
+        }
+        if (e.kind < 1 || e.kind > 14) {
+            return "C++17 lowering does not support expression kind " + int_to_string(e.kind);
+        }
+        i = i + 1;
+    }
+
+    i = 0;
+    while (i < listLength(program.stmts)) {
+        let s: Stmt = program.stmts[i];
+        if (s.kind < 1 || s.kind > 9) {
+            return "C++17 lowering does not support statement kind " + int_to_string(s.kind);
+        }
+        i = i + 1;
+    }
+
+    return "";
+}
+
+// RIR-1 verifier. This is a compiler stage, not a debugging utility: it rejects
+// malformed or unsupported intermediate operations before target lowering.
+
+function gen2RirTrim(value: string) -> string {
+    let a: i64 = 0;
+    let b: i64 = length(value);
+    while (a < b && (charCodeAt(value, a) == 32 || charCodeAt(value, a) == 9 || charCodeAt(value, a) == 13)) a = a + 1;
+    while (b > a && (charCodeAt(value, b - 1) == 32 || charCodeAt(value, b - 1) == 9 || charCodeAt(value, b - 1) == 13)) b = b - 1;
+    return slice(value, a, b);
+}
+
+function gen2RirStarts(value: string, prefix: string) -> bool {
+    if (length(value) < length(prefix)) return false;
+    return slice(value, 0, length(prefix)) == prefix;
+}
+
+function gen2RirFind(value: string, needle: string) -> i64 {
+    let i: i64 = 0;
+    let n: i64 = length(needle);
+    if (n == 0) return 0;
+    while (i + n <= length(value)) {
+        if (slice(value, i, i + n) == needle) return i;
+        i = i + 1;
+    }
+    return -1;
+}
+
+function gen2RirContains(values: Ref<List<string>>, value: string) -> bool {
+    let i: i64 = 0;
+    while (i < listLength(values)) {
+        if (values[i] == value) return true;
+        i = i + 1;
+    }
+    return false;
+}
+
+function gen2RirValidLabel(value: string) -> bool {
+    if (value == "") return false;
+    let first: i64 = charCodeAt(value, 0);
+    if (!((first >= 65 && first <= 90) || (first >= 97 && first <= 122) || first == 95)) return false;
+    let i: i64 = 1;
+    while (i < length(value)) {
+        let c: i64 = charCodeAt(value, i);
+        if (!((c >= 65 && c <= 90) || (c >= 97 && c <= 122) || (c >= 48 && c <= 57) || c == 95)) return false;
+        i = i + 1;
+    }
+    return true;
+}
+
+function gen2RirValidateTargets(labels: Ref<List<string>>, targets: Ref<List<string>>) -> string {
+    let i: i64 = 0;
+    while (i < listLength(targets)) {
+        if (!gen2RirContains(labels, targets[i])) {
+            return "control-flow target is not defined in this function: " + targets[i];
+        }
+        i = i + 1;
+    }
+    return "";
+}
+
+function gen2RirKnownRhs(rhs: string) -> bool {
+    if (gen2RirStarts(rhs, "const i64 ") || gen2RirStarts(rhs, "const f64 ") || gen2RirStarts(rhs, "const string ") ||
+        gen2RirStarts(rhs, "const char ") || gen2RirStarts(rhs, "const bool ") ||
+        gen2RirStarts(rhs, "const char* ")) return true;
+    if (gen2RirStarts(rhs, "load ") || gen2RirStarts(rhs, "copy ") ||
+        gen2RirStarts(rhs, "ref ") || gen2RirStarts(rhs, "ref_field ") ||
+        gen2RirStarts(rhs, "ref_index ") || gen2RirStarts(rhs, "new ") ||
+        gen2RirStarts(rhs, "field ") || gen2RirStarts(rhs, "index ") ||
+        gen2RirStarts(rhs, "call ") || gen2RirStarts(rhs, "list(")) return true;
+    if (gen2RirStarts(rhs, "add ") || gen2RirStarts(rhs, "sub ") ||
+        gen2RirStarts(rhs, "mul ") || gen2RirStarts(rhs, "div ") ||
+        gen2RirStarts(rhs, "mod ") || gen2RirStarts(rhs, "eq ") ||
+        gen2RirStarts(rhs, "ne ") || gen2RirStarts(rhs, "lt ") ||
+        gen2RirStarts(rhs, "le ") || gen2RirStarts(rhs, "gt ") ||
+        gen2RirStarts(rhs, "ge ") || gen2RirStarts(rhs, "and ") ||
+        gen2RirStarts(rhs, "or ") || gen2RirStarts(rhs, "neg ") ||
+        gen2RirStarts(rhs, "not ") || gen2RirStarts(rhs, "pos ")) return true;
+    return false;
+}
+
+function gen2RirKnownFunctionLine(line: string) -> bool {
+    if (line == "entry:" || line == "return" || gen2RirStarts(line, "return ") ||
+        gen2RirStarts(line, "local ") || gen2RirStarts(line, "local-auto ") ||
+        gen2RirStarts(line, "store ") || gen2RirStarts(line, "store_ref ") ||
+        gen2RirStarts(line, "jump ") || gen2RirStarts(line, "branch ") ||
+        gen2RirStarts(line, "native-call ") || gen2RirStarts(line, "call ")) return true;
+    if (length(line) > 1 && charCodeAt(line, length(line) - 1) == 58) return true;
+    let assignment: i64 = gen2RirFind(line, " = ");
+    if (gen2RirStarts(line, "%t") && assignment > 2) {
+        return gen2RirKnownRhs(gen2RirTrim(slice(line, assignment + 3, length(line))));
+    }
+    return false;
+}
+
+function validateRir1(rir: string) -> string {
+    if (!gen2RirStarts(rir, "rir 1\n")) return "expected RIR version header 'rir 1'";
+
+    let inFunction: bool = false;
+    let hasFunction: bool = false;
+    let lastWasStruct: bool = false;
+    let labels: List<string> = [];
+    let targets: List<string> = [];
+    let lineNumber: i64 = 1;
+    let start: i64 = 0;
+    let i: i64 = 0;
+    while (i <= length(rir)) {
+        if (i == length(rir) || charCodeAt(rir, i) == 10) {
+            let line: string = gen2RirTrim(slice(rir, start, i));
+            start = i + 1;
+            if (line != "" && line != "rir 1") {
+                if (inFunction) {
+                    if (line == "endfunction") {
+                        let targetError: string = gen2RirValidateTargets(labels, targets);
+                        if (targetError != "") return "RIR line " + int_to_string(lineNumber) + ": " + targetError;
+                        inFunction = false;
+                        labels = [];
+                        targets = [];
+                    } else {
+                        if (!gen2RirKnownFunctionLine(line)) return "unsupported RIR instruction at line " + int_to_string(lineNumber) + ": " + line;
+                        if (gen2RirStarts(line, "branch ") &&
+                            (gen2RirFind(line, " ? ") < 0 || gen2RirFind(line, " : ") < 0)) return "malformed branch at RIR line " + int_to_string(lineNumber);
+                        if (gen2RirStarts(line, "store ") && gen2RirFind(line, ", ") < 0) return "malformed store at RIR line " + int_to_string(lineNumber);
+                        if (gen2RirStarts(line, "store_ref ") && gen2RirFind(line, ", ") < 0) return "malformed store_ref at RIR line " + int_to_string(lineNumber);
+                        if (gen2RirStarts(line, "jump ")) {
+                            let target: string = gen2RirTrim(slice(line, 5, length(line)));
+                            if (!gen2RirValidLabel(target)) return "malformed jump target at RIR line " + int_to_string(lineNumber);
+                            push(targets, target);
+                        }
+                        if (gen2RirStarts(line, "branch ")) {
+                            let x: string = slice(line, 7, length(line));
+                            let q: i64 = gen2RirFind(x, " ? ");
+                            let c: i64 = -1;
+                            if (q >= 0) c = gen2RirFind(slice(x, q + 3, length(x)), " : ");
+                            if (q < 0 || c < 0) return "malformed branch at RIR line " + int_to_string(lineNumber);
+                            let trueTarget: string = gen2RirTrim(slice(x, q + 3, q + 3 + c));
+                            let falseTarget: string = gen2RirTrim(slice(x, q + 3 + c + 3, length(x)));
+                            if (!gen2RirValidLabel(trueTarget) || !gen2RirValidLabel(falseTarget)) return "invalid branch target at RIR line " + int_to_string(lineNumber);
+                            push(targets, trueTarget);
+                            push(targets, falseTarget);
+                        }
+                        if (length(line) > 0 && charCodeAt(line, length(line) - 1) == 58) {
+                            let label: string = gen2RirTrim(slice(line, 0, length(line) - 1));
+                            if (!gen2RirValidLabel(label)) return "invalid label at RIR line " + int_to_string(lineNumber);
+                            if (gen2RirContains(labels, label)) return "duplicate label at RIR line " + int_to_string(lineNumber) + ": " + label;
+                            push(labels, label);
+                        }
+                    }
+                } else if (gen2RirStarts(line, "function ")) {
+                    if (gen2RirFind(line, "(") < 0 || gen2RirFind(line, ") -> ") < 0) {
+                        return "malformed function header at RIR line " + int_to_string(lineNumber);
+                    }
+                    inFunction = true;
+                    hasFunction = true;
+                    labels = [];
+                    targets = [];
+                    lastWasStruct = false;
+                } else if (gen2RirStarts(line, "use-quoted ")) {
+                    if (length(line) <= 11) return "empty native include at RIR line " + int_to_string(lineNumber);
+                    lastWasStruct = false;
+                } else if (gen2RirStarts(line, "global ") || gen2RirStarts(line, "global-auto ") ||
+                    gen2RirStarts(line, "global-const ") || gen2RirStarts(line, "global-const-auto ")) {
+                    lastWasStruct = false;
+                } else if (gen2RirStarts(line, "struct ")) {
+                    if (length(line) <= 7) return "empty struct name at RIR line " + int_to_string(lineNumber);
+                    lastWasStruct = true;
+                } else if (gen2RirStarts(line, "field ") && lastWasStruct) {
+                    lastWasStruct = true;
+                } else {
+                    return "unexpected RIR declaration at line " + int_to_string(lineNumber) + ": " + line;
+                }
+            }
+        }
+        i = i + 1;
+        if (i == length(rir) || (i < length(rir) && charCodeAt(rir, i) == 10)) lineNumber = lineNumber + 1;
+    }
+
+    if (inFunction) return "unterminated RIR function (missing endfunction)";
+    if (!hasFunction) return "RIR module has no functions";
+    return "";
+}
+
+function emitLine(state: Ref<EmitState>, line: string) {
+    push(state.lines, line);
+}
+
+function newTemp(state: Ref<EmitState>) -> string {
+    let t: string = "%t" + int_to_string(state.temp);
+    state.temp = state.temp + 1;
+    return t;
+}
+
+function newLabel(state: Ref<EmitState>, prefix: string) -> string {
+    let t: string = prefix + int_to_string(state.label);
+    state.label = state.label + 1;
+    return t;
+}
+
+function canonicalBinary(op: string) -> string {
+    if (op == "+") return "add";
+    if (op == "-") return "sub";
+    if (op == "*") return "mul";
+    if (op == "/") return "div";
+    if (op == "%") return "mod";
+    if (op == "==") return "eq";
+    if (op == "!=") return "ne";
+    if (op == "<") return "lt";
+    if (op == "<=") return "le";
+    if (op == ">") return "gt";
+    if (op == ">=") return "ge";
+    if (op == "&&") return "and";
+    if (op == "||") return "or";
+    return op;
+}
+
+function canonicalUnary(op: string) -> string {
+    if (op == "-") return "neg";
+    if (op == "!") return "not";
+    if (op == "+") return "pos";
+    return op;
+}
+
+function escapeString(value: string) -> string {
+    let out: string = "";
+    let i: i64 = 0;
+    while (i < length(value)) {
+        let c: i64 = value[i];
+        if (c == 92) out = out + "\\\\";
+        else if (c == 10) out = out + "\\n";
+        else if (c == 13) out = out + "\\r";
+        else if (c == 9) out = out + "\\t";
+        else if (c == 34) out = out + "\\\"";
+        else out = out + slice(value, i, i + 1);
+        i = i + 1;
+    }
+    return out;
+}
+
+function isRefType(type: string) -> bool {
+    return innerGeneric(type, "Ref<") != "";
+}
+
+function isLValue(program: Ref<Program>, id: i64) -> bool {
+    if (id < 0 || id >= listLength(program.exprs)) return false;
+    let x: Expr = program.exprs[id];
+    if (x.kind == 5) return true;
+    if (x.kind == 9 || x.kind == 10) return isLValue(program, x.left);
+    return false;
+}
+
+function emitPlace(state: Ref<EmitState>, program: Ref<Program>, id: i64) -> string {
+    let x: Expr = program.exprs[id];
+    if (x.kind == 5) {
+        let t: string = newTemp(state);
+        emitLine(state, "    " + t + " = ref " + x.text);
+        return t;
+    }
+    if (x.kind == 9) {
+        let base: string = emitPlace(state, program, x.left);
+        let t: string = newTemp(state);
+        emitLine(state, "    " + t + " = ref_field " + base + "." + x.text);
+        return t;
+    }
+    if (x.kind == 10) {
+        let base: string = emitPlace(state, program, x.left);
+        let idx: string = emitExpr(state, program, x.right);
+        let t: string = newTemp(state);
+        emitLine(state, "    " + t + " = ref_index " + base + "[" + idx + "]");
+        return t;
+    }
+    return "%invalid";
+}
+
+function callNeedsRef(program: Ref<Program>, callee: string, index: i64) -> bool {
+    if ((callee == "length" || callee == "listLength") && index == 0) return true;
+    if (callee == "push" && index == 0) return true;
+    let fi: i64 = functionIndex(program, callee);
+    if (fi < 0) return false;
+    let fn: FunctionDef = program.functions[fi];
+    if (index < 0 || index >= listLength(fn.params)) return false;
+    return isRefType(fn.params[index].type);
+}
+
+function isPureExpr(program: Ref<Program>, id: i64) -> bool {
+    if (id < 0 || id >= listLength(program.exprs)) return false;
+    let x: Expr = program.exprs[id];
+    if (x.kind == 1 || x.kind == 2 || x.kind == 3 || x.kind == 4 || x.kind == 5) return true;
+    if (x.kind == 7) return isPureExpr(program, x.left);
+    if (x.kind == 6) return isPureExpr(program, x.left) && isPureExpr(program, x.right);
+    if (x.kind == 9) return isPureExpr(program, x.left);
+    if (x.kind == 10) return isPureExpr(program, x.left) && isPureExpr(program, x.right);
+    return false;
+}
+
+function emitExpr(state: Ref<EmitState>, program: Ref<Program>, id: i64) -> string {
+    let x: Expr = program.exprs[id];
+    if (x.kind == 1) {
+        let t: string = newTemp(state);
+        let literalType: string = "i64";
+        if (findText(x.valueText, ".", 0) >= 0) literalType = "f64";
+        emitLine(state, "    " + t + " = const " + literalType + " " + x.valueText);
+        return t;
+    }
+    if (x.kind == 2) {
+        let t: string = newTemp(state);
+        emitLine(state, "    " + t + " = const string \"" + escapeString(x.text) + "\"");
+        return t;
+    }
+    if (x.kind == 3) {
+        let t: string = newTemp(state);
+        emitLine(state, "    " + t + " = const char " + x.valueText);
+        return t;
+    }
+    if (x.kind == 4) {
+        let t: string = newTemp(state);
+        emitLine(state, "    " + t + " = const bool " + x.valueText);
+        return t;
+    }
+    if (x.kind == 5) {
+        let t: string = newTemp(state);
+        emitLine(state, "    " + t + " = load " + x.text);
+        return t;
+    }
+    if (x.kind == 7) {
+        let a: string = emitExpr(state, program, x.left);
+        let t: string = newTemp(state);
+        emitLine(state, "    " + t + " = " + canonicalUnary(x.op) + " " + a);
+        return t;
+    }
+    if (x.kind == 6) {
+        // Logical operators are control flow, not eager binary operators.
+        // Evaluating the RHS unconditionally can read invalid indexes in guards
+        // such as `i == 0 || text[i - 1] == ...`.
+        if (x.op == "&&" || x.op == "||") {
+            let left: string = emitExpr(state, program, x.left);
+            let result: string = newTemp(state);
+            let rhsLabel: string = newLabel(state, "sc_rhs");
+            let shortLabel: string = newLabel(state, "sc_short");
+            let endLabel: string = newLabel(state, "sc_end");
+            if (x.op == "&&") emitLine(state, "    branch " + left + " ? " + rhsLabel + " : " + shortLabel);
+            else emitLine(state, "    branch " + left + " ? " + shortLabel + " : " + rhsLabel);
+            emitLine(state, shortLabel + ":");
+            if (x.op == "&&") emitLine(state, "    " + result + " = const bool false");
+            else emitLine(state, "    " + result + " = const bool true");
+            emitLine(state, "    jump " + endLabel);
+            emitLine(state, rhsLabel + ":");
+            let right: string = emitExpr(state, program, x.right);
+            emitLine(state, "    " + result + " = copy " + right);
+            emitLine(state, "    jump " + endLabel);
+            emitLine(state, endLabel + ":");
+            return result;
+        }
+        let a: string = emitExpr(state, program, x.left);
+        let b: string = emitExpr(state, program, x.right);
+        let t: string = newTemp(state);
+        emitLine(state, "    " + t + " = " + canonicalBinary(x.op) + " " + a + ", " + b);
+        return t;
+    }
+    if (x.kind == 14) {
+        let args: string = "";
+        let i: i64 = 0;
+        while (i < listLength(x.args)) {
+            if (i > 0) args = args + ", ";
+            // Without an external signature, pass lvalues as lvalues: this is
+            // valid for by-value C++ parameters and preserves native references.
+            if (isLValue(program, x.args[i])) args = args + emitPlace(state, program, x.args[i]);
+            else args = args + emitExpr(state, program, x.args[i]);
+            i = i + 1;
+        }
+        // The native compiler infers the return type and validates the symbol.
+        return x.text + "(" + args + ")";
+    }
+    if (x.kind == 8) {
+        let callee: string = program.exprs[x.left].text;
+        let args: string = "";
+        let i: i64 = 0;
+        while (i < listLength(x.args)) {
+            if (i > 0) args = args + ", ";
+            if (callNeedsRef(program, callee, i) && isLValue(program, x.args[i])) {
+                args = args + emitPlace(state, program, x.args[i]);
+            } else {
+                args = args + emitExpr(state, program, x.args[i]);
+            }
+            i = i + 1;
+        }
+        let fi: i64 = functionIndex(program, callee);
+        let returnType: string = "";
+        if (callee == "push") returnType = "void";
+        else if (fi >= 0) returnType = program.functions[fi].returnType;
+        if (returnType == "void") {
+            emitLine(state, "    call " + callee + "(" + args + ")");
+            return "";
+        }
+        let t: string = newTemp(state);
+        emitLine(state, "    " + t + " = call " + callee + "(" + args + ")");
+        return t;
+    }
+    if (x.kind == 9) {
+        let base: string = emitExpr(state, program, x.left);
+        let t: string = newTemp(state);
+        emitLine(state, "    " + t + " = field " + base + "." + x.text);
+        return t;
+    }
+    if (x.kind == 10) {
+        let base: string = "";
+        if (isLValue(program, x.left) && isPureExpr(program, x.right)) {
+            base = emitPlace(state, program, x.left);
+        } else {
+            base = emitExpr(state, program, x.left);
+        }
+        let idx: string = emitExpr(state, program, x.right);
+        let t: string = newTemp(state);
+        emitLine(state, "    " + t + " = index " + base + "[" + idx + "]");
+        return t;
+    }
+    if (x.kind == 11) {
+        let t: string = newTemp(state);
+        emitLine(state, "    " + t + " = new " + x.text);
+        return t;
+    }
+    if (x.kind == 13) {
+        let t: string = newTemp(state);
+        emitLine(state, "    " + t + " = const char* nullptr");
+        return t;
+    }
+    if (x.kind == 12) {
+        let args: string = "";
+        let i: i64 = 0;
+        while (i < listLength(x.args)) {
+            if (i > 0) args = args + ", ";
+            args = args + emitExpr(state, program, x.args[i]);
+            i = i + 1;
+        }
+        let t: string = newTemp(state);
+        emitLine(state, "    " + t + " = list(" + args + ")");
+        return t;
+    }
+    return "%invalid";
+}
+
+function emitStmt(state: Ref<EmitState>, program: Ref<Program>, id: i64) {
+    let s: Stmt = program.stmts[id];
+    if (s.kind == 1) {
+        let v: string = emitExpr(state, program, s.expr);
+        if (s.isTypeExplicit) emitLine(state, "    local " + s.type + " " + s.name);
+        else emitLine(state, "    local-auto " + s.type + " " + s.name);
+        emitLine(state, "    store " + s.name + ", " + v);
+        return;
+    }
+    if (s.kind == 2) {
+        if (s.expr < 0) emitLine(state, "    return");
+        else emitLine(state, "    return " + emitExpr(state, program, s.expr));
+        return;
+    }
+    if (s.kind == 3) {
+        if (program.exprs[s.expr].kind == 14) emitLine(state, "    native-call " + emitExpr(state, program, s.expr));
+        else emitExpr(state, program, s.expr);
+        return;
+    }
+    if (s.kind == 4) {
+        let place: string = emitPlace(state, program, s.left);
+        let value: string = emitExpr(state, program, s.right);
+        emitLine(state, "    store_ref " + place + ", " + value);
+        return;
+    }
+    if (s.kind == 9) {
+        let i: i64 = 0;
+        while (i < listLength(s.body)) {
+            emitStmt(state, program, s.body[i]);
+            i = i + 1;
+        }
+        return;
+    }
+    if (s.kind == 5) {
+        let cond: string = emitExpr(state, program, s.expr);
+        let thenLabel: string = newLabel(state, "then");
+        let elseLabel: string = newLabel(state, "else");
+        let endLabel: string = newLabel(state, "endif");
+        emitLine(state, "    branch " + cond + " ? " + thenLabel + " : " + elseLabel);
+        emitLine(state, thenLabel + ":");
+        let i: i64 = 0;
+        while (i < listLength(s.thenStmts)) {
+            emitStmt(state, program, s.thenStmts[i]);
+            i = i + 1;
+        }
+        emitLine(state, "    jump " + endLabel);
+        emitLine(state, elseLabel + ":");
+        i = 0;
+        while (i < listLength(s.elseStmts)) {
+            emitStmt(state, program, s.elseStmts[i]);
+            i = i + 1;
+        }
+        emitLine(state, "    jump " + endLabel);
+        emitLine(state, endLabel + ":");
+        return;
+    }
+    if (s.kind == 6) {
+        let head: string = newLabel(state, "while");
+        let body: string = newLabel(state, "while_body");
+        let end: string = newLabel(state, "while_end");
+        emitLine(state, "    jump " + head);
+        emitLine(state, head + ":");
+        let cond: string = emitExpr(state, program, s.expr);
+        emitLine(state, "    branch " + cond + " ? " + body + " : " + end);
+        emitLine(state, body + ":");
+        let i: i64 = 0;
+        while (i < listLength(s.body)) {
+            emitStmt(state, program, s.body[i]);
+            i = i + 1;
+        }
+        emitLine(state, "    jump " + head);
+        emitLine(state, end + ":");
+        return;
+    }
+}
+
+function emitTopStmt(state: Ref<EmitState>, program: Ref<Program>, id: i64) {
+    let s: Stmt = program.stmts[id];
+    if (s.kind == 1) {
+        let v: string = emitExpr(state, program, s.expr);
+        emitLine(state, "    store " + s.name + ", " + v);
+        return;
+    }
+    emitStmt(state, program, id);
+}
+
+function emitProgram(program: Ref<Program>) -> string {
+    let state: EmitState = new EmitState();
+    state.lines = [];
+    state.temp = 0;
+    state.label = 0;
+    let header: string = "rir 1";
+    emitLine(state, header);
+
+    let i: i64 = 0;
+    while (i < listLength(program.uses)) {
+        if (starts(program.uses[i], "quoted:")) emitLine(state, "use-quoted " + slice(program.uses[i], 7, length(program.uses[i])));
+        i = i + 1;
+    }
+
+    i = 0;
+    while (i < listLength(program.topStmts)) {
+        let sid: i64 = program.topStmts[i];
+        let ts: Stmt = program.stmts[sid];
+        if (ts.kind == 1) {
+            let initName: string = "raz_global_init_" + ts.name;
+            if (ts.isConst && !ts.isTypeExplicit) emitLine(state, "global-const-auto " + ts.type + " " + ts.name + " " + initName);
+            else if (ts.isConst) emitLine(state, "global-const " + ts.type + " " + ts.name + " " + initName);
+            else if (!ts.isTypeExplicit) emitLine(state, "global-auto " + ts.type + " " + ts.name + " " + initName);
+            else emitLine(state, "global " + ts.type + " " + ts.name);
+        }
+        i = i + 1;
+    }
+
+    i = 0;
+    while (i < listLength(program.structs)) {
+        let s: StructDef = program.structs[i];
+        emitLine(state, "struct " + s.name);
+        let j: i64 = 0;
+        while (j < listLength(s.fields)) {
+            emitLine(state, "  field " + s.fields[j].type + " " + s.fields[j].name);
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+
+    emitLine(state, "function main() -> i64");
+    emitLine(state, "entry:");
+    // Phase 1: initialize mutable module globals in entry after process argc/argv
+    // is set. Const globals already use static C++ const initializers.
+    i = 0;
+    while (i < listLength(program.topStmts)) {
+        let sid: i64 = program.topStmts[i];
+        if (program.stmts[sid].kind == 1 && !program.stmts[sid].isConst) emitTopStmt(state, program, sid);
+        i = i + 1;
+    }
+    // Phase 2: run any source module startup hooks. The compiler core only
+    // defines the naming/signature contract; modules own their implementation.
+    i = 0;
+    while (i < listLength(program.functions)) {
+        let f: FunctionDef = program.functions[i];
+        if (starts(f.name, "raz_module_init_") && length(f.name) > 16) {
+            emitLine(state, "    call " + f.name + "()");
+        }
+        i = i + 1;
+    }
+    // Phase 3: execute ordinary top-level statements in source order.
+    i = 0;
+    while (i < listLength(program.topStmts)) {
+        let sid: i64 = program.topStmts[i];
+        if (program.stmts[sid].kind != 1) emitTopStmt(state, program, sid);
+        i = i + 1;
+    }
+    emitLine(state, "    %t" + int_to_string(state.temp) + " = const i64 0");
+    emitLine(state, "    return %t" + int_to_string(state.temp));
+    state.temp = state.temp + 1;
+    emitLine(state, "endfunction");
+
+    i = 0;
+    while (i < listLength(program.functions)) {
+        let f: FunctionDef = program.functions[i];
+        let sig: string = "function " + f.name + "(";
+        let j: i64 = 0;
+        while (j < listLength(f.params)) {
+            if (j > 0) sig = sig + ", ";
+            sig = sig + f.params[j].type + " " + f.params[j].name;
+            j = j + 1;
+        }
+        sig = sig + ") -> " + f.returnType;
+        emitLine(state, sig);
+        emitLine(state, "entry:");
+        j = 0;
+        while (j < listLength(f.body)) {
+            emitStmt(state, program, f.body[j]);
+            j = j + 1;
+        }
+        emitLine(state, "endfunction");
+        i = i + 1;
+    }
+
+    // Give each const global a function that computes its initializer. The C++
+    // target calls this from the const object's definition, preserving runtime
+    // initialization (for example osName()) without a later mutable store.
+    i = 0;
+    while (i < listLength(program.topStmts)) {
+        let sid: i64 = program.topStmts[i];
+        let ts: Stmt = program.stmts[sid];
+        if (ts.kind == 1 && (ts.isConst || !ts.isTypeExplicit)) {
+            let initName: string = "raz_global_init_" + ts.name;
+            let initState: EmitState = new EmitState();
+            initState.lines = [];
+            initState.temp = 0;
+            initState.label = 0;
+            let value: string = emitExpr(initState, program, ts.expr);
+            emitLine(state, "function " + initName + "() -> " + ts.type);
+            emitLine(state, "entry:");
+            let j: i64 = 0;
+            while (j < listLength(initState.lines)) {
+                emitLine(state, initState.lines[j]);
+                j = j + 1;
+            }
+            emitLine(state, "    return " + value);
+            emitLine(state, "endfunction");
+        }
+        i = i + 1;
+    }
+
+    let outputChunks: List<string> = [];
+    i = 0;
+    while (i < listLength(state.lines)) {
+        push(outputChunks, state.lines[i] + "\n");
+        i = i + 1;
+    }
+    return joinTextChunks(outputChunks);
+}
+
+function compileSourceAt(source: string, entryPath: string) -> string {
+    let seen: List<string> = [];
+    let expanded: string = expandIncludes(source, entryPath, seen, "");
+    if (expanded == "" && source != "") return "";
+    let program: Program = parseProgram(expanded);
+    if (!program.valid) return "";
+    if (analyzeProgram(program) != 0) return "";
+
+    // Target support is checked while the source program is still structured AST.
+    let loweringError: string = validateCpp17Lowering(program);
+    if (loweringError != "") {
+        print("lowering-error: " + loweringError);
+        return "";
+    }
+
+    // Emit a normalized RIR-1 module, then verify the IR contract before a
+    // target backend can consume it. Unknown operations must never disappear.
+    let rir: string = emitProgram(program);
+    let rirError: string = validateRir1(rir);
+    if (rirError != "") {
+        print("rir-error: " + rirError);
+        return "";
+    }
+    return rir;
+}
+
+function compileSource(source: string) -> string {
+    return compileSourceAt(source, "frontend/input.raz");
+}
+
+
+// Experimental Raz backend: RIR text -> C++17 text.
+// The backend accepts the RIR-1 subset produced by the native frontend.
+
+// Parsed RIR instruction. Text is accepted only at the frontend/backend boundary;
+// C++ lowering consumes explicit opcodes, result types and operands.
+struct RirInstruction {
+    opcode: string;
+    result: string;
+    type: string;
+    name: string;
+    operands: List<string>;
+    line: i64;
+}
+
+struct FunctionMeta {
+    name: string;
+    params: List<string>;
+    paramTypes: List<string>;
+    returnType: string;
+    instructions: List<RirInstruction>;
+}
+
+struct StructMeta {
+    name: string;
+    fields: List<string>;
+    fieldTypes: List<string>;
+}
+
+struct GlobalMeta {
+    name: string;
+    type: string;
+    isConst: bool;
+    isAuto: bool;
+    initFunction: string;
+}
+
+struct BackendModule {
+    parseError: string;
+    uses: List<string>;
+    globals: List<GlobalMeta>;
+    structs: List<StructMeta>;
+    functions: List<FunctionMeta>;
+}
+
+struct BackendState {
+    lines: List<string>;
+    temps: List<string>;
+    tempTypes: List<string>;
+    tempBase: i64;
+    locals: List<string>;
+    localTypes: List<string>;
+    localAutos: List<bool>;
+    localInitValues: List<string>;
+    aliasNames: List<string>;
+    aliasValues: List<string>;
+}
+
+
+function lineAt(lines: Ref<List<string>>, index: i64) -> string {
+    if (index < 0) return "";
+    if (index >= listLength(lines)) return "";
+    return trim(lines[index]);
+}
+
+function trim(s: string) -> string {
+    let a: i64 = 0;
+    let b: i64 = length(s);
+    let leftDone: bool = false;
+    while (a < b && !leftDone) {
+        if (charCodeAt(s, a) == 32 || charCodeAt(s, a) == 9) a = a + 1;
+        else leftDone = true;
+    }
+    let rightDone: bool = false;
+    while (b > a && !rightDone) {
+        if (charCodeAt(s, b - 1) == 32 || charCodeAt(s, b - 1) == 9) b = b - 1;
+        else rightDone = true;
+    }
+    return slice(s, a, b);
+}
+
+function cpp17_starts(s: string, prefix: string) -> bool {
+    if (length(s) < length(prefix)) return false;
+    return slice(s, 0, length(prefix)) == prefix;
+}
+
+function cpp17_findText(s: string, needle: string, from: i64) -> i64 {
+    let n: i64 = length(needle);
+    let i: i64 = from;
+    if (n == 0) return from;
+    while (i + n <= length(s)) {
+        let j: i64 = 0;
+        while (j < n && s[i + j] == needle[j]) j = j + 1;
+        if (j == n) return i;
+        i = i + 1;
+    }
+    return -1;
+}
+
+function splitLines(s: string) -> List<string> {
+    let out: List<string> = [];
+    let start: i64 = 0;
+    let i: i64 = 0;
+    while (i < length(s)) {
+        if (charCodeAt(s, i) == 10) {
+            push(out, slice(s, start, i));
+            start = i + 1;
+        }
+        i = i + 1;
+    }
+    if (start < length(s)) push(out, slice(s, start, length(s)));
+    return out;
+}
+
+function afterArrow(s: string) -> string {
+    let p: i64 = cpp17_findText(s, "->", 0);
+    if (p < 0) return "void";
+    return trim(slice(s, p + 2, length(s)));
+}
+
+function addParam(f: Ref<FunctionMeta>, item: string) {
+    let x: string = trim(item);
+    if (x == "") return;
+    let p: i64 = cpp17_findText(x, " ", 0);
+    if (p < 0) return;
+    push(f.paramTypes, trim(slice(x, 0, p)));
+    push(f.params, trim(slice(x, p + 1, length(x))));
+}
+
+function rirTopLevelComma(value: string) -> i64 {
+    let depth: i64 = 0;
+    let quote: i64 = 0;
+    let escaped: bool = false;
+    let i: i64 = 0;
+    while (i < length(value)) {
+        let c: i64 = charCodeAt(value, i);
+        if (quote != 0) {
+            if (escaped) escaped = false;
+            else if (c == 92) escaped = true;
+            else if (c == quote) quote = 0;
+        } else if (c == 34 || c == 39) quote = c;
+        else if (c == 40 || c == 91 || c == 123) depth = depth + 1;
+        else if (c == 41 || c == 93 || c == 125) depth = depth - 1;
+        else if (c == 44 && depth == 0) return i;
+        i = i + 1;
+    }
+    return -1;
+}
+
+function rirSplitArgs(value: string) -> List<string> {
+    let parts: List<string> = [];
+    let start: i64 = 0;
+    let depth: i64 = 0;
+    let quote: i64 = 0;
+    let escaped: bool = false;
+    let i: i64 = 0;
+    while (i <= length(value)) {
+        if (i < length(value)) {
+            let c: i64 = charCodeAt(value, i);
+            if (quote != 0) {
+                if (escaped) escaped = false;
+                else if (c == 92) escaped = true;
+                else if (c == quote) quote = 0;
+            } else if (c == 34 || c == 39) quote = c;
+            else if (c == 40 || c == 91 || c == 123) depth = depth + 1;
+            else if (c == 41 || c == 93 || c == 125) depth = depth - 1;
+            else if (c == 44 && depth == 0) {
+                let part: string = trim(slice(value, start, i));
+                if (part != "") push(parts, part);
+                start = i + 1;
+            }
+        }
+        if (i == length(value)) {
+            let last: string = trim(slice(value, start, i));
+            if (last != "") push(parts, last);
+        }
+        i = i + 1;
+    }
+    return parts;
+}
+
+function parseRirCallParts(call: string, out: Ref<RirInstruction>) -> bool {
+    let text: string = trim(call);
+    let open: i64 = cpp17_findText(text, "(", 0);
+    if (open <= 0 || !endsWith(text, ")")) return false;
+    out.name = trim(slice(text, 0, open));
+    out.operands = rirSplitArgs(slice(text, open + 1, length(text) - 1));
+    return true;
+}
+
+function parseRirRhs(rhs: string, result: string, sourceLine: i64) -> RirInstruction {
+    let ins: RirInstruction = new RirInstruction();
+    ins.result = result;
+    ins.type = "";
+    ins.name = "";
+    ins.operands = [];
+    ins.line = sourceLine;
+    let space: i64 = cpp17_findText(rhs, " ", 0);
+    let head: string = rhs;
+    let rest: string = "";
+    if (space >= 0) {
+        head = slice(rhs, 0, space);
+        rest = trim(slice(rhs, space + 1, length(rhs)));
+    }
+    if (head == "const") {
+        let typeEnd: i64 = cpp17_findText(rest, " ", 0);
+        if (typeEnd < 0) ins.opcode = "invalid";
+        else {
+            ins.opcode = "const";
+            ins.type = trim(slice(rest, 0, typeEnd));
+            push(ins.operands, trim(slice(rest, typeEnd + 1, length(rest))));
+        }
+    } else if (head == "load" || head == "copy" || head == "ref") {
+        ins.opcode = head;
+        push(ins.operands, rest);
+    } else if (head == "new") {
+        ins.opcode = "new";
+        ins.type = rest;
+    } else if (head == "ref_field" || head == "field") {
+        let dot: i64 = cpp17_findText(rest, ".", 0);
+        if (dot < 0) ins.opcode = "invalid";
+        else {
+            ins.opcode = head;
+            push(ins.operands, trim(slice(rest, 0, dot)));
+            push(ins.operands, trim(slice(rest, dot + 1, length(rest))));
+        }
+    } else if (head == "ref_index" || head == "index") {
+        let open: i64 = cpp17_findText(rest, "[", 0);
+        if (open < 0 || !endsWith(rest, "]")) ins.opcode = "invalid";
+        else {
+            ins.opcode = head;
+            push(ins.operands, trim(slice(rest, 0, open)));
+            push(ins.operands, trim(slice(rest, open + 1, length(rest) - 1)));
+        }
+    } else if (head == "call") {
+        ins.opcode = "call-result";
+        if (!parseRirCallParts(rest, ins)) ins.opcode = "invalid";
+    } else if (cpp17_starts(rhs, "list(") && endsWith(rhs, ")")) {
+        ins.opcode = "list";
+        ins.operands = rirSplitArgs(slice(rhs, 5, length(rhs) - 1));
+    } else if (head == "add" || head == "sub" || head == "mul" || head == "div" || head == "mod" ||
+        head == "eq" || head == "ne" || head == "lt" || head == "le" || head == "gt" || head == "ge" ||
+        head == "and" || head == "or") {
+        let comma: i64 = rirTopLevelComma(rest);
+        if (comma < 0) ins.opcode = "invalid";
+        else {
+            ins.opcode = head;
+            push(ins.operands, trim(slice(rest, 0, comma)));
+            push(ins.operands, trim(slice(rest, comma + 1, length(rest))));
+        }
+    } else if (head == "neg" || head == "not" || head == "pos") {
+        ins.opcode = head;
+        push(ins.operands, rest);
+    } else ins.opcode = "invalid";
+    return ins;
+}
+
+function parseRirInstruction(line: string, sourceLine: i64) -> RirInstruction {
+    let ins: RirInstruction = new RirInstruction();
+    ins.opcode = "invalid";
+    ins.result = "";
+    ins.type = "";
+    ins.name = "";
+    ins.operands = [];
+    ins.line = sourceLine;
+    if (length(line) > 0 && charCodeAt(line, length(line) - 1) == 58) {
+        ins.opcode = "label";
+        ins.name = trim(slice(line, 0, length(line) - 1));
+    } else if (cpp17_starts(line, "local-auto ") || cpp17_starts(line, "local ")) {
+        let inferred: bool = cpp17_starts(line, "local-auto ");
+        let prefix: i64 = 6;
+        if (inferred) prefix = 11;
+        let rest: string = trim(slice(line, prefix, length(line)));
+        let sp: i64 = cpp17_findText(rest, " ", 0);
+        if (sp >= 0) {
+            if (inferred) ins.opcode = "local-auto";
+            else ins.opcode = "local";
+            ins.type = trim(slice(rest, 0, sp));
+            ins.name = trim(slice(rest, sp + 1, length(rest)));
+        }
+    } else if (cpp17_starts(line, "store_ref ") || cpp17_starts(line, "store ")) {
+        let refStore: bool = cpp17_starts(line, "store_ref ");
+        let prefix: i64 = 6;
+        if (refStore) prefix = 10;
+        let rest: string = slice(line, prefix, length(line));
+        let comma: i64 = rirTopLevelComma(rest);
+        if (comma >= 0) {
+            if (refStore) ins.opcode = "store_ref";
+            else ins.opcode = "store";
+            push(ins.operands, trim(slice(rest, 0, comma)));
+            push(ins.operands, trim(slice(rest, comma + 1, length(rest))));
+        }
+    } else if (cpp17_starts(line, "jump ")) {
+        ins.opcode = "jump";
+        ins.name = trim(slice(line, 5, length(line)));
+    } else if (cpp17_starts(line, "branch ")) {
+        let rest: string = slice(line, 7, length(line));
+        let q: i64 = cpp17_findText(rest, " ? ", 0);
+        if (q >= 0) {
+            let right: string = slice(rest, q + 3, length(rest));
+            let colon: i64 = cpp17_findText(right, " : ", 0);
+            if (colon >= 0) {
+                ins.opcode = "branch";
+                push(ins.operands, trim(slice(rest, 0, q)));
+                push(ins.operands, trim(slice(right, 0, colon)));
+                push(ins.operands, trim(slice(right, colon + 3, length(right))));
+            }
+        }
+    } else if (line == "return") ins.opcode = "return";
+    else if (cpp17_starts(line, "return ")) {
+        ins.opcode = "return";
+        push(ins.operands, trim(slice(line, 7, length(line))));
+    } else if (cpp17_starts(line, "native-call ")) {
+        ins.opcode = "native-call";
+        push(ins.operands, trim(slice(line, 12, length(line))));
+    } else if (cpp17_starts(line, "call ")) {
+        ins.opcode = "call-statement";
+        if (!parseRirCallParts(trim(slice(line, 5, length(line))), ins)) ins.opcode = "invalid";
+    } else if (cpp17_starts(line, "field_set ")) {
+        let rest: string = slice(line, 10, length(line));
+        let eq: i64 = cpp17_findText(rest, " = ", 0);
+        if (eq >= 0) {
+            ins.opcode = "field_set";
+            push(ins.operands, trim(slice(rest, 0, eq)));
+            push(ins.operands, trim(slice(rest, eq + 3, length(rest))));
+        }
+    } else if (cpp17_starts(line, "%t")) {
+        let eq: i64 = cpp17_findText(line, " = ", 0);
+        if (eq > 2) return parseRirRhs(trim(slice(line, eq + 3, length(line))), trim(slice(line, 0, eq)), sourceLine);
+    }
+    return ins;
+}
+
+function cpp17_parseFunction(line: string) -> FunctionMeta {
+    let f: FunctionMeta = new FunctionMeta();
+    f.params = [];
+    f.paramTypes = [];
+    f.instructions = [];
+    let open: i64 = cpp17_findText(line, "(", 0);
+    let close: i64 = cpp17_findText(line, ")", open + 1);
+    if (open < 0 || close < 0) return f;
+    f.name = trim(slice(line, 9, open));
+    let raw: string = slice(line, open + 1, close);
+    let start: i64 = 0;
+    let i: i64 = 0;
+    while (i <= length(raw)) {
+        if (i == length(raw) || charCodeAt(raw, i) == 44) {
+            addParam(f, slice(raw, start, i));
+            start = i + 1;
+        }
+        i = i + 1;
+    }
+    f.returnType = afterArrow(line);
+    return f;
+}
+
+function parseRir(rir: string) -> BackendModule {
+    let lines: List<string> = splitLines(rir);
+    let module: BackendModule = new BackendModule();
+    module.parseError = "";
+    module.uses = [];
+    module.globals = [];
+    module.structs = [];
+    module.functions = [];
+    let i: i64 = 1;
+    while (i < listLength(lines)) {
+        let line: string = trim(lines[i]);
+        if (line == "" || line == "rir 1") {
+            i = i + 1;
+        } else if (cpp17_starts(line, "use-quoted ")) {
+            push(module.uses, "quoted:" + trim(slice(line, 11, length(line))));
+            i = i + 1;
+        } else if (cpp17_starts(line, "global-const-auto ") || cpp17_starts(line, "global-const ")) {
+            let isAuto: bool = cpp17_starts(line, "global-const-auto ");
+            let prefixLength: i64 = 13;
+            if (isAuto) prefixLength = 18;
+            let rest: string = trim(slice(line, prefixLength, length(line)));
+            let firstSpace: i64 = cpp17_findText(rest, " ", 0);
+            if (firstSpace >= 0) {
+                let afterType: string = trim(slice(rest, firstSpace + 1, length(rest)));
+                let secondSpace: i64 = cpp17_findText(afterType, " ", 0);
+                if (secondSpace >= 0) {
+                    let g: GlobalMeta = new GlobalMeta();
+                    g.type = trim(slice(rest, 0, firstSpace));
+                    g.name = trim(slice(afterType, 0, secondSpace));
+                    g.initFunction = trim(slice(afterType, secondSpace + 1, length(afterType)));
+                    g.isConst = true;
+                    g.isAuto = isAuto;
+                    push(module.globals, g);
+                }
+            }
+            i = i + 1;
+        } else if (cpp17_starts(line, "global-auto ") || cpp17_starts(line, "global ")) {
+            let isAuto: bool = cpp17_starts(line, "global-auto ");
+            let prefixLength: i64 = 7;
+            if (isAuto) prefixLength = 12;
+            let rest: string = trim(slice(line, prefixLength, length(line)));
+            if (isAuto) {
+                let firstSpace: i64 = cpp17_findText(rest, " ", 0);
+                if (firstSpace >= 0) {
+                    let afterType: string = trim(slice(rest, firstSpace + 1, length(rest)));
+                    let secondSpace: i64 = cpp17_findText(afterType, " ", 0);
+                    if (secondSpace >= 0) {
+                        let g: GlobalMeta = new GlobalMeta();
+                        g.type = trim(slice(rest, 0, firstSpace));
+                        g.name = trim(slice(afterType, 0, secondSpace));
+                        g.initFunction = trim(slice(afterType, secondSpace + 1, length(afterType)));
+                        g.isConst = false;
+                        g.isAuto = true;
+                        push(module.globals, g);
+                    }
+                }
+            } else {
+                let sp: i64 = cpp17_findText(rest, " ", 0);
+                if (sp >= 0) {
+                    let g: GlobalMeta = new GlobalMeta();
+                    g.type = trim(slice(rest, 0, sp));
+                    g.name = trim(slice(rest, sp + 1, length(rest)));
+                    g.isConst = false;
+                    g.isAuto = false;
+                    g.initFunction = "";
+                    push(module.globals, g);
+                }
+            }
+            i = i + 1;
+        } else if (cpp17_starts(line, "struct ")) {
+            let st: StructMeta = new StructMeta();
+            st.name = trim(slice(line, 7, length(line)));
+            st.fields = [];
+            st.fieldTypes = [];
+            i = i + 1;
+            while (i < listLength(lines) && cpp17_starts(lineAt(lines, i), "field ")) {
+                let fieldLine: string = trim(lines[i]);
+                let rest: string = trim(slice(fieldLine, 6, length(fieldLine)));
+                let p: i64 = cpp17_findText(rest, " ", 0);
+                if (p >= 0) {
+                    push(st.fieldTypes, trim(slice(rest, 0, p)));
+                    push(st.fields, trim(slice(rest, p + 1, length(rest))));
+                }
+                i = i + 1;
+            }
+            push(module.structs, st);
+        } else if (cpp17_starts(line, "function ")) {
+            let f: FunctionMeta = cpp17_parseFunction(line);
+            i = i + 1;
+            while (i < listLength(lines) && lineAt(lines, i) != "endfunction") {
+                let bodyLine: string = trim(lines[i]);
+                if (bodyLine != "") {
+                    let instruction: RirInstruction = parseRirInstruction(bodyLine, i + 1);
+                    push(f.instructions, instruction);
+                    if (instruction.opcode == "invalid" && module.parseError == "") {
+                        module.parseError = "invalid RIR instruction at line " + int_to_string(i + 1) + ": " + bodyLine;
+                    }
+                }
+                i = i + 1;
+            }
+            if (i < listLength(lines)) i = i + 1;
+            push(module.functions, f);
+        } else {
+            if (module.parseError == "") module.parseError = "invalid RIR declaration at line " + int_to_string(i + 1) + ": " + line;
+            i = i + 1;
+        }
+    }
+    return module;
+}
+
+
+// Raz declarations are never emitted with their source spelling. Encode each
+// ASCII identifier as length + decimal character codes. This is deterministic,
+// injective for the lexer's identifier alphabet, valid in C++, and deliberately
+// keeps the source name opaque to the C++ layer. Native `name!(...)` calls are
+// the only exception because they explicitly name an external C++ API.
+function cppMangledName(prefix: string, name: string) -> string {
+    let out: string = prefix + "_n" + int_to_string(length(name));
+    let i: i64 = 0;
+    while (i < length(name)) {
+        out = out + "_" + int_to_string(name[i]);
+        i = i + 1;
+    }
+    return out;
+}
+
+function cppVariableName(name: string) -> string {
+    return cppMangledName("raz_v", name);
+}
+
+function cppFunctionName(name: string) -> string {
+    return cppMangledName("raz_fn", name);
+}
+
+function cppStructName(name: string) -> string {
+    return cppMangledName("raz_ty", name);
+}
+
+function cppFieldName(name: string) -> string {
+    return cppMangledName("raz_field", name);
+}
+
+// Calls that bind to a Raz function are mangled. Calls provided by an
+// explicitly imported C++ library (including current generic container
+// templates) keep their native spelling; no library names are hard-coded.
+function cppCallName(module: Ref<BackendModule>, name: string) -> string {
+    let i: i64 = 0;
+    while (i < listLength(module.functions)) {
+        if (module.functions[i].name == name) return cppFunctionName(name);
+        i = i + 1;
+    }
+    return name;
+}
+
+function cppType(t: string) -> string {
+    if (t == "void") return "void";
+    // Use GCC/Clang's predefined underlying type so the Raz primitive i64 does
+    // not force an implicit <cstdint> include into every generated program.
+    // The build target is the GNU-compatible C++ toolchain; the static assertion
+    // emitted by generate() verifies that this target provides an exact 64-bit type.
+    if (t == "i64") return "raz_i64";
+    if (t == "f64") return "double";
+    if (t == "bool") return "bool";
+    if (t == "char") return "char";
+    if (t == "string") return "std::string";
+    if (cpp17_starts(t, "List<")) {
+        let inner: string = slice(t, 5, length(t) - 1);
+        return "std::vector<" + cppType(inner) + ">";
+    }
+    if (cpp17_starts(t, "Ref<")) {
+        let inner: string = slice(t, 4, length(t) - 1);
+        return cppType(inner) + "&";
+    }
+    if (endsWith(t, "*")) return cppType(slice(t, 0, length(t) - 1)) + "*";
+    return cppStructName(t);
+}
+
+function valueName(v: string) -> string {
+    let x: string = trim(v);
+    if (cpp17_starts(x, "%")) return "t" + slice(x, 1, length(x));
+    return x;
+}
+
+function aliasValue(state: Ref<BackendState>, name: string) -> string {
+    let i: i64 = 0;
+    while (i < listLength(state.aliasNames)) {
+        if (state.aliasNames[i] == name) return state.aliasValues[i];
+        i = i + 1;
+    }
+    return name;
+}
+
+function simpleRazIdentifier(value: string) -> bool {
+    if (value == "") return false;
+    let first: i64 = charCodeAt(value, 0);
+    if (!((first >= 65 && first <= 90) || (first >= 97 && first <= 122) || first == 95)) return false;
+    let i: i64 = 1;
+    while (i < length(value)) {
+        let c: i64 = charCodeAt(value, i);
+        if (!((c >= 65 && c <= 90) || (c >= 97 && c <= 122) || (c >= 48 && c <= 57) || c == 95)) return false;
+        i = i + 1;
+    }
+    return true;
+}
+
+function cppValue(state: Ref<BackendState>, value: string) -> string {
+    let x: string = trim(value);
+    if (cpp17_starts(x, "%") && cpp17_findText(x, "%t", 0) == 0) return aliasValue(state, valueName(x));
+    if (cpp17_findText(x, "%t", 0) < 0) {
+        if (x == "true" || x == "false" || x == "nullptr") return x;
+        // Compiler-generated local symbols are intentionally outside Raz's
+        // identifier alphabet, then mangled into ordinary C++ identifiers.
+        if (cpp17_starts(x, "raz$local$")) return cppVariableName(x);
+        if (simpleRazIdentifier(x)) return cppVariableName(x);
+        return x;
+    }
+    let out: string = "";
+    let i: i64 = 0;
+    while (i < length(x)) {
+        if (i + 2 < length(x) && slice(x, i, i + 2) == "%t" && charCodeAt(x, i + 2) >= 48 && charCodeAt(x, i + 2) <= 57) {
+            let end: i64 = i + 2;
+            while (end < length(x) && charCodeAt(x, end) >= 48 && charCodeAt(x, end) <= 57) end = end + 1;
+            let name: string = "t" + slice(x, i + 2, end);
+            out = out + aliasValue(state, name);
+            i = end;
+        } else {
+            out = out + slice(x, i, i + 1);
+            i = i + 1;
+        }
+    }
+    return out;
+}
+
+function topLevelComma(value: string) -> i64 {
+    let depth: i64 = 0;
+    let i: i64 = 0;
+    while (i < length(value)) {
+        if (charCodeAt(value, i) == 40 || charCodeAt(value, i) == 91 || charCodeAt(value, i) == 123) depth = depth + 1;
+        else if (charCodeAt(value, i) == 41 || charCodeAt(value, i) == 93 || charCodeAt(value, i) == 125) depth = depth - 1;
+        else if (charCodeAt(value, i) == 44 && depth == 0) return i;
+        i = i + 1;
+    }
+    return -1;
+}
+
+function setAlias(state: Ref<BackendState>, name: string, value: string) {
+    let i: i64 = 0;
+    while (i < listLength(state.aliasNames)) {
+        if (state.aliasNames[i] == name) {
+            state.aliasValues[i] = value;
+            return;
+        }
+        i = i + 1;
+    }
+    push(state.aliasNames, name);
+    push(state.aliasValues, value);
+}
+
+function cppRirArgs(state: Ref<BackendState>, values: Ref<List<string>>) -> string {
+    let out: string = "";
+    let i: i64 = 0;
+    while (i < listLength(values)) {
+        if (i > 0) out = out + ", ";
+        out = out + cppValue(state, values[i]);
+        i = i + 1;
+    }
+    return out;
+}
+
+function cppArgs(state: Ref<BackendState>, values: string) -> string {
+    let out: string = "";
+    let start: i64 = 0;
+    let depth: i64 = 0;
+    let i: i64 = 0;
+    while (i <= length(values)) {
+        if (i < length(values) && (charCodeAt(values, i) == 40 || charCodeAt(values, i) == 91 || charCodeAt(values, i) == 123)) depth = depth + 1;
+        else if (i < length(values) && (charCodeAt(values, i) == 41 || charCodeAt(values, i) == 93 || charCodeAt(values, i) == 125)) depth = depth - 1;
+        if (i == length(values) || (charCodeAt(values, i) == 44 && depth == 0)) {
+            let item: string = trim(slice(values, start, i));
+            if (item != "") {
+                if (out != "") out = out + ", ";
+                out = out + cppValue(state, item);
+            }
+            start = i + 1;
+        }
+        i = i + 1;
+    }
+    return out;
+}
+
+function localIndex(state: Ref<BackendState>, name: string) -> i64 {
+    let i: i64 = listLength(state.locals) - 1;
+    while (i >= 0) {
+        if (state.locals[i] == name) return i;
+        i = i - 1;
+    }
+    return -1;
+}
+
+// RIR temporary names are numeric (`tN` after removing `%`). Allocate the
+// function's temp range once and use direct indexing, avoiding repeated linear
+// scans in value/type inference. A temp may be assigned on multiple control-flow
+// edges; all such assignments share a single declaration and inferred type.
+function tempNumber(name: string) -> i64 {
+    // valueName() canonicalizes `%t123` to `tt123` for the C++ emitter.
+    if (!cpp17_starts(name, "tt") || length(name) < 3) return -1;
+    let n: i64 = 0;
+    let i: i64 = 2;
+    while (i < length(name)) {
+        let c: i64 = charCodeAt(name, i);
+        if (c < 48 || c > 57) return -1;
+        n = n * 10 + c - 48;
+        i = i + 1;
+    }
+    return n;
+}
+
+function tempSlot(state: Ref<BackendState>, name: string) -> i64 {
+    let n: i64 = tempNumber(name);
+    if (n < state.tempBase) return -1;
+    let slot: i64 = n - state.tempBase;
+    if (slot < 0 || slot >= listLength(state.temps)) return -1;
+    if (state.temps[slot] != name) return -1;
+    return slot;
+}
+
+function addTemp(state: Ref<BackendState>, name: string, type: string) {
+    let slot: i64 = tempSlot(state, name);
+    if (slot < 0) return;
+    if (state.tempTypes[slot] == "") {
+        state.tempTypes[slot] = type;
+    } else if (state.tempTypes[slot] == "i64" && type != "i64") {
+        state.tempTypes[slot] = type;
+    } else if (state.tempTypes[slot] == "List<i64>" && cpp17_starts(type, "List<")) {
+        state.tempTypes[slot] = type;
+    }
+}
+
+function tempType(state: Ref<BackendState>, name: string) -> string {
+    let slot: i64 = tempSlot(state, name);
+    if (slot < 0 || state.tempTypes[slot] == "") return "i64";
+    return state.tempTypes[slot];
+}
+
+function setTempType(state: Ref<BackendState>, name: string, type: string) {
+    let slot: i64 = tempSlot(state, name);
+    if (slot >= 0) state.tempTypes[slot] = type;
+}
+
+function refineListType(state: Ref<BackendState>, value: string, expected: string) {
+    let x: string = trim(value);
+    if (!cpp17_starts(x, "%") || !cpp17_starts(expected, "List<")) return;
+    let name: string = valueName(x);
+    if (tempType(state, name) == "List<i64>") setTempType(state, name, expected);
+}
+
+function findVarType(f: Ref<FunctionMeta>, state: Ref<BackendState>, name: string) -> string {
+    let i: i64 = 0;
+    while (i < listLength(f.params)) {
+        if (f.params[i] == name) return f.paramTypes[i];
+        i = i + 1;
+    }
+    i = listLength(state.locals) - 1;
+    while (i >= 0) {
+        if (state.locals[i] == name) return state.localTypes[i];
+        i = i - 1;
+    }
+    return "i64";
+}
+
+function valueType(module: Ref<BackendModule>, f: Ref<FunctionMeta>, state: Ref<BackendState>, value: string) -> string {
+    let x: string = trim(value);
+    let type: string = "";
+    if (cpp17_starts(x, "%")) type = tempType(state, valueName(x));
+    else if (x == "true" || x == "false") return "bool";
+    else if (cpp17_starts(x, "\"")) return "string";
+    else type = findVarType(f, state, x);
+    // Reading a place yields T, even when its storage/parameter is Ref<T>.
+    // Explicit reference operations infer Ref<T> in their own branches.
+    if (cpp17_starts(type, "Ref<") && length(type) > 5) return slice(type, 4, length(type) - 1);
+    return type;
+}
+
+function functionReturnType(module: Ref<BackendModule>, name: string) -> string {
+    let i: i64 = 0;
+    while (i < listLength(module.functions)) {
+        if (module.functions[i].name == name) return module.functions[i].returnType;
+        i = i + 1;
+    }
+    if (name == "listLength") return "i64";
+    if (name == "push") return "void";
+    return "i64";
+}
+
+function structFieldType(module: Ref<BackendModule>, type: string, field: string) -> string {
+    let name: string = type;
+    if (cpp17_starts(name, "Ref<")) name = slice(name, 4, length(name) - 1);
+    let generic: i64 = cpp17_findText(name, "<", 0);
+    if (generic >= 0) name = slice(name, 0, generic);
+    let i: i64 = 0;
+    while (i < listLength(module.structs)) {
+        let st: StructMeta = module.structs[i];
+        if (st.name == name) {
+            let j: i64 = 0;
+            while (j < listLength(st.fields)) {
+                if (st.fields[j] == field) return st.fieldTypes[j];
+                j = j + 1;
+            }
+        }
+        i = i + 1;
+    }
+    return "i64";
+}
+
+function globalType(module: Ref<BackendModule>, name: string) -> string {
+    let i: i64 = 0;
+    while (i < listLength(module.globals)) {
+        if (module.globals[i].name == name) return module.globals[i].type;
+        i = i + 1;
+    }
+    return "i64";
+}
+
+function inferInstructionType(module: Ref<BackendModule>, f: Ref<FunctionMeta>, state: Ref<BackendState>, ins: Ref<RirInstruction>) -> string {
+    let op: string = ins.opcode;
+    if (op == "copy") return valueType(module, f, state, ins.operands[0]);
+    if (op == "load") {
+        let name: string = ins.operands[0];
+        let i: i64 = 0;
+        while (i < listLength(f.params)) {
+            if (f.params[i] == name) return f.paramTypes[i];
+            i = i + 1;
+        }
+        if (localIndex(state, name) >= 0) return findVarType(f, state, name);
+        return globalType(module, name);
+    }
+    if (op == "ref") {
+        let type: string = findVarType(f, state, ins.operands[0]);
+        if (cpp17_starts(type, "Ref<")) return type;
+        return "Ref<" + type + ">";
+    }
+    if (op == "ref_field") {
+        let baseType: string = valueType(module, f, state, ins.operands[0]);
+        return "Ref<" + structFieldType(module, baseType, ins.operands[1]) + ">";
+    }
+    if (op == "ref_index") {
+        let baseType: string = valueType(module, f, state, ins.operands[0]);
+        if (cpp17_starts(baseType, "Ref<")) baseType = slice(baseType, 4, length(baseType) - 1);
+        if (cpp17_starts(baseType, "List<")) return "Ref<" + slice(baseType, 5, length(baseType) - 1) + ">";
+    }
+    if (op == "const") return ins.type;
+    if (op == "new") return ins.type;
+    if (op == "field") return structFieldType(module, valueType(module, f, state, ins.operands[0]), ins.operands[1]);
+    if (op == "index") {
+        let baseType: string = valueType(module, f, state, ins.operands[0]);
+        let sequenceType: string = baseType;
+        if (cpp17_starts(sequenceType, "Ref<")) sequenceType = slice(sequenceType, 4, length(sequenceType) - 1);
+        if (cpp17_starts(sequenceType, "List<")) return slice(sequenceType, 5, length(sequenceType) - 1);
+        if (baseType == "string") return "i64";
+    }
+    if (op == "list") {
+        if (listLength(ins.operands) == 0) return "List<i64>";
+        return "List<" + valueType(module, f, state, ins.operands[0]) + ">";
+    }
+    if (op == "call-result") {
+        if (ins.name == "append" && listLength(ins.operands) > 0) return valueType(module, f, state, ins.operands[0]);
+        return functionReturnType(module, ins.name);
+    }
+    if (op == "eq" || op == "ne" || op == "lt" || op == "le" || op == "gt" || op == "ge" || op == "and" || op == "or" || op == "not") return "bool";
+    if (op == "add" || op == "sub" || op == "mul" || op == "div" || op == "mod" || op == "neg" || op == "pos") {
+        if (listLength(ins.operands) == 0) return "i64";
+        let leftType: string = valueType(module, f, state, ins.operands[0]);
+        if (op == "add" && leftType == "string") return "string";
+        return leftType;
+    }
+    return "i64";
+}
+
+function collectDeclarations(module: Ref<BackendModule>, f: Ref<FunctionMeta>, state: Ref<BackendState>) {
+    state.temps = [];
+    state.tempTypes = [];
+    state.tempBase = 0;
+    state.locals = [];
+    state.localTypes = [];
+    state.localAutos = [];
+    state.localInitValues = [];
+    state.aliasNames = [];
+    state.aliasValues = [];
+
+    let i: i64 = 0;
+    while (i < listLength(f.instructions)) {
+        let ins: RirInstruction = f.instructions[i];
+        if (ins.opcode == "local" || ins.opcode == "local-auto") {
+            push(state.localTypes, ins.type);
+            push(state.locals, ins.name);
+            push(state.localAutos, ins.opcode == "local-auto");
+            push(state.localInitValues, "");
+        }
+        i = i + 1;
+    }
+
+    // Reserve the numeric temporary span once, then index by tN directly.
+    let minTemp: i64 = 2147483647;
+    let maxTemp: i64 = -1;
+    i = 0;
+    while (i < listLength(f.instructions)) {
+        let ins: RirInstruction = f.instructions[i];
+        if (ins.result != "") {
+            let id: i64 = tempNumber(valueName(ins.result));
+            if (id >= 0 && id < minTemp) minTemp = id;
+            if (id > maxTemp) maxTemp = id;
+        }
+        i = i + 1;
+    }
+    if (maxTemp >= minTemp) {
+        state.tempBase = minTemp;
+        let id: i64 = minTemp;
+        while (id <= maxTemp) {
+            push(state.temps, "tt" + int_to_string(id));
+            push(state.tempTypes, "");
+            id = id + 1;
+        }
+    }
+
+    i = 0;
+    while (i < listLength(f.instructions)) {
+        let ins: RirInstruction = f.instructions[i];
+        if (ins.result != "") addTemp(state, valueName(ins.result), inferInstructionType(module, f, state, ins));
+        i = i + 1;
+    }
+
+    i = 0;
+    while (i < listLength(f.instructions)) {
+        let ins: RirInstruction = f.instructions[i];
+        if (ins.opcode == "store" && listLength(ins.operands) >= 2) {
+            let localId: i64 = localIndex(state, ins.operands[0]);
+            if (localId >= 0 && state.localAutos[localId] && state.localInitValues[localId] == "") state.localInitValues[localId] = ins.operands[1];
+            refineListType(state, ins.operands[1], findVarType(f, state, ins.operands[0]));
+        } else if (ins.opcode == "field_set" && listLength(ins.operands) >= 2) {
+            let target: string = ins.operands[0];
+            let dot: i64 = cpp17_findText(target, ".", 0);
+            if (dot >= 0) {
+                let base: string = trim(slice(target, 0, dot));
+                let field: string = trim(slice(target, dot + 1, length(target)));
+                let expected: string = structFieldType(module, findVarType(f, state, base), field);
+                refineListType(state, ins.operands[1], expected);
+            }
+        } else if (ins.opcode == "store_ref" && listLength(ins.operands) >= 2) {
+            let refName: string = valueName(ins.operands[0]);
+            let refType: string = tempType(state, refName);
+            if (cpp17_starts(refType, "Ref<") && length(refType) > 5) {
+                let expected: string = slice(refType, 4, length(refType) - 1);
+                refineListType(state, ins.operands[1], expected);
+            }
+        }
+        i = i + 1;
+    }
+}
+
+function cpp17_emitLine(state: Ref<BackendState>, line: string) {
+    push(state.lines, line);
+}
+
+function resetLines(state: Ref<BackendState>) {
+    state.lines = [];
+}
+
+function cppLiteral(rest: string, type: string) -> string {
+    if (type == "string") return "std::string(" + rest + ")";
+    if (type == "bool") return rest;
+    if (type == "char") return "'" + rest + "'";
+    return rest;
+}
+
+// Native `name!(...)` expressions are emitted inline in RIR rather than as a
+// normal `call` instruction. Parse their argument list structurally so every
+// temp is resolved through cppArgs/cppValue (including Ref<T> aliases) instead
+// of leaking a raw `%tN` token into the generated C++.
+function cppInlineCall(module: Ref<BackendModule>, state: Ref<BackendState>, expression: string) -> string {
+    let call: string = trim(expression);
+    let open: i64 = cpp17_findText(call, "(", 0);
+    if (open < 0 || !endsWith(call, ")")) return cppValue(state, call);
+    let callee: string = trim(slice(call, 0, open));
+    let args: string = slice(call, open + 1, length(call) - 1);
+    return cppCallName(module, callee) + "(" + cppArgs(state, args) + ")";
+}
+
+function emitFunction(module: Ref<BackendModule>, f: Ref<FunctionMeta>, state: Ref<BackendState>) {
+    collectDeclarations(module, f, state);
+    let params: string = "";
+    let i: i64 = 0;
+    while (i < listLength(f.params)) {
+        if (i > 0) params = params + ", ";
+        params = params + cppType(f.paramTypes[i]) + " " + cppVariableName(f.params[i]);
+        i = i + 1;
+    }
+
+    cpp17_emitLine(state, cppType(f.returnType) + " " + cppFunctionName(f.name) + "(" + params + ") {");
+    // Temps are declared before local-auto storage so decltype(ttN) is always
+    // available. Runtime initialization remains at the original store site.
+    i = 0;
+    while (i < listLength(state.temps)) {
+        if (state.tempTypes[i] != "" && !cpp17_starts(state.tempTypes[i], "Ref<")) cpp17_emitLine(state, "    " + cppType(state.tempTypes[i]) + " " + state.temps[i] + "{};");
+        i = i + 1;
+    }
+    i = 0;
+    while (i < listLength(state.locals)) {
+        let variable: string = cppVariableName(state.locals[i]);
+        let declaration: string = "";
+        if (state.localAutos[i] && state.localInitValues[i] != "") {
+            let initializerName: string = valueName(state.localInitValues[i]);
+            let initializerType: string = tempType(state, initializerName);
+            if (!cpp17_starts(initializerType, "Ref<")) declaration = "auto " + variable + " = decltype(" + initializerName + "){};";
+            else declaration = cppType(state.localTypes[i]) + " " + variable + "{};";
+        } else declaration = cppType(state.localTypes[i]) + " " + variable + "{};";
+        cpp17_emitLine(state, "    " + declaration);
+        i = i + 1;
+    }
+    cpp17_emitLine(state, "");
+
+    i = 0;
+    while (i < listLength(f.instructions)) {
+        let ins: RirInstruction = f.instructions[i];
+        if (ins.opcode == "label") {
+            if (ins.name == "entry") cpp17_emitLine(state, "entry:;");
+            else cpp17_emitLine(state, "    " + ins.name + ":;");
+        } else if (ins.opcode == "local" || ins.opcode == "local-auto") {
+            // Local storage is declared in the function preamble.
+        } else if (ins.opcode == "store" || ins.opcode == "store_ref") {
+            cpp17_emitLine(state, "    " + cppValue(state, ins.operands[0]) + " = " + cppValue(state, ins.operands[1]) + ";");
+        } else if (ins.opcode == "jump") {
+            cpp17_emitLine(state, "    goto " + ins.name + ";");
+        } else if (ins.opcode == "branch") {
+            cpp17_emitLine(state, "    if (" + cppValue(state, ins.operands[0]) + ") goto " + ins.operands[1] + "; else goto " + ins.operands[2] + ";");
+        } else if (ins.opcode == "return") {
+            if (listLength(ins.operands) == 0) cpp17_emitLine(state, "    return;");
+            else cpp17_emitLine(state, "    return " + cppInlineCall(module, state, ins.operands[0]) + ";");
+        } else if (ins.opcode == "native-call") {
+            cpp17_emitLine(state, "    " + cppInlineCall(module, state, ins.operands[0]) + ";");
+        } else if (ins.opcode == "call-statement") {
+            cpp17_emitLine(state, "    " + cppCallName(module, ins.name) + "(" + cppRirArgs(state, ins.operands) + ");");
+        } else if (ins.opcode == "field_set") {
+            let target: string = ins.operands[0];
+            let dot: i64 = cpp17_findText(target, ".", 0);
+            let cppTarget: string = target;
+            if (dot >= 0) cppTarget = cppValue(state, trim(slice(target, 0, dot))) + "." + cppFieldName(trim(slice(target, dot + 1, length(target))));
+            cpp17_emitLine(state, "    " + cppTarget + " = " + cppValue(state, ins.operands[1]) + ";");
+        } else {
+            let lhs: string = valueName(ins.result);
+            if (ins.opcode == "const") {
+                cpp17_emitLine(state, "    " + lhs + " = " + cppLiteral(ins.operands[0], ins.type) + ";");
+            } else if (ins.opcode == "load") {
+                let name: string = ins.operands[0];
+                if (cpp17_starts(tempType(state, lhs), "Ref<")) setAlias(state, lhs, cppVariableName(name));
+                else cpp17_emitLine(state, "    " + lhs + " = " + cppValue(state, name) + ";");
+            } else if (ins.opcode == "copy") {
+                cpp17_emitLine(state, "    " + lhs + " = " + cppValue(state, ins.operands[0]) + ";");
+            } else if (ins.opcode == "ref") {
+                setAlias(state, lhs, cppVariableName(ins.operands[0]));
+            } else if (ins.opcode == "ref_field") {
+                setAlias(state, lhs, cppValue(state, ins.operands[0]) + "." + cppFieldName(ins.operands[1]));
+            } else if (ins.opcode == "ref_index") {
+                setAlias(state, lhs, cppValue(state, ins.operands[0]) + "[" + cppValue(state, ins.operands[1]) + "]");
+            } else if (ins.opcode == "new") {
+                cpp17_emitLine(state, "    " + lhs + " = " + cppType(ins.type) + "{};");
+            } else if (ins.opcode == "field") {
+                cpp17_emitLine(state, "    " + lhs + " = " + cppValue(state, ins.operands[0]) + "." + cppFieldName(ins.operands[1]) + ";");
+            } else if (ins.opcode == "index") {
+                cpp17_emitLine(state, "    " + lhs + " = " + cppValue(state, ins.operands[0]) + "[" + cppValue(state, ins.operands[1]) + "];" );
+            } else if (ins.opcode == "call-result") {
+                cpp17_emitLine(state, "    " + lhs + " = " + cppCallName(module, ins.name) + "(" + cppRirArgs(state, ins.operands) + ");");
+            } else if (ins.opcode == "list") {
+                cpp17_emitLine(state, "    " + lhs + " = " + cppType(tempType(state, lhs)) + "{" + cppRirArgs(state, ins.operands) + "};");
+            } else if (ins.opcode == "neg") {
+                cpp17_emitLine(state, "    " + lhs + " = -" + cppValue(state, ins.operands[0]) + ";");
+            } else if (ins.opcode == "not") {
+                cpp17_emitLine(state, "    " + lhs + " = !" + cppValue(state, ins.operands[0]) + ";");
+            } else if (ins.opcode == "pos") {
+                cpp17_emitLine(state, "    " + lhs + " = +" + cppValue(state, ins.operands[0]) + ";");
+            } else {
+                let symbol: string = "";
+                if (ins.opcode == "add") symbol = "+";
+                else if (ins.opcode == "sub") symbol = "-";
+                else if (ins.opcode == "mul") symbol = "*";
+                else if (ins.opcode == "div") symbol = "/";
+                else if (ins.opcode == "mod") symbol = "%";
+                else if (ins.opcode == "eq") symbol = "==";
+                else if (ins.opcode == "ne") symbol = "!=";
+                else if (ins.opcode == "lt") symbol = "<";
+                else if (ins.opcode == "le") symbol = "<=";
+                else if (ins.opcode == "gt") symbol = ">";
+                else if (ins.opcode == "ge") symbol = ">=";
+                else if (ins.opcode == "and") symbol = "&&";
+                else if (ins.opcode == "or") symbol = "||";
+                if (symbol != "") cpp17_emitLine(state, "    " + lhs + " = " + cppValue(state, ins.operands[0]) + " " + symbol + " " + cppValue(state, ins.operands[1]) + ";");
+            }
+        }
+        i = i + 1;
+    }
+    cpp17_emitLine(state, "}");
+    cpp17_emitLine(state, "");
+}
+
+function generate(rir: string) -> string {
+    let module: BackendModule = parseRir(rir);
+    if (module.parseError != "") {
+        print("razc: C++ backend rejected RIR: " + module.parseError);
+        return "";
+    }
+    let state: BackendState = new BackendState();
+    state.lines = [];
+
+    // This is a compiler primitive mapping, not a library include. GCC and
+    // Clang expose the exact underlying signed 64-bit type as a predefined
+    // macro, allowing programs with no `use` directives to remain header-free.
+    cpp17_emitLine(state, "using raz_i64 = __INT64_TYPE__;");
+    cpp17_emitLine(state, "static_assert(sizeof(raz_i64) == 8, \"Raz i64 requires a 64-bit target type\");");
+    cpp17_emitLine(state, "");
+
+    let i: i64 = 0;
+    while (i < listLength(module.uses)) {
+        let u: string = module.uses[i];
+        if (cpp17_starts(u, "quoted:")) {
+            let header: string = slice(u, 7, length(u));
+            if (cpp17_findText(header, "/", 0) < 0 && cpp17_findText(header, "\\", 0) < 0 && cpp17_findText(header, ".", 0) < 0) cpp17_emitLine(state, "#include <" + header + ">");
+            else cpp17_emitLine(state, "#include \"" + header + "\"");
+        }
+        i = i + 1;
+    }
+    // Generic process context is part of the generated program ABI. Libraries
+    // may read it, but the backend does not know or care which library uses it.
+    cpp17_emitLine(state, "namespace raz_internal_process { int argc = 0; char** argv = nullptr; }");
+    cpp17_emitLine(state, "");
+
+    i = 0;
+    while (i < listLength(module.structs)) {
+        let st: StructMeta = module.structs[i];
+        cpp17_emitLine(state, "struct " + cppStructName(st.name) + " {");
+        let j: i64 = 0;
+        while (j < listLength(st.fields)) {
+            cpp17_emitLine(state, "    " + cppType(st.fieldTypes[j]) + " " + cppFieldName(st.fields[j]) + "{};");
+            j = j + 1;
+        }
+        cpp17_emitLine(state, "};");
+        cpp17_emitLine(state, "");
+        i = i + 1;
+    }
+
+    // Declare every function before globals because a const global may use a
+    // generated runtime initializer such as osName().
+    i = 0;
+    while (i < listLength(module.functions)) {
+        let f: FunctionMeta = module.functions[i];
+        let params: string = "";
+        let j: i64 = 0;
+        while (j < listLength(f.params)) {
+            if (j > 0) params = params + ", ";
+            params = params + cppType(f.paramTypes[j]) + " " + cppVariableName(f.params[j]);
+            j = j + 1;
+        }
+        cpp17_emitLine(state, cppType(f.returnType) + " " + cppFunctionName(f.name) + "(" + params + ");");
+        i = i + 1;
+    }
+    cpp17_emitLine(state, "");
+
+    i = 0;
+    while (i < listLength(module.globals)) {
+        let g: GlobalMeta = module.globals[i];
+        let variable: string = cppVariableName(g.name);
+        if (g.isConst && g.isAuto) cpp17_emitLine(state, "const auto " + variable + " = " + cppFunctionName(g.initFunction) + "();");
+        else if (g.isConst) cpp17_emitLine(state, "const " + cppType(g.type) + " " + variable + " = " + cppFunctionName(g.initFunction) + "();");
+        else if (g.isAuto && g.initFunction != "") cpp17_emitLine(state, "auto " + variable + " = decltype(" + cppFunctionName(g.initFunction) + "()){};");
+        else cpp17_emitLine(state, cppType(g.type) + " " + variable + "{};");
+        i = i + 1;
+    }
+    if (listLength(module.globals) > 0) cpp17_emitLine(state, "");
+
+    i = 0;
+    while (i < listLength(module.functions)) {
+        emitFunction(module, module.functions[i], state);
+        i = i + 1;
+    }
+
+    cpp17_emitLine(state, "int main(int argc, char** argv) {");
+    cpp17_emitLine(state, "    raz_internal_process::argc = argc;");
+    cpp17_emitLine(state, "    raz_internal_process::argv = argv;");
+    cpp17_emitLine(state, "    return static_cast<int>(" + cppFunctionName("main") + "());");
+    cpp17_emitLine(state, "}");
+
+    let outputChunks: List<string> = [];
+    i = 0;
+    while (i < listLength(state.lines)) {
+        push(outputChunks, state.lines[i] + "\n");
+        i = i + 1;
+    }
+    return joinTextChunks(outputChunks);
+}
+
+
+// Validate the structural contract of our generated C++17 translation unit.
+// Full C++ grammar/type validation belongs to the selected native C++ compiler;
+// this pass catches malformed output from our own lowering before it is written.
+function validateCpp17Output(source: string) -> string {
+    if (source == "") return "empty C++ output";
+    if (cpp17_findText(source, "int main(int argc, char** argv) {", 0) < 0) {
+        return "generated C++ is missing the required process entry point";
+    }
+    if (cpp17_findText(source, "using raz_i64 = __INT64_TYPE__;", 0) < 0) {
+        return "generated C++ is missing the target primitive type declaration";
+    }
+
+    let parens: i64 = 0;
+    let braces: i64 = 0;
+    let brackets: i64 = 0;
+    let quote: i64 = 0;
+    let escaped: bool = false;
+    let lineComment: bool = false;
+    let blockComment: bool = false;
+    let i: i64 = 0;
+    while (i < length(source)) {
+        let c: i64 = charCodeAt(source, i);
+        let next: i64 = -1;
+        if (i + 1 < length(source)) next = charCodeAt(source, i + 1);
+
+        if (lineComment) {
+            if (c == 10) lineComment = false;
+        } else if (blockComment) {
+            if (c == 42 && next == 47) {
+                blockComment = false;
+                i = i + 1;
+            }
+        } else if (quote != 0) {
+            if (escaped) escaped = false;
+            else if (c == 92) escaped = true;
+            else if (c == quote) quote = 0;
+        } else if (c == 47 && next == 47) {
+            lineComment = true;
+            i = i + 1;
+        } else if (c == 47 && next == 42) {
+            blockComment = true;
+            i = i + 1;
+        } else if (c == 34 || c == 39) {
+            quote = c;
+        } else if (c == 40) parens = parens + 1;
+        else if (c == 41) {
+            parens = parens - 1;
+            if (parens < 0) return "unexpected ')' in generated C++";
+        } else if (c == 123) braces = braces + 1;
+        else if (c == 125) {
+            braces = braces - 1;
+            if (braces < 0) return "unexpected '}' in generated C++";
+        } else if (c == 91) brackets = brackets + 1;
+        else if (c == 93) {
+            brackets = brackets - 1;
+            if (brackets < 0) return "unexpected ']' in generated C++";
+        }
+        i = i + 1;
+    }
+
+    if (quote != 0) return "unterminated literal in generated C++";
+    if (blockComment) return "unterminated comment in generated C++";
+    if (parens != 0 || braces != 0 || brackets != 0) return "unbalanced delimiters in generated C++";
+    return "";
+}
+
+// Gen2 compiler entry point. User module resolution is implemented in Raz in
+// src/source/modules.raz. JavaScript build scripts assemble/bootstrap only.
+use std.io;
+use std.text;
+use std.containers;
+use "cstdint";
+use "cstddef";
+use "string";
+use "vector";
+
+// Gen1 bootstrap workaround: the frozen backend infers some local string loads as i64.
+// The compiler executable explicitly imports every header required by its own implementation.
+let gInputPath: string = "";
+let gOutputPath: string = "";
+let gOption: string = "";
+let gSource: string = "";
+let gResolvedSource: string = "";
+let gExpandedSource: string = "";
+let gRir: string = "";
+let gCpp: string = "";
+let gDefaultModuleRoot: string = "";
+let gDefinitions: string = "";
+let gTargetOS: string = "unknown";
+let gTargetArch: string = "unknown";
+let gTargetCompiler: string = "unknown";
+
+function printUsage() {
+    print("Raz Gen2 compiler preview");
+    print("Usage: razc <input.raz> [GNU C++ options] [-o output]");
+    print("Raz options: --help, --version, -o <output>, --emit-cpp <output.cpp>, --module-path DIR, --define NAME=VALUE");
+}
+
+
+function buildDefinitionName(spec: string) -> string {
+    let equal: i64 = findText(spec, "=", 0);
+    if (equal <= 0) return "";
+    return slice(spec, 0, equal);
+}
+
+function validBuildDefinitionName(name: string) -> bool {
+    let tokens: List<Token> = lex(name);
+    if (listLength(tokens) != 2) return false;
+    return tokens[0].kind == 1 && tokens[0].text == name;
+}
+
+function validBuildDefinitionValue(value: string) -> bool {
+    let tokens: List<Token> = lex(value);
+    if (listLength(tokens) == 2) {
+        let kind: i64 = tokens[0].kind;
+        if (kind == 2 || kind == 3 || kind == 4 || kind == 17 || kind == 18) return true;
+    }
+    // Signed decimal numeric literals are also accepted; arbitrary expressions
+    // are intentionally not accepted as build-time values in G2-010.
+    if (length(value) > 1 && charCodeAt(value, 0) == 45) {
+        let magnitude: string = slice(value, 1, length(value));
+        let signedTokens: List<Token> = lex(magnitude);
+        if (listLength(signedTokens) == 2 && signedTokens[0].kind == 2) return true;
+    }
+    return false;
+}
+
+
+function reservedTargetDefinition(name: string) -> bool {
+    return name == "RAZ_TARGET_OS" || name == "RAZ_TARGET_ARCH" || name == "RAZ_TARGET_COMPILER";
+}
+
+function validTargetLabel(value: string) -> bool {
+    if (value == "") return false;
+    let i: i64 = 0;
+    while (i < length(value)) {
+        let c: i64 = charCodeAt(value, i);
+        if (!((c >= 65 && c <= 90) || (c >= 97 && c <= 122) || (c >= 48 && c <= 57) || c == 95 || c == 45 || c == 46)) return false;
+        i = i + 1;
+    }
+    return true;
+}
+
+function addBuildDefinition(spec: string) -> bool {
+    let name: string = buildDefinitionName(spec);
+    let cursor: i64 = 0;
+    while (cursor < length(gDefinitions)) {
+        let next: i64 = findText(gDefinitions, "\n", cursor);
+        let end: i64 = next;
+        if (end < 0) end = length(gDefinitions);
+        let oldSpec: string = slice(gDefinitions, cursor, end);
+        if (oldSpec != "" && buildDefinitionName(oldSpec) == name) return false;
+        if (next < 0) cursor = length(gDefinitions);
+        else cursor = next + 1;
+    }
+    gDefinitions = gDefinitions + spec + "\n";
+    return true;
+}
+
+function sourceUsesIdentifier(source: string, name: string) -> bool {
+    let tokens: List<Token> = lex(source);
+    let i: i64 = 0;
+    while (i + 1 < listLength(tokens)) {
+        if (tokens[i].kind == 1 && tokens[i].text == name) return true;
+        i = i + 1;
+    }
+    return false;
+}
+
+function rewriteBuildDefinitionReferences(source: string, name: string, alias: string) -> string {
+    let tokens: List<Token> = lex(source);
+    let out: string = "";
+    let cursor: i64 = 0;
+    let i: i64 = 0;
+    while (i < listLength(tokens)) {
+        let t: Token = tokens[i];
+        if (t.kind == 1 && t.text == name) {
+            out = out + slice(source, cursor, t.pos) + alias;
+            cursor = t.pos + length(name);
+        }
+        i = i + 1;
+    }
+    return out + slice(source, cursor, length(source));
+}
+
+function applyBuildDefinitions(source: string, definitions: string) -> string {
+    let declarations: string = "";
+    let rewritten: string = source;
+
+    // Target metadata is a read-only compile-time constant, added only when
+    // referenced so programs with no imports remain header-free.
+    if (sourceUsesIdentifier(rewritten, "RAZ_TARGET_OS")) declarations = declarations + "const RAZ_TARGET_OS: string = \"" + gTargetOS + "\";\n";
+    if (sourceUsesIdentifier(rewritten, "RAZ_TARGET_ARCH")) declarations = declarations + "const RAZ_TARGET_ARCH: string = \"" + gTargetArch + "\";\n";
+    if (sourceUsesIdentifier(rewritten, "RAZ_TARGET_COMPILER")) declarations = declarations + "const RAZ_TARGET_COMPILER: string = \"" + gTargetCompiler + "\";\n";
+
+    let cursor: i64 = 0;
+    while (cursor < length(definitions)) {
+        let next: i64 = findText(definitions, "\n", cursor);
+        let end: i64 = next;
+        if (end < 0) end = length(definitions);
+        let spec: string = slice(definitions, cursor, end);
+        if (spec != "") {
+            let name: string = buildDefinitionName(spec);
+            let equal: i64 = findText(spec, "=", 0);
+            let value: string = slice(spec, equal + 1, length(spec));
+            if (!validBuildDefinitionName(name)) {
+                print("razc: note: -D" + name + " is passed to GNU C++ but is not exposed as a Raz global");
+            } else if (!validBuildDefinitionValue(value)) {
+                print("razc: note: -D" + name + " has a non-literal value; it remains a GNU C++ macro only");
+            } else if (sourceUsesIdentifier(rewritten, name)) {
+                let alias: string = "raz_build_definition_" + name;
+                rewritten = rewriteBuildDefinitionReferences(rewritten, name, alias);
+                declarations = declarations + "const " + alias + " = " + value + ";\n";
+            }
+        }
+        if (next < 0) cursor = length(definitions);
+        else cursor = next + 1;
+    }
+    return declarations + rewritten;
+}
+
+function runCompiler() -> i64 {
+    let argc: i64 = argCount();
+    if (argc < 2) {
+        printUsage();
+        return 2;
+    }
+
+    gInputPath = argAt(1);
+    if (gInputPath == "--help" || gInputPath == "-h") {
+        printUsage();
+        return 0;
+    }
+    if (gInputPath == "--version" || gInputPath == "-V") {
+        print("razc Gen2 preview 0.4.0-g2-015");
+        return 0;
+    }
+
+    // Resolve the standard library from the project root containing the compiler.
+    // `-L` and `--module-path` append caller-supplied library roots.
+    let projectRoot: string = pathDir(pathDir(pathDir(pathDir(argAt(0)))));
+    gDefaultModuleRoot = joinPath(projectRoot, "library/raz");
+    if (gDefaultModuleRoot == "") gDefaultModuleRoot = "library/raz";
+    let moduleRoots: List<string> = [];
+    push(moduleRoots, gDefaultModuleRoot);
+
+    gOutputPath = gInputPath + ".cpp";
+    let i: i64 = 2;
+    while (i < argc) {
+        gOption = argAt(i);
+        if (gOption == "--emit-cpp" || gOption == "-o") {
+            i = i + 1;
+            if (i >= argc) {
+                print("razc: missing path after " + gOption);
+                return 2;
+            }
+            gOutputPath = argAt(i);
+        } else if (gOption == "-L" || gOption == "--module-path" || gOption == "--std-path") {
+            i = i + 1;
+            if (i >= argc) {
+                print("razc: missing path after " + gOption);
+                return 2;
+            }
+            push(moduleRoots, argAt(i));
+        } else if (gOption == "--target-os" || gOption == "--target-arch" || gOption == "--target-compiler") {
+            i = i + 1;
+            if (i >= argc) {
+                print("razc: missing value after " + gOption);
+                return 2;
+            }
+            let targetValue: string = argAt(i);
+            if (!validTargetLabel(targetValue)) {
+                print("razc: invalid target metadata value for " + gOption);
+                return 2;
+            }
+            if (gOption == "--target-os") gTargetOS = targetValue;
+            else if (gOption == "--target-arch") gTargetArch = targetValue;
+            else gTargetCompiler = targetValue;
+        } else if (gOption == "--define") {
+            i = i + 1;
+            if (i >= argc) {
+                print("razc: missing NAME=VALUE after --define");
+                return 2;
+            }
+            let spec: string = argAt(i);
+            if (reservedTargetDefinition(buildDefinitionName(spec))) {
+                print("razc: reserved build definition: " + buildDefinitionName(spec));
+                return 2;
+            }
+            if (buildDefinitionName(spec) == "") {
+                print("razc: invalid build definition; expected NAME=VALUE");
+                return 2;
+            }
+            if (!addBuildDefinition(spec)) {
+                print("razc: duplicate --define for " + buildDefinitionName(spec));
+                return 2;
+            }
+        } else if (starts(gOption, "--define=")) {
+            let spec: string = slice(gOption, 9, length(gOption));
+            if (reservedTargetDefinition(buildDefinitionName(spec))) {
+                print("razc: reserved build definition: " + buildDefinitionName(spec));
+                return 2;
+            }
+            if (buildDefinitionName(spec) == "") {
+                print("razc: invalid build definition; expected NAME=VALUE");
+                return 2;
+            }
+            if (!addBuildDefinition(spec)) {
+                print("razc: duplicate --define for " + buildDefinitionName(spec));
+                return 2;
+            }
+        } else {
+            print("razc: unknown argument: " + gOption);
+            printUsage();
+            return 2;
+        }
+        i = i + 1;
+    }
+
+    gSource = readFile(gInputPath);
+    if (gSource == "") {
+        print("razc: cannot read input: " + gInputPath);
+        return 1;
+    }
+    gResolvedSource = resolveRazModules(gSource, gInputPath, moduleRoots);
+    if (gResolvedSource == "") {
+        print("razc: source/module resolution failed");
+        return 1;
+    }
+    gExpandedSource = expandRazMacros(gResolvedSource, gInputPath);
+    if (gExpandedSource == "") return 1;
+    gExpandedSource = applyBuildDefinitions(gExpandedSource, gDefinitions);
+    if (gExpandedSource == "") return 2;
+    gRir = compileSourceAt(gExpandedSource, gInputPath);
+    if (gRir == "") {
+        print("razc: compilation failed");
+        return 1;
+    }
+    gCpp = generate(gRir);
+    if (gCpp == "") {
+        print("razc: C++ lowering failed");
+        return 1;
+    }
+    let cppValidationError: string = validateCpp17Output(gCpp);
+    if (cppValidationError != "") {
+        print("razc: generated C++ failed structural validation: " + cppValidationError);
+        return 1;
+    }
+    if (!writeFile(gOutputPath, gCpp)) {
+        print("razc: cannot write output: " + gOutputPath);
+        return 1;
+    }
+    print("razc: wrote " + gOutputPath);
+    return 0;
+}
+
+return runCompiler();
+

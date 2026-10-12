@@ -8,14 +8,9 @@ const GEN1 = path.join(ROOT, 'legacy', 'gen1');
 const GEN2 = path.join(ROOT, 'compiler', 'razc');
 const STDLIB = path.join(ROOT, 'library', 'raz');
 const compilerEntry = fs.readFileSync(path.join(GEN2, 'compiler.raz'), 'utf8');
-const sourceFiles = [
-  'src/model/ast.raz', 'src/core/lexer.raz', 'src/core/parser.raz', 'src/core/text.raz',
-  'src/source/includes.raz', 'src/source/modules.raz', 'src/source/macros.raz',
-  'src/validation/semantics.raz', 'src/validation/lowering.raz', 'src/validation/rir.raz',
-  'src/core/rir.raz', 'src/targets/cpp17/model.raz', 'src/targets/cpp17/rir_parser.raz',
-  'src/targets/cpp17/types.raz', 'src/targets/cpp17/emitter.raz', 'src/targets/cpp17/validate.raz',
-  'src/driver/main.raz',
-];
+const sourceFiles = [...compilerEntry.matchAll(/^\s*include\s+"([^"\n]+)"\s*;/gm)].map((match) => match[1]);
+if (sourceFiles.length === 0) throw new Error('compiler.raz must declare its implementation through include directives');
+if (new Set(sourceFiles).size !== sourceFiles.length) throw new Error('compiler.raz must not include the same module more than once');
 const source = sourceFiles.map((relative) => fs.readFileSync(path.join(GEN2, relative), 'utf8')).join('\n\n');
 const resolver = fs.readFileSync(path.join(GEN2, 'src', 'source', 'modules.raz'), 'utf8');
 const includes = fs.readFileSync(path.join(GEN2, 'src', 'source', 'includes.raz'), 'utf8');
@@ -37,23 +32,8 @@ const semantics = fs.readFileSync(path.join(GEN2, 'src', 'validation', 'semantic
 const helloExample = fs.readFileSync(path.join(GEN2, 'examples', 'hello.raz'), 'utf8');
 const meta = JSON.parse(fs.readFileSync(path.join(GEN2, 'gen.json'), 'utf8'));
 const gen1 = JSON.parse(fs.readFileSync(path.join(GEN1, 'gen.json'), 'utf8'));
-const expectedModules = [
-  'src/model/ast.raz',
-  'src/core/lexer.raz',
-  'src/core/parser.raz',
-  'src/core/text.raz',
-  'src/source/includes.raz',
-  'src/source/modules.raz',
-  'src/validation/semantics.raz',
-  'src/core/rir.raz',
-  'src/targets/cpp17/model.raz',
-  'src/targets/cpp17/rir_parser.raz',
-  'src/targets/cpp17/types.raz',
-  'src/targets/cpp17/emitter.raz',
-  'src/driver/main.raz',
-];
-for (const rel of expectedModules) {
-  if (!fs.existsSync(path.join(GEN2, rel))) throw new Error(`missing Gen2 module: ${rel}`);
+for (const rel of sourceFiles) {
+  if (!fs.existsSync(path.join(GEN2, rel))) throw new Error(`missing Gen2 include module: ${rel}`);
 }
 
 // Keep the language reference complete as new lexer keywords are introduced.
@@ -146,9 +126,9 @@ if (!rirEmitter.includes('if (x.op == "&&" || x.op == "||")') || !rirEmitter.inc
 if (!targetTypes.includes('function cppMangledName(prefix: string, name: string)') || !targetTypes.includes('int_to_string(name[i])') || !targetTypes.includes('function cppFunctionName(name: string)') || !targetTypes.includes('function cppVariableName(name: string)') || !targetTypes.includes('function cppStructName(name: string)') || !targetTypes.includes('function cppFieldName(name: string)')) throw new Error('C++ target must use deterministic opaque mangling by symbol category');
 if (targetTypes.includes('return "raz_fn_" + name') || targetTypes.includes('return "raz_v_" + name') || targetTypes.includes('return "raz_ty_" + name') || targetTypes.includes('return "raz_field_" + name')) throw new Error('C++ target must not expose raw Raz identifiers in mangled names');
 if (targetTypes.includes('if (name == "main") return "raz_main"') || targetEmitter.includes('raz_main()')) throw new Error('main must not be special-cased as a user symbol in C++ output');
-if (!semantics.includes('duplicate local name across flattened control-flow scopes')) throw new Error('until Symbol IDs exist, sibling-scope local collisions must be rejected');
+if (!semantics.includes('let target: string = "raz$local$" + int_to_string(nextSymbol)') || !semantics.includes('normalizeStatementNames')) throw new Error('local names must be normalized to unique symbols before flattened RIR emission');
 if (!fs.readFileSync(path.join(ROOT, 'scripts', 'test-gen2-fast.mjs'), 'utf8').includes('duplicate-sibling-local.raz')) throw new Error('sibling-scope local collision regression test is missing');
-if (!targetEmitter.includes('starts(rhs, "copy ")')) throw new Error('C++ target must lower RIR copy instructions');
+if (!targetParser.includes('head == "load" || head == "copy" || head == "ref"') || !targetEmitter.includes('ins.opcode == "copy"')) throw new Error('structured RIR parser and C++ target must lower copy instructions');
 if (!targetTypes.includes('function cppCallName(module: Ref<BackendModule>, name: string)')) throw new Error('C++ call naming must distinguish Raz definitions from C++ library APIs generically');
 if (!parser.includes('s.isTypeExplicit = true;') || !rirEmitter.includes('local-auto ') || !rirEmitter.includes('global-auto ') || !rirEmitter.includes('global-const-auto ')) throw new Error('omitted variable type annotation must be preserved in AST/RIR');
 if (!targetParser.includes('global-const-auto ') || !targetParser.includes('global-auto ') || !targetTypes.includes('state.localAutos = [];') || !targetEmitter.includes('decltype(') || !targetEmitter.includes('const auto ')) throw new Error('C++ target must lower omitted variable types through auto-based storage');

@@ -52,11 +52,11 @@ const main = write('app/main.raz', [
 const output = path.join(WORK, 'module.cpp');
 run(CANDIDATE, [main, '--emit-cpp', output, '-L', moduleRoot], { status: 0 });
 const code = fs.readFileSync(output, 'utf8');
-expect((code.match(new RegExp(`std::int64_t ${cppFunction('answer')}\\(\\) \\{`, 'g')) ?? []).length === 1, 'transitive module was not deduplicated');
-expect((code.match(new RegExp(`std::int64_t ${cppFunction('wrapped')}\\(\\) \\{`, 'g')) ?? []).length === 1, 'wrapper module missing or duplicated');
+expect((code.match(new RegExp(`raz_i64 ${cppFunction('answer')}\\(\\) \\{`, 'g')) ?? []).length === 1, 'transitive module was not deduplicated');
+expect((code.match(new RegExp(`raz_i64 ${cppFunction('wrapped')}\\(\\) \\{`, 'g')) ?? []).length === 1, 'wrapper module missing or duplicated');
 expect(code.includes('#include <cstddef>'), 'native use header was not preserved');
 expect(!code.includes('use demo.wrapper;') && !code.includes('use demo.math;'), 'Raz module directive leaked into C++ output');
-expect(code.includes(`std::int64_t ${cppFunction('main')}() {`) && !code.includes('raz_fn_main') && !code.includes('raz_main()'), 'main must use the general opaque Raz function mangling rule');
+expect(code.includes(`raz_i64 ${cppFunction('main')}() {`) && !code.includes('raz_fn_main') && !code.includes('raz_main()'), 'main must use the general opaque Raz function mangling rule');
 const moduleExe = path.join(WORK, 'module-case');
 run(process.env.CXX ?? 'c++', ['-std=c++17', '-O0', output, '-I', STDLIB, '-o', moduleExe], { status: 0 });
 run(moduleExe, [], { status: 42 });
@@ -89,7 +89,7 @@ write('lexical-includes/parts/unit.raz', 'function included() -> i64 { return 13
 const lexicalIncludeCpp = path.join(WORK, 'lexical-includes.cpp');
 run(CANDIDATE, [lexicalIncludeMain, '--emit-cpp', lexicalIncludeCpp], { status: 0 });
 const lexicalIncludeText = fs.readFileSync(lexicalIncludeCpp, 'utf8');
-expect((lexicalIncludeText.match(new RegExp(`std::int64_t ${cppFunction('included')}\\(\\) \\{`, 'g')) ?? []).length === 1,
+expect((lexicalIncludeText.match(new RegExp(`raz_i64 ${cppFunction('included')}\\(\\) \\{`, 'g')) ?? []).length === 1,
   'lexically equivalent include paths were not normalized/deduplicated');
 expect(!lexicalIncludeText.split(/\r?\n/).some((line) => line.startsWith('#include') && /missing-from-(?:comment|string)\.raz/.test(line)),
   'directive-like text in comments or strings was treated as an include');

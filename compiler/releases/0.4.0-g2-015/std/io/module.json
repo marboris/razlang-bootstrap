@@ -1,0 +1,10 @@
+{
+  "schema": "raz-module-metadata-1",
+  "name": "std.io",
+  "version": "0.2.0-preview",
+  "status": "source-backed-preview",
+  "description": "Human/tooling metadata only. The Gen2 compiler does not read this file; use std.io resolves to io.raz by module path convention.",
+  "source": "io.raz",
+  "native_bridge": "io_native.hpp",
+  "exports": ["print", "readFile", "writeFile", "argCount", "argAt"]
+}

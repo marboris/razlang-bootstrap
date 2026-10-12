@@ -1,0 +1,508 @@
+function currentKind(state: Ref<ParserState>) -> i64 {
+    if (state.pos < 0 || state.pos >= listLength(state.tokens)) return 0;
+    return state.tokens[state.pos].kind;
+}
+
+function currentTokenText(state: Ref<ParserState>) -> string {
+    if (state.pos < 0 || state.pos >= listLength(state.tokens)) return "";
+    return state.tokens[state.pos].text;
+}
+
+// Consume a token when its value is not needed. This avoids copying Token.text
+// for the overwhelmingly common parser advance operation.
+function consume(state: Ref<ParserState>, kind: i64) {
+    state.pos = state.pos + 1;
+}
+
+function take(state: Ref<ParserState>, kind: i64) -> Token {
+    let t: Token = state.tokens[state.pos];
+    state.pos = state.pos + 1;
+    if (t.kind != kind) return t;
+    return t;
+}
+
+function maybe(state: Ref<ParserState>, kind: i64) -> bool {
+    if (currentKind(state) == kind) {
+        state.pos = state.pos + 1;
+        return true;
+    }
+    return false;
+}
+
+function emptyExpr(kind: i64) -> Expr {
+    let e: Expr = new Expr();
+    e.kind = kind;
+    e.left = -1;
+    e.right = -1;
+    e.valueText = "";
+    e.args = [];
+    return e;
+}
+
+function emptyStmt(kind: i64) -> Stmt {
+    let s: Stmt = new Stmt();
+    s.kind = kind;
+    s.isTypeExplicit = false;
+    s.isConst = false;
+    s.expr = -1;
+    s.left = -1;
+    s.right = -1;
+    s.thenStmts = [];
+    s.elseStmts = [];
+    s.body = [];
+    return s;
+}
+
+function addExpr(state: Ref<ParserState>, e: Expr) -> i64 {
+    let id: i64 = listLength(state.exprs);
+    push(state.exprs, e);
+    return id;
+}
+
+function addStmt(state: Ref<ParserState>, s: Stmt) -> i64 {
+    let id: i64 = listLength(state.stmts);
+    push(state.stmts, s);
+    return id;
+}
+
+function precedence(kind: i64) -> i64 {
+    if (kind == 44) return 10;
+    if (kind == 43) return 20;
+    if (kind == 37 || kind == 38) return 30;
+    if (kind == 39 || kind == 40 || kind == 41 || kind == 42) return 40;
+    if (kind == 31 || kind == 32) return 50;
+    if (kind == 33 || kind == 34 || kind == 35) return 60;
+    return -1;
+}
+
+function parseType(state: Ref<ParserState>) -> string {
+    let t: Token = take(state, 1);
+    let out: string = t.text;
+    if (currentKind(state) == 39) {
+        consume(state, 39);
+        let inner: string = parseType(state);
+        out = out + "<" + inner;
+        while (currentKind(state) == 26) {
+            consume(state, 26);
+            let arg: string = parseType(state);
+            out = out + "," + arg;
+        }
+        maybe(state, 41);
+        out = out + ">";
+    }
+    while (currentKind(state) == 33) {
+        consume(state, 33);
+        out = out + "*";
+    }
+    return out;
+}
+
+function parseExpression(state: Ref<ParserState>, minPrec: i64) -> i64 {
+    let left: i64 = parseUnary(state);
+    let p: i64 = precedence(currentKind(state));
+    while (p >= minPrec) {
+        let op: string = currentTokenText(state);
+        consume(state, currentKind(state));
+        let right: i64 = parseExpression(state, p + 1);
+        let e: Expr = emptyExpr(6);
+        e.op = op;
+        e.left = left;
+        e.right = right;
+        left = addExpr(state, e);
+        p = precedence(currentKind(state));
+    }
+    return left;
+}
+
+function parseCallArgs(state: Ref<ParserState>) -> List<i64> {
+    let args: List<i64> = [];
+    if (currentKind(state) != 21) {
+        push(args, parseExpression(state, 0));
+        while (currentKind(state) == 26) {
+            consume(state, 26);
+            push(args, parseExpression(state, 0));
+        }
+    }
+    maybe(state, 21);
+    return args;
+}
+
+function parsePrimary(state: Ref<ParserState>) -> i64 {
+    let tokenKind: i64 = currentKind(state);
+    let tokenText: string = currentTokenText(state);
+    if (tokenKind == 2) {
+        consume(state, 2);
+        let e: Expr = emptyExpr(1);
+        e.text = tokenText;
+        e.valueText = tokenText;
+        return addExpr(state, e);
+    }
+    if (tokenKind == 3) {
+        consume(state, 3);
+        let e: Expr = emptyExpr(2);
+        e.text = tokenText;
+        return addExpr(state, e);
+    }
+    if (tokenKind == 4) {
+        consume(state, 4);
+        let e: Expr = emptyExpr(3);
+        e.valueText = tokenText;
+        return addExpr(state, e);
+    }
+    if (tokenKind == 17 || tokenKind == 18) {
+        consume(state, tokenKind);
+        let e: Expr = emptyExpr(4);
+        if (tokenKind == 17) e.valueText = "true";
+        else e.valueText = "false";
+        return addExpr(state, e);
+    }
+    if (tokenKind == 49) {
+        consume(state, 49);
+        let e: Expr = emptyExpr(13);
+        e.valueText = "nullptr";
+        return addExpr(state, e);
+    }
+    if (tokenKind == 1) {
+        consume(state, 1);
+        let e: Expr = emptyExpr(5);
+        e.text = tokenText;
+        return addExpr(state, e);
+    }
+    if (tokenKind == 19) {
+        consume(state, 19);
+        let e: Expr = emptyExpr(11);
+        e.text = parseType(state);
+        maybe(state, 20);
+        e.args = parseCallArgs(state);
+        return addExpr(state, e);
+    }
+    if (tokenKind == 28) {
+        consume(state, 28);
+        let e: Expr = emptyExpr(12);
+        if (currentKind(state) != 29) {
+            push(e.args, parseExpression(state, 0));
+            while (currentKind(state) == 26) {
+                consume(state, 26);
+                push(e.args, parseExpression(state, 0));
+            }
+        }
+        maybe(state, 29);
+        return addExpr(state, e);
+    }
+    if (tokenKind == 20) {
+        consume(state, 20);
+        let id: i64 = parseExpression(state, 0);
+        maybe(state, 21);
+        return id;
+    }
+    return -1;
+}
+
+function parsePostfix(state: Ref<ParserState>, id: i64) -> i64 {
+    let out: i64 = id;
+    let more: bool = true;
+    while (more && !state.parseError) {
+        if (currentKind(state) == 36) {
+            let followedByParen: bool = false;
+            if (state.pos + 1 < listLength(state.tokens)) {
+                if (state.tokens[state.pos + 1].kind == 20) followedByParen = true;
+            }
+            if (followedByParen) {
+                let callee: Expr = state.exprs[out];
+                if (callee.kind != 5) {
+                    state.parseError = true;
+                    state.parseErrorText = "native call marker '!' must follow a bare function name";
+                    state.pos = listLength(state.tokens) - 1;
+                } else {
+                    consume(state, 36);
+                    consume(state, 20);
+                    let e: Expr = emptyExpr(14);
+                    e.text = callee.text;
+                    e.args = parseCallArgs(state);
+                    out = addExpr(state, e);
+                }
+            } else {
+                state.parseError = true;
+                state.parseErrorText = "native call marker '!' must be followed by '(...)'";
+                state.pos = listLength(state.tokens) - 1;
+            }
+        } else if (currentKind(state) == 20) {
+            let args: List<i64> = [] ;
+            consume(state, 20);
+            args = parseCallArgs(state);
+            let e: Expr = emptyExpr(8);
+            e.left = out;
+            e.args = args;
+            out = addExpr(state, e);
+        } else if (currentKind(state) == 27) {
+            consume(state, 27);
+            let member: Token = take(state, 1);
+            let e: Expr = emptyExpr(9);
+            e.left = out;
+            e.text = member.text;
+            out = addExpr(state, e);
+        } else if (currentKind(state) == 28) {
+            consume(state, 28);
+            let idx: i64 = parseExpression(state, 0);
+            maybe(state, 29);
+            let e: Expr = emptyExpr(10);
+            e.left = out;
+            e.right = idx;
+            out = addExpr(state, e);
+        } else {
+            more = false;
+        }
+    }
+    return out;
+}
+
+function parseUnary(state: Ref<ParserState>) -> i64 {
+    let k: i64 = currentKind(state);
+    if (k == 36 || k == 31 || k == 32) {
+        let op: string = currentTokenText(state);
+        consume(state, k);
+        let operand: i64 = parseUnary(state);
+        let e: Expr = emptyExpr(7);
+        e.op = op;
+        e.left = operand;
+        return addExpr(state, e);
+    }
+    let id: i64 = parsePrimary(state);
+    if (id < 0) return id;
+    return parsePostfix(state, id);
+}
+
+function parseBlock(state: Ref<ParserState>) -> List<i64> {
+    let body: List<i64> = [];
+    maybe(state, 22);
+    state.blockDepth = state.blockDepth + 1;
+    while (!state.parseError && currentKind(state) != 23 && currentKind(state) != 0) {
+        let stmtId: i64 = parseStatement(state);
+        if (stmtId >= 0) push(body, stmtId);
+    }
+    state.blockDepth = state.blockDepth - 1;
+    maybe(state, 23);
+    return body;
+}
+
+function parseControlledBody(state: Ref<ParserState>) -> List<i64> {
+    let body: List<i64> = [];
+    if (currentKind(state) == 22) return parseBlock(state);
+    state.blockDepth = state.blockDepth + 1;
+    push(body, parseStatement(state));
+    state.blockDepth = state.blockDepth - 1;
+    return body;
+}
+
+function parseStatement(state: Ref<ParserState>) -> i64 {
+    let k: i64 = currentKind(state);
+    if (state.blockDepth > 0 && (k == 10 || k == 11)) {
+        state.parseError = true;
+        state.parseErrorText = "declaration is only allowed at file scope";
+        state.pos = listLength(state.tokens) - 1;
+        return -1;
+    }
+    if (k == 46) {
+        consume(state, 46);
+        let s: Stmt = emptyStmt(7);
+        let tKind: i64 = currentKind(state);
+        let tText: string = currentTokenText(state);
+        if (tKind == 3) {
+            consume(state, 3);
+            s.name = tText;
+            s.type = "quoted";
+            maybe(state, 24);
+            return addStmt(state, s);
+        }
+        if (tKind == 1) {
+            state.parseError = true;
+            state.parseErrorText = "native C++ headers must be quoted in use directives; Raz modules use dotted names";
+            state.pos = listLength(state.tokens) - 1;
+            return -1;
+        }
+        state.parseError = true;
+        state.parseErrorText = "use expects a quoted C++ header or a resolved Raz module";
+        state.pos = listLength(state.tokens) - 1;
+        return -1;
+    }
+    if (k == 47) {
+        consume(state, 47);
+        let s: Stmt = emptyStmt(8);
+        if (currentKind(state) == 3) {
+            s.name = take(state, 3).text;
+        }
+        maybe(state, 24);
+        return addStmt(state, s);
+    }
+    if (k == 48) {
+        consume(state, 48);
+        let s: Stmt = emptyStmt(9);
+        s.body = parseControlledBody(state);
+        return addStmt(state, s);
+    }
+    if (k == 12 || k == 51) {
+        consume(state, k);
+        let s: Stmt = emptyStmt(1);
+        s.isConst = k == 51;
+        let name: Token = take(state, 1);
+        s.name = name.text;
+        if (currentKind(state) == 25) {
+            consume(state, 25);
+            s.type = parseType(state);
+            s.isTypeExplicit = true;
+        }
+        maybe(state, 30);
+        s.expr = parseExpression(state, 0);
+        maybe(state, 24);
+        return addStmt(state, s);
+    }
+    if (k == 13) {
+        consume(state, 13);
+        let s: Stmt = emptyStmt(2);
+        if (currentKind(state) != 24) s.expr = parseExpression(state, 0);
+        maybe(state, 24);
+        return addStmt(state, s);
+    }
+    if (k == 14) {
+        consume(state, 14);
+        let s: Stmt = emptyStmt(5);
+        maybe(state, 20);
+        s.expr = parseExpression(state, 0);
+        maybe(state, 21);
+        s.thenStmts = parseControlledBody(state);
+        if (currentKind(state) == 15) {
+            consume(state, 15);
+            if (currentKind(state) == 14) push(s.elseStmts, parseStatement(state));
+            else if (currentKind(state) == 22) s.elseStmts = parseBlock(state);
+            else push(s.elseStmts, parseStatement(state));
+        }
+        return addStmt(state, s);
+    }
+    if (k == 16) {
+        consume(state, 16);
+        let s: Stmt = emptyStmt(6);
+        maybe(state, 20);
+        s.expr = parseExpression(state, 0);
+        maybe(state, 21);
+        s.body = parseControlledBody(state);
+        return addStmt(state, s);
+    }
+
+    let first: i64 = parseExpression(state, 0);
+    if (first < 0) {
+        state.pos = state.pos + 1;
+        return -1;
+    }
+    if (currentKind(state) == 30) {
+        consume(state, 30);
+        let s: Stmt = emptyStmt(4);
+        s.left = first;
+        s.right = parseExpression(state, 0);
+        maybe(state, 24);
+        return addStmt(state, s);
+    }
+    let s: Stmt = emptyStmt(3);
+    s.expr = first;
+    maybe(state, 24);
+    return addStmt(state, s);
+}
+
+function parseFunction(state: Ref<ParserState>) -> FunctionDef {
+    consume(state, 10);
+    let f: FunctionDef = new FunctionDef();
+    let name: Token = take(state, 1);
+    f.name = name.text;
+    f.params = [];
+    f.returnType = "void";
+    maybe(state, 20);
+    if (currentKind(state) != 21) {
+        let more: bool = true;
+        while (more) {
+            let p: Param = new Param();
+            let pname: Token = take(state, 1);
+            p.name = pname.text;
+            maybe(state, 25);
+            p.type = parseType(state);
+            push(f.params, p);
+            if (!maybe(state, 26)) more = false;
+        }
+    }
+    maybe(state, 21);
+    if (currentKind(state) == 45) {
+        consume(state, 45);
+        f.returnType = parseType(state);
+    }
+    f.body = parseBlock(state);
+    return f;
+}
+
+function parseStruct(state: Ref<ParserState>) -> StructDef {
+    consume(state, 11);
+    let s: StructDef = new StructDef();
+    let name: Token = take(state, 1);
+    s.name = name.text;
+    s.fields = [];
+    maybe(state, 22);
+    while (currentKind(state) != 23 && currentKind(state) != 0) {
+        let f: Field = new Field();
+        let fname: Token = take(state, 1);
+        f.name = fname.text;
+        maybe(state, 25);
+        f.type = parseType(state);
+        push(s.fields, f);
+        maybe(state, 24);
+    }
+    maybe(state, 23);
+    return s;
+}
+
+
+function parseProgram(source: string) -> Program {
+    let state: ParserState = new ParserState();
+    state.tokens = lex(source);
+    state.pos = 0;
+    state.exprs = [];
+    state.stmts = [];
+    state.functions = [];
+    state.structs = [];
+    state.lastList = [];
+    state.blockDepth = 0;
+    state.parseError = false;
+    state.parseErrorText = "";
+
+    while (!state.parseError && currentKind(state) != 0) {
+        if (currentKind(state) == 10) push(state.functions, parseFunction(state));
+        else if (currentKind(state) == 50) {
+            consume(state, 50);
+            state.parseError = true;
+            state.parseErrorText = "extern declarations are not supported; use name!(...) for native calls";
+            state.pos = listLength(state.tokens) - 1;
+        }
+        else if (currentKind(state) == 11) push(state.structs, parseStruct(state));
+        else {
+            let stmtId: i64 = parseStatement(state);
+            if (stmtId >= 0) push(state.lastList, stmtId);
+        }
+    }
+
+    let p: Program = new Program();
+    p.exprs = state.exprs;
+    p.stmts = state.stmts;
+    p.topStmts = state.lastList;
+    p.uses = [];
+    let i: i64 = 0;
+    while (i < listLength(state.lastList)) {
+        let sid: i64 = state.lastList[i];
+        if (state.stmts[sid].kind == 7 && state.stmts[sid].type == "quoted") {
+            push(p.uses, "quoted:" + state.stmts[sid].name);
+        }
+        i = i + 1;
+    }
+    p.functions = state.functions;
+    p.structs = state.structs;
+    p.valid = !state.parseError;
+    p.error = state.parseErrorText;
+    if (!p.valid) print("parse-error: " + p.error);
+    return p;
+}
+
