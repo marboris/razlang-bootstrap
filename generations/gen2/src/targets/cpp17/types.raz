@@ -97,6 +97,9 @@ function cppValue(state: Ref<BackendState>, value: string) -> string {
     if (starts(x, "%") && findText(x, "%t", 0) == 0) return aliasValue(state, valueName(x));
     if (findText(x, "%t", 0) < 0) {
         if (x == "true" || x == "false" || x == "nullptr") return x;
+        // Compiler-generated local symbols are intentionally outside Raz's
+        // identifier alphabet, then mangled into ordinary C++ identifiers.
+        if (starts(x, "raz$local$")) return cppVariableName(x);
         if (simpleRazIdentifier(x)) return cppVariableName(x);
         return x;
     }
@@ -163,48 +166,63 @@ function cppArgs(state: Ref<BackendState>, values: string) -> string {
     return out;
 }
 
-function has(state: Ref<BackendState>, name: string) -> bool {
-    let i: i64 = 0;
-    while (i < listLength(state.temps)) {
-        if (state.temps[i] == name) return true;
-        i = i + 1;
-    }
-    return false;
-}
-
 function localIndex(state: Ref<BackendState>, name: string) -> i64 {
-    let i: i64 = 0;
-    while (i < listLength(state.locals)) {
+    let i: i64 = listLength(state.locals) - 1;
+    while (i >= 0) {
         if (state.locals[i] == name) return i;
-        i = i + 1;
+        i = i - 1;
     }
     return -1;
 }
 
+// RIR temporary names are numeric (`tN` after removing `%`). Allocate the
+// function's temp range once and use direct indexing, avoiding repeated linear
+// scans in value/type inference. A temp may be assigned on multiple control-flow
+// edges; all such assignments share a single declaration and inferred type.
+function tempNumber(name: string) -> i64 {
+    // valueName() canonicalizes `%t123` to `tt123` for the C++ emitter.
+    if (!starts(name, "tt") || length(name) < 3) return -1;
+    let n: i64 = 0;
+    let i: i64 = 2;
+    while (i < length(name)) {
+        let c: i64 = charCodeAt(name, i);
+        if (c < 48 || c > 57) return -1;
+        n = n * 10 + c - 48;
+        i = i + 1;
+    }
+    return n;
+}
+
+function tempSlot(state: Ref<BackendState>, name: string) -> i64 {
+    let n: i64 = tempNumber(name);
+    if (n < state.tempBase) return -1;
+    let slot: i64 = n - state.tempBase;
+    if (slot < 0 || slot >= listLength(state.temps)) return -1;
+    if (state.temps[slot] != name) return -1;
+    return slot;
+}
+
 function addTemp(state: Ref<BackendState>, name: string, type: string) {
-    if (name == "" || has(state, name)) return;
-    push(state.temps, name);
-    push(state.tempTypes, type);
+    let slot: i64 = tempSlot(state, name);
+    if (slot < 0) return;
+    if (state.tempTypes[slot] == "") {
+        state.tempTypes[slot] = type;
+    } else if (state.tempTypes[slot] == "i64" && type != "i64") {
+        state.tempTypes[slot] = type;
+    } else if (state.tempTypes[slot] == "List<i64>" && starts(type, "List<")) {
+        state.tempTypes[slot] = type;
+    }
 }
 
 function tempType(state: Ref<BackendState>, name: string) -> string {
-    let i: i64 = 0;
-    while (i < listLength(state.temps)) {
-        if (state.temps[i] == name) return state.tempTypes[i];
-        i = i + 1;
-    }
-    return "i64";
+    let slot: i64 = tempSlot(state, name);
+    if (slot < 0 || state.tempTypes[slot] == "") return "i64";
+    return state.tempTypes[slot];
 }
 
 function setTempType(state: Ref<BackendState>, name: string, type: string) {
-    let i: i64 = 0;
-    while (i < listLength(state.temps)) {
-        if (state.temps[i] == name) {
-            state.tempTypes[i] = type;
-            return;
-        }
-        i = i + 1;
-    }
+    let slot: i64 = tempSlot(state, name);
+    if (slot >= 0) state.tempTypes[slot] = type;
 }
 
 function refineListType(state: Ref<BackendState>, value: string, expected: string) {
@@ -220,22 +238,25 @@ function findVarType(f: Ref<FunctionMeta>, state: Ref<BackendState>, name: strin
         if (f.params[i] == name) return f.paramTypes[i];
         i = i + 1;
     }
-    i = 0;
-    while (i < listLength(state.locals)) {
+    i = listLength(state.locals) - 1;
+    while (i >= 0) {
         if (state.locals[i] == name) return state.localTypes[i];
-        i = i + 1;
+        i = i - 1;
     }
     return "i64";
 }
 
 function valueType(module: Ref<BackendModule>, f: Ref<FunctionMeta>, state: Ref<BackendState>, value: string) -> string {
     let x: string = trim(value);
-    if (starts(x, "%")) {
-        return tempType(state, valueName(x));
-    }
-    if (x == "true" || x == "false") return "bool";
-    if (starts(x, "\"")) return "string";
-    return findVarType(f, state, x);
+    let type: string = "";
+    if (starts(x, "%")) type = tempType(state, valueName(x));
+    else if (x == "true" || x == "false") return "bool";
+    else if (starts(x, "\"")) return "string";
+    else type = findVarType(f, state, x);
+    // Reading a place yields T, even when its storage/parameter is Ref<T>.
+    // Explicit reference operations infer Ref<T> in their own branches.
+    if (starts(type, "Ref<") && length(type) > 5) return slice(type, 4, length(type) - 1);
+    return type;
 }
 
 function functionReturnType(module: Ref<BackendModule>, name: string) -> string {
@@ -279,6 +300,10 @@ function globalType(module: Ref<BackendModule>, name: string) -> string {
 }
 
 function inferRhsType(module: Ref<BackendModule>, f: Ref<FunctionMeta>, state: Ref<BackendState>, rhs: string) -> string {
+    // Branch-merge and short-circuit results use `copy %tN`. Resolve the source
+    // temp's inferred type instead of treating the whole expression as a local
+    // variable name (which silently defaulted to i64).
+    if (starts(rhs, "copy ")) return valueType(module, f, state, trim(slice(rhs, 5, length(rhs))));
     if (starts(rhs, "load ")) {
         let name: string = trim(slice(rhs, 5, length(rhs)));
         let i: i64 = 0;
@@ -379,6 +404,7 @@ function inferRhsType(module: Ref<BackendModule>, f: Ref<FunctionMeta>, state: R
 function collectDeclarations(module: Ref<BackendModule>, f: Ref<FunctionMeta>, state: Ref<BackendState>) {
     state.temps = [];
     state.tempTypes = [];
+    state.tempBase = 0;
     state.locals = [];
     state.localTypes = [];
     state.localAutos = [];
@@ -398,15 +424,38 @@ function collectDeclarations(module: Ref<BackendModule>, f: Ref<FunctionMeta>, s
             if (split >= 0) {
                 let type: string = trim(slice(local, 0, split));
                 let name: string = trim(slice(local, split + 1, length(local)));
-                if (localIndex(state, name) < 0) {
-                    push(state.localTypes, type);
-                    push(state.locals, name);
-                    push(state.localAutos, inferredLocal);
-                    push(state.localInitValues, "");
-                }
+                push(state.localTypes, type);
+                push(state.locals, name);
+                push(state.localAutos, inferredLocal);
+                push(state.localInitValues, "");
             }
         }
         i = i + 1;
+    }
+
+    // Temp IDs are monotonic within a function, but don't necessarily start at
+    // zero. Find this function's range once, then reserve its direct-index slots.
+    let minTemp: i64 = 2147483647;
+    let maxTemp: i64 = -1;
+    i = 0;
+    while (i < listLength(f.body)) {
+        let line: string = trim(f.body[i]);
+        let split: i64 = findText(line, " = ", 0);
+        if (starts(line, "%") && split > 2) {
+            let id: i64 = tempNumber(valueName(trim(slice(line, 0, split))));
+            if (id >= 0 && id < minTemp) minTemp = id;
+            if (id > maxTemp) maxTemp = id;
+        }
+        i = i + 1;
+    }
+    if (maxTemp >= minTemp) {
+        state.tempBase = minTemp;
+        let id: i64 = minTemp;
+        while (id <= maxTemp) {
+            push(state.temps, "tt" + int_to_string(id));
+            push(state.tempTypes, "");
+            id = id + 1;
+        }
     }
 
     i = 0;

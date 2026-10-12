@@ -1,4 +1,4 @@
-function charCodeAt(value: string, index: i64) -> i64 {
+function charCodeAt(value: Ref<string>, index: i64) -> i64 {
     if (index < 0) return -1;
     if (index >= length(value)) return -1;
     return value[index];
@@ -36,3 +36,22 @@ function containsText(xs: List<string>, value: string) -> bool {
     return false;
 }
 
+
+
+// Join fragments as a balanced tree. Repeated `out = out + fragment` copies
+// the growing prefix and becomes quadratic when compiling the compiler itself.
+function joinTextChunks(chunks: List<string>) -> string {
+    let work: List<string> = chunks;
+    while (listLength(work) > 1) {
+        let next: List<string> = [];
+        let i: i64 = 0;
+        while (i < listLength(work)) {
+            if (i + 1 < listLength(work)) push(next, work[i] + work[i + 1]);
+            else push(next, work[i]);
+            i = i + 2;
+        }
+        work = next;
+    }
+    if (listLength(work) == 0) return "";
+    return work[0];
+}

@@ -461,13 +461,13 @@ function emitProgram(program: Ref<Program>) -> string {
         i = i + 1;
     }
 
-    let out: string = "";
+    let outputChunks: List<string> = [];
     i = 0;
     while (i < listLength(state.lines)) {
-        out = out + state.lines[i] + "\n";
+        push(outputChunks, state.lines[i] + "\n");
         i = i + 1;
     }
-    return out;
+    return joinTextChunks(outputChunks);
 }
 
 function compileSourceAt(source: string, entryPath: string) -> string {
@@ -477,7 +477,23 @@ function compileSourceAt(source: string, entryPath: string) -> string {
     let program: Program = parseProgram(expanded);
     if (!program.valid) return "";
     if (analyzeProgram(program) != 0) return "";
-    return emitProgram(program);
+
+    // Target support is checked while the source program is still structured AST.
+    let loweringError: string = validateCpp17Lowering(program);
+    if (loweringError != "") {
+        print("lowering-error: " + loweringError);
+        return "";
+    }
+
+    // Emit a normalized RIR-1 module, then verify the IR contract before a
+    // target backend can consume it. Unknown operations must never disappear.
+    let rir: string = emitProgram(program);
+    let rirError: string = validateRir1(rir);
+    if (rirError != "") {
+        print("rir-error: " + rirError);
+        return "";
+    }
+    return rir;
 }
 
 function compileSource(source: string) -> string {

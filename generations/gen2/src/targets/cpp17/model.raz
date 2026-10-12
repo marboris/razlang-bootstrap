@@ -34,6 +34,7 @@ struct BackendState {
     lines: List<string>;
     temps: List<string>;
     tempTypes: List<string>;
+    tempBase: i64;
     locals: List<string>;
     localTypes: List<string>;
     localAutos: List<bool>;

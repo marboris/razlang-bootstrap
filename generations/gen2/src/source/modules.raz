@@ -203,8 +203,9 @@ function resolveOneModule(state: Ref<ModuleResolveState>, name: string, filePath
 }
 
 function expandResolvedModules(state: Ref<ModuleResolveState>, source: string, filePath: string) -> string {
-    let out: string = "";
     let cursor: i64 = 0;
+    let lineNumber: i64 = 1;
+    let outputChunks: List<string> = [];
     let scan: ModuleScanState = new ModuleScanState();
     scan.blockComment = false;
     scan.blockCommentLine = 0;
@@ -217,31 +218,32 @@ function expandResolvedModules(state: Ref<ModuleResolveState>, source: string, f
         let line: string = slice(source, cursor, end);
         let consumed: i64 = end;
         if (next >= 0) consumed = next + 1;
-        let lineNumber: i64 = sourceLineNumber(source, cursor);
         let cleanLine: string = maskModuleComments(line, scan, lineNumber);
         let names: List<string> = moduleUsesOnLine(cleanLine);
         if (listLength(names) == 0) {
-            out = out + line;
-            if (next >= 0) out = out + "\n";
+            push(outputChunks, line);
+            if (next >= 0) push(outputChunks, "\n");
         } else {
             let i: i64 = 0;
             while (i < listLength(names) && !state.failed) {
-                out = out + resolveOneModule(state, names[i], filePath, lineNumber);
+                push(outputChunks, resolveOneModule(state, names[i], filePath, lineNumber));
                 i = i + 1;
             }
         }
         // Removing a `use` line must not remove an open trailing block comment.
         // Emit a comment opener in its place so following source remains masked
         // until the matching `*/` is encountered on a later line.
-        if (listLength(names) > 0 && scan.blockComment) out = out + "\n/*";
+        if (listLength(names) > 0 && scan.blockComment) push(outputChunks, "\n/*");
         cursor = consumed;
+        if (next >= 0) lineNumber = lineNumber + 1;
     }
     if (!state.failed && scan.blockComment) {
         let startLine: i64 = scan.blockCommentLine;
         if (startLine < 1) startLine = sourceLineNumber(source, length(source));
         moduleResolveFail(state, filePath + ":" + int_to_string(startLine) + ": unterminated block comment");
     }
-    return out;
+    if (state.failed) return "";
+    return joinTextChunks(outputChunks);
 }
 
 function resolveRazModules(source: string, entryPath: string, roots: List<string>) -> string {

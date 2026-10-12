@@ -38,19 +38,20 @@ function fieldIndex(s: StructDef, name: string) -> i64 {
 }
 
 function bindingType(scope: Ref<List<Binding>>, name: string) -> string {
-    let i: i64 = 0;
-    while (i < listLength(scope)) {
+    // Most lookups target recently introduced locals; search newest bindings first.
+    let i: i64 = listLength(scope) - 1;
+    while (i >= 0) {
         if (scope[i].name == name) return scope[i].type;
-        i = i + 1;
+        i = i - 1;
     }
     return "";
 }
 
 function bindingIsConst(scope: Ref<List<Binding>>, name: string) -> bool {
-    let i: i64 = 0;
-    while (i < listLength(scope)) {
+    let i: i64 = listLength(scope) - 1;
+    while (i >= 0) {
         if (scope[i].name == name) return scope[i].isConst;
-        i = i + 1;
+        i = i - 1;
     }
     return false;
 }
@@ -82,31 +83,76 @@ function semanticFail(state: Ref<SemanticState>, message: string) -> string {
     return "";
 }
 
-// The current RIR flattens all branches into one C++ function scope and does
-// not yet carry Symbol IDs. Until that representation is upgraded, reject
-// same-spelled locals anywhere in one function rather than silently aliasing
-// distinct Raz declarations to one C++ object.
-function collectUniqueLocalNames(program: Ref<Program>, ids: List<i64>, names: Ref<List<string>>, state: Ref<SemanticState>) {
+// Resolve source-level local names to unique symbols before RIR lowering.
+// RIR control-flow is currently flattened, so relying on C++ block scopes would
+// be incorrect. Binding.type is the normalized symbol name in this pass.
+function normalizeExprNames(program: Ref<Program>, names: Ref<List<Binding>>, id: i64) {
+    if (id < 0 || id >= listLength(program.exprs)) return;
+    let x: Expr = program.exprs[id];
+    if (x.kind == 5) {
+        let target: string = bindingType(names, x.text);
+        if (target != "") program.exprs[id].text = target;
+        return;
+    }
+    if (x.kind == 6) {
+        normalizeExprNames(program, names, x.left);
+        normalizeExprNames(program, names, x.right);
+    } else if (x.kind == 7 || x.kind == 9) {
+        normalizeExprNames(program, names, x.left);
+    } else if (x.kind == 10) {
+        normalizeExprNames(program, names, x.left);
+        normalizeExprNames(program, names, x.right);
+    }
+    let i: i64 = 0;
+    while (i < listLength(x.args)) {
+        normalizeExprNames(program, names, x.args[i]);
+        i = i + 1;
+    }
+}
+
+function normalizeStatementNames(program: Ref<Program>, ids: List<i64>, names: Ref<List<Binding>>, nextSymbol: Ref<i64>, state: Ref<SemanticState>) {
     let i: i64 = 0;
     while (i < listLength(ids) && state.ok) {
-        let s: Stmt = program.stmts[ids[i]];
+        let stmtId: i64 = ids[i];
+        let s: Stmt = program.stmts[stmtId];
         if (s.kind == 1) {
-            let j: i64 = 0;
-            let duplicate: bool = false;
-            while (j < listLength(names)) {
-                if (names[j] == s.name) duplicate = true;
-                j = j + 1;
-            }
-            if (duplicate) {
-                semanticFail(state, "duplicate local name across flattened control-flow scopes: " + s.name);
+            // Initializers see only bindings declared before this statement.
+            normalizeExprNames(program, names, s.expr);
+            if (bindingType(names, s.name) != "") {
+                semanticFail(state, "variable already defined or shadowed: " + s.name);
                 return;
             }
-            push(names, s.name);
+            // '$' cannot occur in a Raz identifier, so this namespace cannot
+            // collide with user source names. The monotonically increasing ID
+            // also keeps sibling branches distinct after RIR control-flow flattening.
+            let target: string = "raz$local$" + int_to_string(nextSymbol) + "$" + s.name;
+            nextSymbol = nextSymbol + 1;
+            program.stmts[stmtId].name = target;
+            let binding: Binding = new Binding();
+            binding.name = s.name;
+            binding.type = target;
+            binding.isConst = s.isConst;
+            push(names, binding);
+        } else if (s.kind == 2 || s.kind == 3) {
+            normalizeExprNames(program, names, s.expr);
+        } else if (s.kind == 4) {
+            normalizeExprNames(program, names, s.left);
+            normalizeExprNames(program, names, s.right);
         } else if (s.kind == 5) {
-            collectUniqueLocalNames(program, s.thenStmts, names, state);
-            collectUniqueLocalNames(program, s.elseStmts, names, state);
-        } else if (s.kind == 6 || s.kind == 9) {
-            collectUniqueLocalNames(program, s.body, names, state);
+            normalizeExprNames(program, names, s.expr);
+            let thenNames: List<Binding> = cloneBindings(names);
+            normalizeStatementNames(program, s.thenStmts, thenNames, nextSymbol, state);
+            let elseNames: List<Binding> = cloneBindings(names);
+            normalizeStatementNames(program, s.elseStmts, elseNames, nextSymbol, state);
+        } else if (s.kind == 6) {
+            normalizeExprNames(program, names, s.expr);
+            let bodyNames: List<Binding> = cloneBindings(names);
+            normalizeStatementNames(program, s.body, bodyNames, nextSymbol, state);
+        } else if (s.kind == 9) {
+            // unsafe does not introduce a lexical scope in the semantic checker.
+            normalizeStatementNames(program, s.body, names, nextSymbol, state);
+        } else {
+            normalizeExprNames(program, names, s.expr);
         }
         i = i + 1;
     }
@@ -239,7 +285,10 @@ function checkExpr(program: Ref<Program>, state: Ref<SemanticState>, scope: Ref<
         while (i < listLength(x.args)) {
             let actual: string = checkExpr(program, state, scope, x.args[i]);
             let rawExpected: string = fnDef.params[i].type;
-            if (isRefType(rawExpected) && !isLValue(program, x.args[i])) return semanticFail(state, "argument must be an lvalue in " + name);
+            // Read-only text helpers accept literals and computed strings too: the
+            // backend materializes those rvalues in a temp before binding the Ref.
+            // Other Ref<T> parameters remain strict lvalue/inout parameters.
+            if (isRefType(rawExpected) && !isLValue(program, x.args[i]) && name != "length" && name != "slice") return semanticFail(state, "argument must be an lvalue in " + name);
             let expected: string = valueTypeForParam(rawExpected);
             if (!assignableType(expected, actual)) return semanticFail(state, "argument type mismatch in " + name);
             i = i + 1;
@@ -259,6 +308,8 @@ function checkExpr(program: Ref<Program>, state: Ref<SemanticState>, scope: Ref<
         let base: string = checkExpr(program, state, scope, x.left);
         let idx: string = checkExpr(program, state, scope, x.right);
         if (idx != "i64" && idx != "char") return semanticFail(state, "index must be i64");
+        let referenced: string = innerGeneric(base, "Ref<");
+        if (referenced != "") base = referenced;
         let inner: string = innerGeneric(base, "List<");
         if (inner != "") return inner;
         if (base == "string") return "i64";
@@ -420,6 +471,29 @@ function analyzeProgram(program: Ref<Program>) -> i64 {
         i = i + 1;
     }
 
+    // Normalize locals in top-level control-flow without renaming true globals.
+    let topNames: List<Binding> = [];
+    let nextSymbol: i64 = 0;
+    i = 0;
+    while (i < listLength(program.topStmts) && state.ok) {
+        let topId: i64 = program.topStmts[i];
+        let topStmt: Stmt = program.stmts[topId];
+        if (topStmt.kind == 1) {
+            normalizeExprNames(program, topNames, topStmt.expr);
+            let globalName: Binding = new Binding();
+            globalName.name = topStmt.name;
+            globalName.type = topStmt.name;
+            globalName.isConst = topStmt.isConst;
+            push(topNames, globalName);
+        } else {
+            let one: List<i64> = [];
+            push(one, topId);
+            normalizeStatementNames(program, one, topNames, nextSymbol, state);
+        }
+        i = i + 1;
+    }
+    if (!state.ok) return 1;
+
     i = 0;
     while (i < listLength(program.functions)) {
         let f: FunctionDef = program.functions[i];
@@ -503,13 +577,17 @@ function analyzeProgram(program: Ref<Program>) -> i64 {
             push(scope, b);
             j = j + 1;
         }
-        let uniqueNames: List<string> = [];
+        let functionNames: List<Binding> = cloneBindings(topNames);
         j = 0;
         while (j < listLength(f.params)) {
-            push(uniqueNames, f.params[j].name);
+            let paramName: Binding = new Binding();
+            paramName.name = f.params[j].name;
+            paramName.type = f.params[j].name;
+            paramName.isConst = false;
+            push(functionNames, paramName);
             j = j + 1;
         }
-        collectUniqueLocalNames(program, f.body, uniqueNames, state);
+        normalizeStatementNames(program, f.body, functionNames, nextSymbol, state);
         if (!state.ok) return 1;
 
         j = 0;

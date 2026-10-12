@@ -271,7 +271,12 @@ function runCompiler() -> i64 {
     }
     gCpp = generate(gRir);
     if (gCpp == "") {
-        print("razc: C++ generation failed");
+        print("razc: C++ lowering failed");
+        return 1;
+    }
+    let cppValidationError: string = validateCpp17Output(gCpp);
+    if (cppValidationError != "") {
+        print("razc: generated C++ failed structural validation: " + cppValidationError);
         return 1;
     }
     if (!writeFile(gOutputPath, gCpp)) {

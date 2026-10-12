@@ -41,7 +41,7 @@ function emitFunction(module: Ref<BackendModule>, f: Ref<FunctionMeta>, state: R
     // available. Runtime initialization remains at the original store site.
     i = 0;
     while (i < listLength(state.temps)) {
-        if (!starts(state.tempTypes[i], "Ref<")) emitLine(state, "    " + cppType(state.tempTypes[i]) + " " + state.temps[i] + "{};");
+        if (state.tempTypes[i] != "" && !starts(state.tempTypes[i], "Ref<")) emitLine(state, "    " + cppType(state.tempTypes[i]) + " " + state.temps[i] + "{};");
         i = i + 1;
     }
     i = 0;
@@ -276,12 +276,12 @@ function generate(rir: string) -> string {
     emitLine(state, "    return static_cast<int>(" + cppFunctionName("main") + "());");
     emitLine(state, "}");
 
-    let out: string = "";
+    let outputChunks: List<string> = [];
     i = 0;
     while (i < listLength(state.lines)) {
-        out = out + state.lines[i] + "\n";
+        push(outputChunks, state.lines[i] + "\n");
         i = i + 1;
     }
-    return out;
+    return joinTextChunks(outputChunks);
 }
 

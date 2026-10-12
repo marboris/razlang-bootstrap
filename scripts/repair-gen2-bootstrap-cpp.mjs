@@ -155,6 +155,28 @@ function repairFunction(block, name) {
     if (decl) vars.set(decl[2], decl[1].trim());
   }
 
+  // Preserve aliases to large reference parameters in bootstrap C++.
+  // Gen1 may lower `state.field` through a temporary copy of the entire
+  // ParserState even though `state` is a C++ reference. Keep this repair
+  // confined to the temporary bootstrap artifact.
+  const referenceBindings = new Map();
+  for (let pass = 0; pass < 16; pass++) {
+    let changed = false;
+    for (const line of block) {
+      const alias = line.match(/^\s{4}(tt\d+)\s*=\s*([A-Za-z_]\w*)\s*;$/);
+      if (!alias) continue;
+      const [, lhs, rhs] = alias;
+      const sourceType = vars.get(rhs);
+      if (!sourceType || !sourceType.endsWith('&')) continue;
+      if (referenceBindings.get(lhs) !== rhs || vars.get(lhs) !== sourceType) {
+        referenceBindings.set(lhs, rhs);
+        vars.set(lhs, sourceType);
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+
   let localChanges = 0;
   for (let pass = 0; pass < 16; pass++) {
     let changed = false;
@@ -180,17 +202,27 @@ function repairFunction(block, name) {
   }
 
   const repaired = block.map((line) => {
+    // A value assignment into a reference alias would copy the full struct;
+    // the alias declaration below now binds directly to the original ref.
+    const assignment = line.match(/^\s{4}(tt\d+)\s*=\s*([A-Za-z_]\w*)\s*;$/);
+    if (assignment && referenceBindings.get(assignment[1]) === assignment[2]) return null;
+
     const decl = line.match(/^(\s{4})(.+?)\s+(tt\d+)\{\};$/);
     if (!decl) return line;
     const [, indent, oldType, temp] = decl;
     const newType = vars.get(temp);
     if (newType && newType !== oldType.trim() && /^tt\d+$/.test(temp)) {
-      if (newType.includes('&')) return line; // Do not generate invalid uninitialized C++ references.
+      if (newType.endsWith('&')) {
+        const source = referenceBindings.get(temp);
+        if (!source) return line; // Never emit an uninitialized C++ reference.
+        correctedTemps++;
+        return `${indent}${newType} ${temp} = ${source};`;
+      }
       correctedTemps++;
       return `${indent}${newType} ${temp}{};`;
     }
     return line;
-  });
+  }).filter((line) => line !== null);
   if (localChanges) correctedFunctions++;
   return repaired;
 }

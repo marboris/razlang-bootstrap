@@ -1,4 +1,4 @@
-function lineAt(lines: List<string>, index: i64) -> string {
+function lineAt(lines: Ref<List<string>>, index: i64) -> string {
     if (index < 0) return "";
     if (index >= listLength(lines)) return "";
     return trim(lines[index]);

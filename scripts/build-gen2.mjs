@@ -120,6 +120,8 @@ const sourceModules = [
   'src/source/modules.raz',
   'src/source/macros.raz',
   'src/validation/semantics.raz',
+  'src/validation/lowering.raz',
+  'src/validation/rir.raz',
   'src/core/rir.raz',
 ];
 const targetModules = [
@@ -127,6 +129,7 @@ const targetModules = [
   'src/targets/cpp17/parser.raz',
   'src/targets/cpp17/types.raz',
   'src/targets/cpp17/emitter.raz',
+  'src/targets/cpp17/validate.raz',
 ];
 
 if (!fs.existsSync(GEN1_BIN)) throw new Error(`Gen1 compiler not found: ${GEN1_BIN}`);

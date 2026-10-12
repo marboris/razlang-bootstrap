@@ -157,6 +157,7 @@ function keywordKind(word: string) -> i64 {
     if (word == "unsafe") return 48;
     if (word == "nullptr") return 49;
     if (word == "const") return 51;
+    if (word == "define") return 52;
     return 1;
 }
 
@@ -275,8 +276,20 @@ function lex(source: string) -> List<Token> {
 
 
 
-function current(state: Ref<ParserState>) -> Token {
-    return state.tokens[state.pos];
+function currentKind(state: Ref<ParserState>) -> i64 {
+    if (state.pos < 0 || state.pos >= listLength(state.tokens)) return 0;
+    return state.tokens[state.pos].kind;
+}
+
+function currentTokenText(state: Ref<ParserState>) -> string {
+    if (state.pos < 0 || state.pos >= listLength(state.tokens)) return "";
+    return state.tokens[state.pos].text;
+}
+
+// Consume a token when its value is not needed. This avoids copying Token.text
+// for the overwhelmingly common parser advance operation.
+function consume(state: Ref<ParserState>, kind: i64) {
+    state.pos = state.pos + 1;
 }
 
 function take(state: Ref<ParserState>, kind: i64) -> Token {
@@ -287,8 +300,7 @@ function take(state: Ref<ParserState>, kind: i64) -> Token {
 }
 
 function maybe(state: Ref<ParserState>, kind: i64) -> bool {
-    let t: Token = state.tokens[state.pos];
-    if (t.kind == kind) {
+    if (currentKind(state) == kind) {
         state.pos = state.pos + 1;
         return true;
     }
@@ -344,20 +356,20 @@ function precedence(kind: i64) -> i64 {
 function parseType(state: Ref<ParserState>) -> string {
     let t: Token = take(state, 1);
     let out: string = t.text;
-    if (current(state).kind == 39) {
-        take(state, 39);
+    if (currentKind(state) == 39) {
+        consume(state, 39);
         let inner: string = parseType(state);
         out = out + "<" + inner;
-        while (current(state).kind == 26) {
-            take(state, 26);
+        while (currentKind(state) == 26) {
+            consume(state, 26);
             let arg: string = parseType(state);
             out = out + "," + arg;
         }
         maybe(state, 41);
         out = out + ">";
     }
-    while (current(state).kind == 33) {
-        take(state, 33);
+    while (currentKind(state) == 33) {
+        consume(state, 33);
         out = out + "*";
     }
     return out;
@@ -365,27 +377,27 @@ function parseType(state: Ref<ParserState>) -> string {
 
 function parseExpression(state: Ref<ParserState>, minPrec: i64) -> i64 {
     let left: i64 = parseUnary(state);
-    let p: i64 = precedence(current(state).kind);
+    let p: i64 = precedence(currentKind(state));
     while (p >= minPrec) {
-        let op: string = current(state).text;
-        take(state, current(state).kind);
+        let op: string = currentTokenText(state);
+        consume(state, currentKind(state));
         let right: i64 = parseExpression(state, p + 1);
         let e: Expr = emptyExpr(6);
         e.op = op;
         e.left = left;
         e.right = right;
         left = addExpr(state, e);
-        p = precedence(current(state).kind);
+        p = precedence(currentKind(state));
     }
     return left;
 }
 
 function parseCallArgs(state: Ref<ParserState>) -> List<i64> {
     let args: List<i64> = [];
-    if (current(state).kind != 21) {
+    if (currentKind(state) != 21) {
         push(args, parseExpression(state, 0));
-        while (current(state).kind == 26) {
-            take(state, 26);
+        while (currentKind(state) == 26) {
+            consume(state, 26);
             push(args, parseExpression(state, 0));
         }
     }
@@ -394,68 +406,69 @@ function parseCallArgs(state: Ref<ParserState>) -> List<i64> {
 }
 
 function parsePrimary(state: Ref<ParserState>) -> i64 {
-    let t: Token = current(state);
-    if (t.kind == 2) {
-        take(state, 2);
+    let tokenKind: i64 = currentKind(state);
+    let tokenText: string = currentTokenText(state);
+    if (tokenKind == 2) {
+        consume(state, 2);
         let e: Expr = emptyExpr(1);
-        e.text = t.text;
-        e.valueText = t.text;
+        e.text = tokenText;
+        e.valueText = tokenText;
         return addExpr(state, e);
     }
-    if (t.kind == 3) {
-        take(state, 3);
+    if (tokenKind == 3) {
+        consume(state, 3);
         let e: Expr = emptyExpr(2);
-        e.text = t.text;
+        e.text = tokenText;
         return addExpr(state, e);
     }
-    if (t.kind == 4) {
-        take(state, 4);
+    if (tokenKind == 4) {
+        consume(state, 4);
         let e: Expr = emptyExpr(3);
-        e.valueText = t.text;
+        e.valueText = tokenText;
         return addExpr(state, e);
     }
-    if (t.kind == 17 || t.kind == 18) {
-        take(state, t.kind);
+    if (tokenKind == 17 || tokenKind == 18) {
+        consume(state, tokenKind);
         let e: Expr = emptyExpr(4);
-        if (t.kind == 17) e.valueText = "true";
+        if (tokenKind == 17) e.valueText = "true";
         else e.valueText = "false";
         return addExpr(state, e);
     }
-    if (t.kind == 49) {
-        take(state, 49);
+    if (tokenKind == 49) {
+        consume(state, 49);
         let e: Expr = emptyExpr(13);
         e.valueText = "nullptr";
         return addExpr(state, e);
     }
-    if (t.kind == 1) {
-        take(state, 1);
+    if (tokenKind == 1) {
+        consume(state, 1);
         let e: Expr = emptyExpr(5);
-        e.text = t.text;
+        e.text = tokenText;
         return addExpr(state, e);
     }
-    if (t.kind == 19) {
-        take(state, 19);
+    if (tokenKind == 19) {
+        consume(state, 19);
         let e: Expr = emptyExpr(11);
         e.text = parseType(state);
         maybe(state, 20);
         e.args = parseCallArgs(state);
         return addExpr(state, e);
     }
-    if (t.kind == 28) {
-        take(state, 28);
+    if (tokenKind == 28) {
+        consume(state, 28);
         let e: Expr = emptyExpr(12);
-        if (current(state).kind != 29) {
+        if (currentKind(state) != 29) {
             push(e.args, parseExpression(state, 0));
-            while (current(state).kind == 26) {
-                take(state, 26);
+            while (currentKind(state) == 26) {
+                consume(state, 26);
                 push(e.args, parseExpression(state, 0));
             }
         }
         maybe(state, 29);
         return addExpr(state, e);
     }
-    if (t.kind == 20) {
-        take(state, 20);
+    if (tokenKind == 20) {
+        consume(state, 20);
         let id: i64 = parseExpression(state, 0);
         maybe(state, 21);
         return id;
@@ -467,7 +480,7 @@ function parsePostfix(state: Ref<ParserState>, id: i64) -> i64 {
     let out: i64 = id;
     let more: bool = true;
     while (more && !state.parseError) {
-        if (current(state).kind == 36) {
+        if (currentKind(state) == 36) {
             let followedByParen: bool = false;
             if (state.pos + 1 < listLength(state.tokens)) {
                 if (state.tokens[state.pos + 1].kind == 20) followedByParen = true;
@@ -479,8 +492,8 @@ function parsePostfix(state: Ref<ParserState>, id: i64) -> i64 {
                     state.parseErrorText = "native call marker '!' must follow a bare function name";
                     state.pos = listLength(state.tokens) - 1;
                 } else {
-                    take(state, 36);
-                    take(state, 20);
+                    consume(state, 36);
+                    consume(state, 20);
                     let e: Expr = emptyExpr(14);
                     e.text = callee.text;
                     e.args = parseCallArgs(state);
@@ -491,23 +504,23 @@ function parsePostfix(state: Ref<ParserState>, id: i64) -> i64 {
                 state.parseErrorText = "native call marker '!' must be followed by '(...)'";
                 state.pos = listLength(state.tokens) - 1;
             }
-        } else if (current(state).kind == 20) {
+        } else if (currentKind(state) == 20) {
             let args: List<i64> = [] ;
-            take(state, 20);
+            consume(state, 20);
             args = parseCallArgs(state);
             let e: Expr = emptyExpr(8);
             e.left = out;
             e.args = args;
             out = addExpr(state, e);
-        } else if (current(state).kind == 27) {
-            take(state, 27);
+        } else if (currentKind(state) == 27) {
+            consume(state, 27);
             let member: Token = take(state, 1);
             let e: Expr = emptyExpr(9);
             e.left = out;
             e.text = member.text;
             out = addExpr(state, e);
-        } else if (current(state).kind == 28) {
-            take(state, 28);
+        } else if (currentKind(state) == 28) {
+            consume(state, 28);
             let idx: i64 = parseExpression(state, 0);
             maybe(state, 29);
             let e: Expr = emptyExpr(10);
@@ -522,10 +535,10 @@ function parsePostfix(state: Ref<ParserState>, id: i64) -> i64 {
 }
 
 function parseUnary(state: Ref<ParserState>) -> i64 {
-    let k: i64 = current(state).kind;
+    let k: i64 = currentKind(state);
     if (k == 36 || k == 31 || k == 32) {
-        let op: string = current(state).text;
-        take(state, k);
+        let op: string = currentTokenText(state);
+        consume(state, k);
         let operand: i64 = parseUnary(state);
         let e: Expr = emptyExpr(7);
         e.op = op;
@@ -541,7 +554,7 @@ function parseBlock(state: Ref<ParserState>) -> List<i64> {
     let body: List<i64> = [];
     maybe(state, 22);
     state.blockDepth = state.blockDepth + 1;
-    while (!state.parseError && current(state).kind != 23 && current(state).kind != 0) {
+    while (!state.parseError && currentKind(state) != 23 && currentKind(state) != 0) {
         let stmtId: i64 = parseStatement(state);
         if (stmtId >= 0) push(body, stmtId);
     }
@@ -552,7 +565,7 @@ function parseBlock(state: Ref<ParserState>) -> List<i64> {
 
 function parseControlledBody(state: Ref<ParserState>) -> List<i64> {
     let body: List<i64> = [];
-    if (current(state).kind == 22) return parseBlock(state);
+    if (currentKind(state) == 22) return parseBlock(state);
     state.blockDepth = state.blockDepth + 1;
     push(body, parseStatement(state));
     state.blockDepth = state.blockDepth - 1;
@@ -560,7 +573,7 @@ function parseControlledBody(state: Ref<ParserState>) -> List<i64> {
 }
 
 function parseStatement(state: Ref<ParserState>) -> i64 {
-    let k: i64 = current(state).kind;
+    let k: i64 = currentKind(state);
     if (state.blockDepth > 0 && (k == 10 || k == 11)) {
         state.parseError = true;
         state.parseErrorText = "declaration is only allowed at file scope";
@@ -568,17 +581,18 @@ function parseStatement(state: Ref<ParserState>) -> i64 {
         return -1;
     }
     if (k == 46) {
-        take(state, 46);
+        consume(state, 46);
         let s: Stmt = emptyStmt(7);
-        let t: Token = current(state);
-        if (t.kind == 3) {
-            take(state, 3);
-            s.name = t.text;
+        let tKind: i64 = currentKind(state);
+        let tText: string = currentTokenText(state);
+        if (tKind == 3) {
+            consume(state, 3);
+            s.name = tText;
             s.type = "quoted";
             maybe(state, 24);
             return addStmt(state, s);
         }
-        if (t.kind == 1) {
+        if (tKind == 1) {
             state.parseError = true;
             state.parseErrorText = "native C++ headers must be quoted in use directives; Raz modules use dotted names";
             state.pos = listLength(state.tokens) - 1;
@@ -590,28 +604,28 @@ function parseStatement(state: Ref<ParserState>) -> i64 {
         return -1;
     }
     if (k == 47) {
-        take(state, 47);
+        consume(state, 47);
         let s: Stmt = emptyStmt(8);
-        if (current(state).kind == 3) {
+        if (currentKind(state) == 3) {
             s.name = take(state, 3).text;
         }
         maybe(state, 24);
         return addStmt(state, s);
     }
     if (k == 48) {
-        take(state, 48);
+        consume(state, 48);
         let s: Stmt = emptyStmt(9);
         s.body = parseControlledBody(state);
         return addStmt(state, s);
     }
     if (k == 12 || k == 51) {
-        take(state, k);
+        consume(state, k);
         let s: Stmt = emptyStmt(1);
         s.isConst = k == 51;
         let name: Token = take(state, 1);
         s.name = name.text;
-        if (current(state).kind == 25) {
-            take(state, 25);
+        if (currentKind(state) == 25) {
+            consume(state, 25);
             s.type = parseType(state);
             s.isTypeExplicit = true;
         }
@@ -621,29 +635,29 @@ function parseStatement(state: Ref<ParserState>) -> i64 {
         return addStmt(state, s);
     }
     if (k == 13) {
-        take(state, 13);
+        consume(state, 13);
         let s: Stmt = emptyStmt(2);
-        if (current(state).kind != 24) s.expr = parseExpression(state, 0);
+        if (currentKind(state) != 24) s.expr = parseExpression(state, 0);
         maybe(state, 24);
         return addStmt(state, s);
     }
     if (k == 14) {
-        take(state, 14);
+        consume(state, 14);
         let s: Stmt = emptyStmt(5);
         maybe(state, 20);
         s.expr = parseExpression(state, 0);
         maybe(state, 21);
         s.thenStmts = parseControlledBody(state);
-        if (current(state).kind == 15) {
-            take(state, 15);
-            if (current(state).kind == 14) push(s.elseStmts, parseStatement(state));
-            else if (current(state).kind == 22) s.elseStmts = parseBlock(state);
+        if (currentKind(state) == 15) {
+            consume(state, 15);
+            if (currentKind(state) == 14) push(s.elseStmts, parseStatement(state));
+            else if (currentKind(state) == 22) s.elseStmts = parseBlock(state);
             else push(s.elseStmts, parseStatement(state));
         }
         return addStmt(state, s);
     }
     if (k == 16) {
-        take(state, 16);
+        consume(state, 16);
         let s: Stmt = emptyStmt(6);
         maybe(state, 20);
         s.expr = parseExpression(state, 0);
@@ -657,8 +671,8 @@ function parseStatement(state: Ref<ParserState>) -> i64 {
         state.pos = state.pos + 1;
         return -1;
     }
-    if (current(state).kind == 30) {
-        take(state, 30);
+    if (currentKind(state) == 30) {
+        consume(state, 30);
         let s: Stmt = emptyStmt(4);
         s.left = first;
         s.right = parseExpression(state, 0);
@@ -672,14 +686,14 @@ function parseStatement(state: Ref<ParserState>) -> i64 {
 }
 
 function parseFunction(state: Ref<ParserState>) -> FunctionDef {
-    take(state, 10);
+    consume(state, 10);
     let f: FunctionDef = new FunctionDef();
     let name: Token = take(state, 1);
     f.name = name.text;
     f.params = [];
     f.returnType = "void";
     maybe(state, 20);
-    if (current(state).kind != 21) {
+    if (currentKind(state) != 21) {
         let more: bool = true;
         while (more) {
             let p: Param = new Param();
@@ -692,8 +706,8 @@ function parseFunction(state: Ref<ParserState>) -> FunctionDef {
         }
     }
     maybe(state, 21);
-    if (current(state).kind == 45) {
-        take(state, 45);
+    if (currentKind(state) == 45) {
+        consume(state, 45);
         f.returnType = parseType(state);
     }
     f.body = parseBlock(state);
@@ -701,13 +715,13 @@ function parseFunction(state: Ref<ParserState>) -> FunctionDef {
 }
 
 function parseStruct(state: Ref<ParserState>) -> StructDef {
-    take(state, 11);
+    consume(state, 11);
     let s: StructDef = new StructDef();
     let name: Token = take(state, 1);
     s.name = name.text;
     s.fields = [];
     maybe(state, 22);
-    while (current(state).kind != 23 && current(state).kind != 0) {
+    while (currentKind(state) != 23 && currentKind(state) != 0) {
         let f: Field = new Field();
         let fname: Token = take(state, 1);
         f.name = fname.text;
@@ -734,15 +748,15 @@ function parseProgram(source: string) -> Program {
     state.parseError = false;
     state.parseErrorText = "";
 
-    while (!state.parseError && current(state).kind != 0) {
-        if (current(state).kind == 10) push(state.functions, parseFunction(state));
-        else if (current(state).kind == 50) {
-            take(state, 50);
+    while (!state.parseError && currentKind(state) != 0) {
+        if (currentKind(state) == 10) push(state.functions, parseFunction(state));
+        else if (currentKind(state) == 50) {
+            consume(state, 50);
             state.parseError = true;
             state.parseErrorText = "extern declarations are not supported; use name!(...) for native calls";
             state.pos = listLength(state.tokens) - 1;
         }
-        else if (current(state).kind == 11) push(state.structs, parseStruct(state));
+        else if (currentKind(state) == 11) push(state.structs, parseStruct(state));
         else {
             let stmtId: i64 = parseStatement(state);
             if (stmtId >= 0) push(state.lastList, stmtId);
@@ -772,7 +786,7 @@ function parseProgram(source: string) -> Program {
 
 
 
-function charCodeAt(value: string, index: i64) -> i64 {
+function charCodeAt(value: Ref<string>, index: i64) -> i64 {
     if (index < 0) return -1;
     if (index >= length(value)) return -1;
     return value[index];
@@ -810,6 +824,25 @@ function containsText(xs: List<string>, value: string) -> bool {
     return false;
 }
 
+
+
+// Join fragments as a balanced tree. Repeated `out = out + fragment` copies
+// the growing prefix and becomes quadratic when compiling the compiler itself.
+function joinTextChunks(chunks: List<string>) -> string {
+    let work: List<string> = chunks;
+    while (listLength(work) > 1) {
+        let next: List<string> = [];
+        let i: i64 = 0;
+        while (i < listLength(work)) {
+            if (i + 1 < listLength(work)) push(next, work[i] + work[i + 1]);
+            else push(next, work[i]);
+            i = i + 2;
+        }
+        work = next;
+    }
+    if (listLength(work) == 0) return "";
+    return work[0];
+}
 
 
 function pathDir(path: string) -> string {
@@ -1209,8 +1242,9 @@ function resolveOneModule(state: Ref<ModuleResolveState>, name: string, filePath
 }
 
 function expandResolvedModules(state: Ref<ModuleResolveState>, source: string, filePath: string) -> string {
-    let out: string = "";
     let cursor: i64 = 0;
+    let lineNumber: i64 = 1;
+    let outputChunks: List<string> = [];
     let scan: ModuleScanState = new ModuleScanState();
     scan.blockComment = false;
     scan.blockCommentLine = 0;
@@ -1223,31 +1257,32 @@ function expandResolvedModules(state: Ref<ModuleResolveState>, source: string, f
         let line: string = slice(source, cursor, end);
         let consumed: i64 = end;
         if (next >= 0) consumed = next + 1;
-        let lineNumber: i64 = sourceLineNumber(source, cursor);
         let cleanLine: string = maskModuleComments(line, scan, lineNumber);
         let names: List<string> = moduleUsesOnLine(cleanLine);
         if (listLength(names) == 0) {
-            out = out + line;
-            if (next >= 0) out = out + "\n";
+            push(outputChunks, line);
+            if (next >= 0) push(outputChunks, "\n");
         } else {
             let i: i64 = 0;
             while (i < listLength(names) && !state.failed) {
-                out = out + resolveOneModule(state, names[i], filePath, lineNumber);
+                push(outputChunks, resolveOneModule(state, names[i], filePath, lineNumber));
                 i = i + 1;
             }
         }
         // Removing a `use` line must not remove an open trailing block comment.
         // Emit a comment opener in its place so following source remains masked
         // until the matching `*/` is encountered on a later line.
-        if (listLength(names) > 0 && scan.blockComment) out = out + "\n/*";
+        if (listLength(names) > 0 && scan.blockComment) push(outputChunks, "\n/*");
         cursor = consumed;
+        if (next >= 0) lineNumber = lineNumber + 1;
     }
     if (!state.failed && scan.blockComment) {
         let startLine: i64 = scan.blockCommentLine;
         if (startLine < 1) startLine = sourceLineNumber(source, length(source));
         moduleResolveFail(state, filePath + ":" + int_to_string(startLine) + ": unterminated block comment");
     }
-    return out;
+    if (state.failed) return "";
+    return joinTextChunks(outputChunks);
 }
 
 function resolveRazModules(source: string, entryPath: string, roots: List<string>) -> string {
@@ -1265,6 +1300,335 @@ function resolveRazModules(source: string, entryPath: string, roots: List<string
     let result: string = expandResolvedModules(state, expanded, entryPath);
     if (state.failed) return "";
     return result;
+}
+
+
+// G2-012: token-aware source define expansion with direct-call syntax.
+// Syntax:
+//   define twice(x) { x + x }
+//   let value: i64 = twice(4);
+// Expansion happens after module resolution and before build-definition
+// rewriting, parsing, and semantic validation. It is deliberately not a C
+// preprocessor: there is no stringification, token-pasting, or conditional
+// compilation in this first milestone.
+
+struct RazMacroDefinition {
+    name: string;
+    params: List<string>;
+    body: string;
+}
+
+struct RazMacroState {
+    definitions: List<RazMacroDefinition>;
+    failed: bool;
+    error: string;
+    errorOffset: i64;
+    parsedEnd: i64;
+    changed: bool;
+    lastInvocationOffset: i64;
+}
+
+struct RazMacroCall {
+    name: string;
+    arguments: List<string>;
+    start: i64;
+    end: i64;
+    closeToken: i64;
+}
+
+function macroFail(state: Ref<RazMacroState>, message: string, offset: i64) {
+    if (!state.failed) {
+        state.failed = true;
+        state.error = message;
+        state.errorOffset = offset;
+    }
+}
+
+function macroSourceLine(source: string, offset: i64) -> i64 {
+    let line: i64 = 1;
+    let i: i64 = 0;
+    while (i < offset && i < length(source)) {
+        if (charCodeAt(source, i) == 10) line = line + 1;
+        i = i + 1;
+    }
+    return line;
+}
+
+function blankMacroRange(source: string, start: i64, end: i64) -> string {
+    let out: string = "";
+    let i: i64 = start;
+    while (i < end) {
+        let c: i64 = charCodeAt(source, i);
+        if (c == 10 || c == 13) out = out + slice(source, i, i + 1);
+        else out = out + " ";
+        i = i + 1;
+    }
+    return out;
+}
+
+function macroDefinitionIndex(state: Ref<RazMacroState>, name: string) -> i64 {
+    let i: i64 = 0;
+    while (i < listLength(state.definitions)) {
+        if (state.definitions[i].name == name) return i;
+        i = i + 1;
+    }
+    return -1;
+}
+
+function macroParameterIndex(params: List<string>, name: string) -> i64 {
+    let i: i64 = 0;
+    while (i < listLength(params)) {
+        if (params[i] == name) return i;
+        i = i + 1;
+    }
+    return -1;
+}
+
+function macroArgumentHasTokens(source: string) -> bool {
+    let tokens: List<Token> = lex(source);
+    return listLength(tokens) > 1;
+}
+
+function parseMacroDefinition(source: string, tokens: List<Token>, startIndex: i64, state: Ref<RazMacroState>) -> i64 {
+    let count: i64 = listLength(tokens);
+    if (startIndex + 2 >= count || tokens[startIndex + 1].kind != 1) {
+        macroFail(state, "expected name after 'define'", tokens[startIndex].pos);
+        return startIndex;
+    }
+    let name: string = tokens[startIndex + 1].text;
+    if (macroDefinitionIndex(state, name) >= 0) {
+        macroFail(state, "duplicate define '" + name + "'", tokens[startIndex + 1].pos);
+        return startIndex;
+    }
+    if (tokens[startIndex + 2].kind != 20) {
+        macroFail(state, "expected '(' after define name '" + name + "'", tokens[startIndex + 1].pos);
+        return startIndex;
+    }
+
+    let params: List<string> = [];
+    let cursor: i64 = startIndex + 3;
+    let paramsDone: bool = false;
+    if (cursor < count && tokens[cursor].kind == 21) {
+        paramsDone = true;
+        cursor = cursor + 1;
+    }
+    while (cursor < count && !paramsDone && !state.failed) {
+        if (tokens[cursor].kind != 1) {
+            macroFail(state, "expected identifier in parameter list for define '" + name + "'", tokens[cursor].pos);
+            return startIndex;
+        }
+        if (macroParameterIndex(params, tokens[cursor].text) >= 0) {
+            macroFail(state, "duplicate parameter '" + tokens[cursor].text + "' in define '" + name + "'", tokens[cursor].pos);
+            return startIndex;
+        }
+        push(params, tokens[cursor].text);
+        cursor = cursor + 1;
+        if (cursor < count && tokens[cursor].kind == 26) {
+            cursor = cursor + 1;
+        } else if (cursor < count && tokens[cursor].kind == 21) {
+            paramsDone = true;
+            cursor = cursor + 1;
+        } else {
+            if (cursor < count) macroFail(state, "expected ',' or ')' in define parameter list", tokens[cursor].pos);
+            else macroFail(state, "unterminated define parameter list", tokens[startIndex].pos);
+            return startIndex;
+        }
+    }
+
+    if (cursor >= count || tokens[cursor].kind != 22) {
+        let offset: i64 = tokens[startIndex].pos;
+        if (cursor < count) offset = tokens[cursor].pos;
+        macroFail(state, "expected '{' before body of macro '" + name + "'", offset);
+        return startIndex;
+    }
+    let bodyOpen: i64 = cursor;
+    let depth: i64 = 1;
+    cursor = cursor + 1;
+    while (cursor < count && depth > 0) {
+        if (tokens[cursor].kind == 22) depth = depth + 1;
+        else if (tokens[cursor].kind == 23) depth = depth - 1;
+        if (depth > 0) cursor = cursor + 1;
+    }
+    if (depth != 0 || cursor >= count) {
+        macroFail(state, "unterminated body for define '" + name + "'", tokens[startIndex].pos);
+        return startIndex;
+    }
+
+    let definition: RazMacroDefinition = new RazMacroDefinition();
+    definition.name = name;
+    definition.params = params;
+    definition.body = slice(source, tokens[bodyOpen].pos + 1, tokens[cursor].pos);
+    state.parsedEnd = tokens[cursor].pos + 1;
+    let nextIndex: i64 = cursor + 1;
+    if (nextIndex < count && tokens[nextIndex].kind == 24) {
+        state.parsedEnd = state.parsedEnd + 1;
+        nextIndex = nextIndex + 1;
+    }
+    push(state.definitions, definition);
+    return nextIndex;
+}
+
+function extractMacroDefinitions(source: string, state: Ref<RazMacroState>) -> string {
+    let tokens: List<Token> = lex(source);
+    let count: i64 = listLength(tokens);
+    let out: string = "";
+    let sourceCursor: i64 = 0;
+    let tokenCursor: i64 = 0;
+    let braceDepth: i64 = 0;
+    while (tokenCursor + 1 < count && !state.failed) {
+        let token: Token = tokens[tokenCursor];
+        if (braceDepth == 0 && token.kind == 52 && token.text == "define") {
+            let nextToken: i64 = parseMacroDefinition(source, tokens, tokenCursor, state);
+            if (state.failed) return "";
+            out = out + slice(source, sourceCursor, token.pos);
+            out = out + blankMacroRange(source, token.pos, state.parsedEnd);
+            sourceCursor = state.parsedEnd;
+            tokenCursor = nextToken;
+        } else {
+            if (token.kind == 22) braceDepth = braceDepth + 1;
+            else if (token.kind == 23 && braceDepth > 0) braceDepth = braceDepth - 1;
+            tokenCursor = tokenCursor + 1;
+        }
+    }
+    return out + slice(source, sourceCursor, length(source));
+}
+
+function parseMacroCall(source: string, tokens: List<Token>, nameIndex: i64, state: Ref<RazMacroState>) -> RazMacroCall {
+    let call: RazMacroCall = new RazMacroCall();
+    call.name = tokens[nameIndex].text;
+    call.arguments = [];
+    call.start = tokens[nameIndex].pos;
+    call.end = call.start + length(call.name);
+    call.closeToken = nameIndex;
+    let count: i64 = listLength(tokens);
+    if (nameIndex + 1 >= count || tokens[nameIndex + 1].kind != 20) {
+        macroFail(state, "expected '(' after macro invocation '" + call.name + "'", call.start);
+        return call;
+    }
+
+    let openIndex: i64 = nameIndex + 1;
+    let argStart: i64 = tokens[openIndex].pos + 1;
+    let roundDepth: i64 = 1;
+    let squareDepth: i64 = 0;
+    let braceDepth: i64 = 0;
+    let hadComma: bool = false;
+    let cursor: i64 = openIndex + 1;
+    let foundClose: bool = false;
+    while (cursor < count - 1 && !foundClose) {
+        let token: Token = tokens[cursor];
+        if (token.kind == 20) roundDepth = roundDepth + 1;
+        else if (token.kind == 21) {
+            roundDepth = roundDepth - 1;
+            if (roundDepth == 0) {
+                let finalArg: string = slice(source, argStart, token.pos);
+                if (hadComma || macroArgumentHasTokens(finalArg)) push(call.arguments, finalArg);
+                call.end = token.pos + 1;
+                call.closeToken = cursor;
+                foundClose = true;
+            }
+        } else if (token.kind == 28) squareDepth = squareDepth + 1;
+        else if (token.kind == 29 && squareDepth > 0) squareDepth = squareDepth - 1;
+        else if (token.kind == 22) braceDepth = braceDepth + 1;
+        else if (token.kind == 23 && braceDepth > 0) braceDepth = braceDepth - 1;
+        else if (token.kind == 26 && roundDepth == 1 && squareDepth == 0 && braceDepth == 0) {
+            push(call.arguments, slice(source, argStart, token.pos));
+            argStart = token.pos + 1;
+            hadComma = true;
+        }
+        cursor = cursor + 1;
+    }
+    if (!foundClose) macroFail(state, "unterminated invocation of macro '" + call.name + "'", call.start);
+    return call;
+}
+
+function substituteMacroArguments(body: string, definition: RazMacroDefinition, arguments: List<string>) -> string {
+    let tokens: List<Token> = lex(body);
+    let out: string = "";
+    let sourceCursor: i64 = 0;
+    let i: i64 = 0;
+    while (i + 1 < listLength(tokens)) {
+        let token: Token = tokens[i];
+        if (token.kind == 1) {
+            let param: i64 = macroParameterIndex(definition.params, token.text);
+            if (param >= 0) {
+                out = out + slice(body, sourceCursor, token.pos) + arguments[param];
+                sourceCursor = token.pos + length(token.text);
+            }
+        }
+        i = i + 1;
+    }
+    return out + slice(body, sourceCursor, length(body));
+}
+
+function expandMacroPass(source: string, state: Ref<RazMacroState>) -> string {
+    let tokens: List<Token> = lex(source);
+    let out: string = "";
+    let sourceCursor: i64 = 0;
+    let i: i64 = 0;
+    state.changed = false;
+    while (i + 1 < listLength(tokens) && !state.failed) {
+        let token: Token = tokens[i];
+        let definitionIndex: i64 = -1;
+        if (token.kind == 1) definitionIndex = macroDefinitionIndex(state, token.text);
+        if (definitionIndex >= 0 && i + 1 < listLength(tokens) && tokens[i + 1].kind == 20) {
+            state.lastInvocationOffset = token.pos;
+            let call: RazMacroCall = parseMacroCall(source, tokens, i, state);
+            if (state.failed) return "";
+            let definition: RazMacroDefinition = state.definitions[definitionIndex];
+            if (listLength(call.arguments) != listLength(definition.params)) {
+                macroFail(state, "define '" + call.name + "' expects " + int_to_string(listLength(definition.params)) + " argument(s), got " + int_to_string(listLength(call.arguments)), call.start);
+                return "";
+            }
+            let replacement: string = substituteMacroArguments(definition.body, definition, call.arguments);
+            out = out + slice(source, sourceCursor, call.start) + replacement;
+            sourceCursor = call.end;
+            state.changed = true;
+            i = call.closeToken + 1;
+        } else {
+            i = i + 1;
+        }
+    }
+    if (state.failed) return "";
+    if (!state.changed) return source;
+    out = out + slice(source, sourceCursor, length(source));
+    return out;
+}
+
+function expandRazMacros(source: string, sourcePath: string) -> string {
+    let state: RazMacroState = new RazMacroState();
+    state.definitions = [];
+    state.failed = false;
+    state.error = "";
+    state.errorOffset = 0;
+    state.parsedEnd = 0;
+    state.changed = false;
+    state.lastInvocationOffset = 0;
+
+    let expanded: string = extractMacroDefinitions(source, state);
+    if (state.failed) {
+        print("razc: " + sourcePath + ":" + int_to_string(macroSourceLine(source, state.errorOffset)) + ": define error: " + state.error);
+        return "";
+    }
+
+    let pass: i64 = 0;
+    let lastPassSource: string = expanded;
+    while (pass < 32) {
+        lastPassSource = expanded;
+        let passSource: string = expanded;
+        expanded = expandMacroPass(passSource, state);
+        if (state.failed) {
+            print("razc: " + sourcePath + ":" + int_to_string(macroSourceLine(passSource, state.errorOffset)) + ": define error: " + state.error);
+            return "";
+        }
+        if (!state.changed) return expanded;
+        if (length(expanded) > 1048576) {
+            print("razc: " + sourcePath + ": macro expansion exceeds 1 MiB");
+            return "";
+        }
+        pass = pass + 1;
+    }
+    print("razc: " + sourcePath + ":" + int_to_string(macroSourceLine(lastPassSource, state.lastInvocationOffset)) + ": macro expansion exceeded 32 passes (possible recursive define)");
+    return "";
 }
 
 
@@ -1308,19 +1672,20 @@ function fieldIndex(s: StructDef, name: string) -> i64 {
 }
 
 function bindingType(scope: Ref<List<Binding>>, name: string) -> string {
-    let i: i64 = 0;
-    while (i < listLength(scope)) {
+    // Most lookups target recently introduced locals; search newest bindings first.
+    let i: i64 = listLength(scope) - 1;
+    while (i >= 0) {
         if (scope[i].name == name) return scope[i].type;
-        i = i + 1;
+        i = i - 1;
     }
     return "";
 }
 
 function bindingIsConst(scope: Ref<List<Binding>>, name: string) -> bool {
-    let i: i64 = 0;
-    while (i < listLength(scope)) {
+    let i: i64 = listLength(scope) - 1;
+    while (i >= 0) {
         if (scope[i].name == name) return scope[i].isConst;
-        i = i + 1;
+        i = i - 1;
     }
     return false;
 }
@@ -1352,31 +1717,76 @@ function semanticFail(state: Ref<SemanticState>, message: string) -> string {
     return "";
 }
 
-// The current RIR flattens all branches into one C++ function scope and does
-// not yet carry Symbol IDs. Until that representation is upgraded, reject
-// same-spelled locals anywhere in one function rather than silently aliasing
-// distinct Raz declarations to one C++ object.
-function collectUniqueLocalNames(program: Ref<Program>, ids: List<i64>, names: Ref<List<string>>, state: Ref<SemanticState>) {
+// Resolve source-level local names to unique symbols before RIR lowering.
+// RIR control-flow is currently flattened, so relying on C++ block scopes would
+// be incorrect. Binding.type is the normalized symbol name in this pass.
+function normalizeExprNames(program: Ref<Program>, names: Ref<List<Binding>>, id: i64) {
+    if (id < 0 || id >= listLength(program.exprs)) return;
+    let x: Expr = program.exprs[id];
+    if (x.kind == 5) {
+        let target: string = bindingType(names, x.text);
+        if (target != "") program.exprs[id].text = target;
+        return;
+    }
+    if (x.kind == 6) {
+        normalizeExprNames(program, names, x.left);
+        normalizeExprNames(program, names, x.right);
+    } else if (x.kind == 7 || x.kind == 9) {
+        normalizeExprNames(program, names, x.left);
+    } else if (x.kind == 10) {
+        normalizeExprNames(program, names, x.left);
+        normalizeExprNames(program, names, x.right);
+    }
+    let i: i64 = 0;
+    while (i < listLength(x.args)) {
+        normalizeExprNames(program, names, x.args[i]);
+        i = i + 1;
+    }
+}
+
+function normalizeStatementNames(program: Ref<Program>, ids: List<i64>, names: Ref<List<Binding>>, nextSymbol: Ref<i64>, state: Ref<SemanticState>) {
     let i: i64 = 0;
     while (i < listLength(ids) && state.ok) {
-        let s: Stmt = program.stmts[ids[i]];
+        let stmtId: i64 = ids[i];
+        let s: Stmt = program.stmts[stmtId];
         if (s.kind == 1) {
-            let j: i64 = 0;
-            let duplicate: bool = false;
-            while (j < listLength(names)) {
-                if (names[j] == s.name) duplicate = true;
-                j = j + 1;
-            }
-            if (duplicate) {
-                semanticFail(state, "duplicate local name across flattened control-flow scopes: " + s.name);
+            // Initializers see only bindings declared before this statement.
+            normalizeExprNames(program, names, s.expr);
+            if (bindingType(names, s.name) != "") {
+                semanticFail(state, "variable already defined or shadowed: " + s.name);
                 return;
             }
-            push(names, s.name);
+            // '$' cannot occur in a Raz identifier, so this namespace cannot
+            // collide with user source names. The monotonically increasing ID
+            // also keeps sibling branches distinct after RIR control-flow flattening.
+            let target: string = "raz$local$" + int_to_string(nextSymbol) + "$" + s.name;
+            nextSymbol = nextSymbol + 1;
+            program.stmts[stmtId].name = target;
+            let binding: Binding = new Binding();
+            binding.name = s.name;
+            binding.type = target;
+            binding.isConst = s.isConst;
+            push(names, binding);
+        } else if (s.kind == 2 || s.kind == 3) {
+            normalizeExprNames(program, names, s.expr);
+        } else if (s.kind == 4) {
+            normalizeExprNames(program, names, s.left);
+            normalizeExprNames(program, names, s.right);
         } else if (s.kind == 5) {
-            collectUniqueLocalNames(program, s.thenStmts, names, state);
-            collectUniqueLocalNames(program, s.elseStmts, names, state);
-        } else if (s.kind == 6 || s.kind == 9) {
-            collectUniqueLocalNames(program, s.body, names, state);
+            normalizeExprNames(program, names, s.expr);
+            let thenNames: List<Binding> = cloneBindings(names);
+            normalizeStatementNames(program, s.thenStmts, thenNames, nextSymbol, state);
+            let elseNames: List<Binding> = cloneBindings(names);
+            normalizeStatementNames(program, s.elseStmts, elseNames, nextSymbol, state);
+        } else if (s.kind == 6) {
+            normalizeExprNames(program, names, s.expr);
+            let bodyNames: List<Binding> = cloneBindings(names);
+            normalizeStatementNames(program, s.body, bodyNames, nextSymbol, state);
+        } else if (s.kind == 9) {
+            // unsafe does not introduce a lexical scope in the semantic checker.
+            normalizeStatementNames(program, s.body, names, nextSymbol, state);
+        } else {
+            normalizeExprNames(program, names, s.expr);
         }
         i = i + 1;
     }
@@ -1509,7 +1919,10 @@ function checkExpr(program: Ref<Program>, state: Ref<SemanticState>, scope: Ref<
         while (i < listLength(x.args)) {
             let actual: string = checkExpr(program, state, scope, x.args[i]);
             let rawExpected: string = fnDef.params[i].type;
-            if (isRefType(rawExpected) && !isLValue(program, x.args[i])) return semanticFail(state, "argument must be an lvalue in " + name);
+            // Read-only text helpers accept literals and computed strings too: the
+            // backend materializes those rvalues in a temp before binding the Ref.
+            // Other Ref<T> parameters remain strict lvalue/inout parameters.
+            if (isRefType(rawExpected) && !isLValue(program, x.args[i]) && name != "length" && name != "slice") return semanticFail(state, "argument must be an lvalue in " + name);
             let expected: string = valueTypeForParam(rawExpected);
             if (!assignableType(expected, actual)) return semanticFail(state, "argument type mismatch in " + name);
             i = i + 1;
@@ -1529,6 +1942,8 @@ function checkExpr(program: Ref<Program>, state: Ref<SemanticState>, scope: Ref<
         let base: string = checkExpr(program, state, scope, x.left);
         let idx: string = checkExpr(program, state, scope, x.right);
         if (idx != "i64" && idx != "char") return semanticFail(state, "index must be i64");
+        let referenced: string = innerGeneric(base, "Ref<");
+        if (referenced != "") base = referenced;
         let inner: string = innerGeneric(base, "List<");
         if (inner != "") return inner;
         if (base == "string") return "i64";
@@ -1690,6 +2105,29 @@ function analyzeProgram(program: Ref<Program>) -> i64 {
         i = i + 1;
     }
 
+    // Normalize locals in top-level control-flow without renaming true globals.
+    let topNames: List<Binding> = [];
+    let nextSymbol: i64 = 0;
+    i = 0;
+    while (i < listLength(program.topStmts) && state.ok) {
+        let topId: i64 = program.topStmts[i];
+        let topStmt: Stmt = program.stmts[topId];
+        if (topStmt.kind == 1) {
+            normalizeExprNames(program, topNames, topStmt.expr);
+            let globalName: Binding = new Binding();
+            globalName.name = topStmt.name;
+            globalName.type = topStmt.name;
+            globalName.isConst = topStmt.isConst;
+            push(topNames, globalName);
+        } else {
+            let one: List<i64> = [];
+            push(one, topId);
+            normalizeStatementNames(program, one, topNames, nextSymbol, state);
+        }
+        i = i + 1;
+    }
+    if (!state.ok) return 1;
+
     i = 0;
     while (i < listLength(program.functions)) {
         let f: FunctionDef = program.functions[i];
@@ -1773,13 +2211,17 @@ function analyzeProgram(program: Ref<Program>) -> i64 {
             push(scope, b);
             j = j + 1;
         }
-        let uniqueNames: List<string> = [];
+        let functionNames: List<Binding> = cloneBindings(topNames);
         j = 0;
         while (j < listLength(f.params)) {
-            push(uniqueNames, f.params[j].name);
+            let paramName: Binding = new Binding();
+            paramName.name = f.params[j].name;
+            paramName.type = f.params[j].name;
+            paramName.isConst = false;
+            push(functionNames, paramName);
             j = j + 1;
         }
-        collectUniqueLocalNames(program, f.body, uniqueNames, state);
+        normalizeStatementNames(program, f.body, functionNames, nextSymbol, state);
         if (!state.ok) return 1;
 
         j = 0;
@@ -1793,6 +2235,169 @@ function analyzeProgram(program: Ref<Program>) -> i64 {
     return 0;
 }
 
+
+
+// Target capability checks. Keep these checks before RIR emission so an AST
+// node is never silently translated to an operation the C++17 backend cannot lower.
+
+function gen2SupportsBinaryOperator(op: string) -> bool {
+    return op == "+" || op == "-" || op == "*" || op == "/" || op == "%" ||
+        op == "==" || op == "!=" || op == "<" || op == "<=" || op == ">" ||
+        op == ">=" || op == "&&" || op == "||";
+}
+
+function gen2SupportsUnaryOperator(op: string) -> bool {
+    return op == "+" || op == "-" || op == "!";
+}
+
+function validateCpp17Lowering(program: Ref<Program>) -> string {
+    let i: i64 = 0;
+    while (i < listLength(program.exprs)) {
+        let e: Expr = program.exprs[i];
+        if (e.kind == 6 && !gen2SupportsBinaryOperator(e.op)) {
+            return "C++17 lowering does not support binary operator '" + e.op + "'";
+        }
+        if (e.kind == 7 && !gen2SupportsUnaryOperator(e.op)) {
+            return "C++17 lowering does not support unary operator '" + e.op + "'";
+        }
+        if (e.kind < 1 || e.kind > 14) {
+            return "C++17 lowering does not support expression kind " + int_to_string(e.kind);
+        }
+        i = i + 1;
+    }
+
+    i = 0;
+    while (i < listLength(program.stmts)) {
+        let s: Stmt = program.stmts[i];
+        if (s.kind < 1 || s.kind > 9) {
+            return "C++17 lowering does not support statement kind " + int_to_string(s.kind);
+        }
+        i = i + 1;
+    }
+
+    return "";
+}
+
+
+// RIR-1 verifier. This is a compiler stage, not a debugging utility: it rejects
+// malformed or unsupported intermediate operations before target lowering.
+
+function gen2RirTrim(value: string) -> string {
+    let a: i64 = 0;
+    let b: i64 = length(value);
+    while (a < b && (charCodeAt(value, a) == 32 || charCodeAt(value, a) == 9 || charCodeAt(value, a) == 13)) a = a + 1;
+    while (b > a && (charCodeAt(value, b - 1) == 32 || charCodeAt(value, b - 1) == 9 || charCodeAt(value, b - 1) == 13)) b = b - 1;
+    return slice(value, a, b);
+}
+
+function gen2RirStarts(value: string, prefix: string) -> bool {
+    if (length(value) < length(prefix)) return false;
+    return slice(value, 0, length(prefix)) == prefix;
+}
+
+function gen2RirFind(value: string, needle: string) -> i64 {
+    let i: i64 = 0;
+    let n: i64 = length(needle);
+    if (n == 0) return 0;
+    while (i + n <= length(value)) {
+        if (slice(value, i, i + n) == needle) return i;
+        i = i + 1;
+    }
+    return -1;
+}
+
+function gen2RirKnownRhs(rhs: string) -> bool {
+    if (gen2RirStarts(rhs, "const i64 ") || gen2RirStarts(rhs, "const string ") ||
+        gen2RirStarts(rhs, "const char ") || gen2RirStarts(rhs, "const bool ") ||
+        gen2RirStarts(rhs, "const char* ")) return true;
+    if (gen2RirStarts(rhs, "load ") || gen2RirStarts(rhs, "copy ") ||
+        gen2RirStarts(rhs, "ref ") || gen2RirStarts(rhs, "ref_field ") ||
+        gen2RirStarts(rhs, "ref_index ") || gen2RirStarts(rhs, "new ") ||
+        gen2RirStarts(rhs, "field ") || gen2RirStarts(rhs, "index ") ||
+        gen2RirStarts(rhs, "call ") || gen2RirStarts(rhs, "list(")) return true;
+    if (gen2RirStarts(rhs, "add ") || gen2RirStarts(rhs, "sub ") ||
+        gen2RirStarts(rhs, "mul ") || gen2RirStarts(rhs, "div ") ||
+        gen2RirStarts(rhs, "mod ") || gen2RirStarts(rhs, "eq ") ||
+        gen2RirStarts(rhs, "ne ") || gen2RirStarts(rhs, "lt ") ||
+        gen2RirStarts(rhs, "le ") || gen2RirStarts(rhs, "gt ") ||
+        gen2RirStarts(rhs, "ge ") || gen2RirStarts(rhs, "and ") ||
+        gen2RirStarts(rhs, "or ") || gen2RirStarts(rhs, "neg ") ||
+        gen2RirStarts(rhs, "not ") || gen2RirStarts(rhs, "pos ")) return true;
+    return false;
+}
+
+function gen2RirKnownFunctionLine(line: string) -> bool {
+    if (line == "entry:" || line == "return" || gen2RirStarts(line, "return ") ||
+        gen2RirStarts(line, "local ") || gen2RirStarts(line, "local-auto ") ||
+        gen2RirStarts(line, "store ") || gen2RirStarts(line, "store_ref ") ||
+        gen2RirStarts(line, "jump ") || gen2RirStarts(line, "branch ") ||
+        gen2RirStarts(line, "native-call ") || gen2RirStarts(line, "call ")) return true;
+    if (length(line) > 1 && charCodeAt(line, length(line) - 1) == 58) return true;
+    let assignment: i64 = gen2RirFind(line, " = ");
+    if (gen2RirStarts(line, "%t") && assignment > 2) {
+        return gen2RirKnownRhs(gen2RirTrim(slice(line, assignment + 3, length(line))));
+    }
+    return false;
+}
+
+function validateRir1(rir: string) -> string {
+    if (!gen2RirStarts(rir, "rir 1\n")) return "expected RIR version header 'rir 1'";
+
+    let inFunction: bool = false;
+    let hasFunction: bool = false;
+    let lastWasStruct: bool = false;
+    let lineNumber: i64 = 1;
+    let start: i64 = 0;
+    let i: i64 = 0;
+    while (i <= length(rir)) {
+        if (i == length(rir) || charCodeAt(rir, i) == 10) {
+            let line: string = gen2RirTrim(slice(rir, start, i));
+            start = i + 1;
+            if (line != "" && line != "rir 1") {
+                if (inFunction) {
+                    if (line == "endfunction") {
+                        inFunction = false;
+                    } else if (!gen2RirKnownFunctionLine(line)) {
+                        return "unsupported RIR instruction at line " + int_to_string(lineNumber) + ": " + line;
+                    } else if (gen2RirStarts(line, "branch ") &&
+                        (gen2RirFind(line, " ? ") < 0 || gen2RirFind(line, " : ") < 0)) {
+                        return "malformed branch at RIR line " + int_to_string(lineNumber);
+                    } else if (gen2RirStarts(line, "store ") && gen2RirFind(line, ", ") < 0) {
+                        return "malformed store at RIR line " + int_to_string(lineNumber);
+                    } else if (gen2RirStarts(line, "store_ref ") && gen2RirFind(line, ", ") < 0) {
+                        return "malformed store_ref at RIR line " + int_to_string(lineNumber);
+                    }
+                } else if (gen2RirStarts(line, "function ")) {
+                    if (gen2RirFind(line, "(") < 0 || gen2RirFind(line, ") -> ") < 0) {
+                        return "malformed function header at RIR line " + int_to_string(lineNumber);
+                    }
+                    inFunction = true;
+                    hasFunction = true;
+                    lastWasStruct = false;
+                } else if (gen2RirStarts(line, "use-quoted ")) {
+                    if (length(line) <= 11) return "empty native include at RIR line " + int_to_string(lineNumber);
+                    lastWasStruct = false;
+                } else if (gen2RirStarts(line, "global ") || gen2RirStarts(line, "global-auto ") ||
+                    gen2RirStarts(line, "global-const ") || gen2RirStarts(line, "global-const-auto ")) {
+                    lastWasStruct = false;
+                } else if (gen2RirStarts(line, "struct ")) {
+                    if (length(line) <= 7) return "empty struct name at RIR line " + int_to_string(lineNumber);
+                    lastWasStruct = true;
+                } else if (gen2RirStarts(line, "field ") && lastWasStruct) {
+                    lastWasStruct = true;
+                } else {
+                    return "unexpected RIR declaration at line " + int_to_string(lineNumber) + ": " + line;
+                }
+            }
+        }
+        i = i + 1;
+        if (i == length(rir) || (i < length(rir) && charCodeAt(rir, i) == 10)) lineNumber = lineNumber + 1;
+    }
+
+    if (inFunction) return "unterminated RIR function (missing endfunction)";
+    if (!hasFunction) return "RIR module has no functions";
+    return "";
+}
 
 
 function emitLine(state: Ref<EmitState>, line: string) {
@@ -2258,13 +2863,13 @@ function emitProgram(program: Ref<Program>) -> string {
         i = i + 1;
     }
 
-    let out: string = "";
+    let outputChunks: List<string> = [];
     i = 0;
     while (i < listLength(state.lines)) {
-        out = out + state.lines[i] + "\n";
+        push(outputChunks, state.lines[i] + "\n");
         i = i + 1;
     }
-    return out;
+    return joinTextChunks(outputChunks);
 }
 
 function compileSourceAt(source: string, entryPath: string) -> string {
@@ -2274,7 +2879,23 @@ function compileSourceAt(source: string, entryPath: string) -> string {
     let program: Program = parseProgram(expanded);
     if (!program.valid) return "";
     if (analyzeProgram(program) != 0) return "";
-    return emitProgram(program);
+
+    // Target support is checked while the source program is still structured AST.
+    let loweringError: string = validateCpp17Lowering(program);
+    if (loweringError != "") {
+        print("lowering-error: " + loweringError);
+        return "";
+    }
+
+    // Emit a normalized RIR-1 module, then verify the IR contract before a
+    // target backend can consume it. Unknown operations must never disappear.
+    let rir: string = emitProgram(program);
+    let rirError: string = validateRir1(rir);
+    if (rirError != "") {
+        print("rir-error: " + rirError);
+        return "";
+    }
+    return rir;
 }
 
 function compileSource(source: string) -> string {
@@ -2319,6 +2940,7 @@ struct BackendState {
     lines: List<string>;
     temps: List<string>;
     tempTypes: List<string>;
+    tempBase: i64;
     locals: List<string>;
     localTypes: List<string>;
     localAutos: List<bool>;
@@ -2329,7 +2951,7 @@ struct BackendState {
 
 
 
-function lineAt(lines: List<string>, index: i64) -> string {
+function lineAt(lines: Ref<List<string>>, index: i64) -> string {
     if (index < 0) return "";
     if (index >= listLength(lines)) return "";
     return trim(lines[index]);
@@ -2625,6 +3247,9 @@ function cppValue(state: Ref<BackendState>, value: string) -> string {
     if (cpp17_starts(x, "%") && cpp17_findText(x, "%t", 0) == 0) return aliasValue(state, valueName(x));
     if (cpp17_findText(x, "%t", 0) < 0) {
         if (x == "true" || x == "false" || x == "nullptr") return x;
+        // Compiler-generated local symbols are intentionally outside Raz's
+        // identifier alphabet, then mangled into ordinary C++ identifiers.
+        if (cpp17_starts(x, "raz$local$")) return cppVariableName(x);
         if (simpleRazIdentifier(x)) return cppVariableName(x);
         return x;
     }
@@ -2691,48 +3316,63 @@ function cppArgs(state: Ref<BackendState>, values: string) -> string {
     return out;
 }
 
-function has(state: Ref<BackendState>, name: string) -> bool {
-    let i: i64 = 0;
-    while (i < listLength(state.temps)) {
-        if (state.temps[i] == name) return true;
-        i = i + 1;
-    }
-    return false;
-}
-
 function localIndex(state: Ref<BackendState>, name: string) -> i64 {
-    let i: i64 = 0;
-    while (i < listLength(state.locals)) {
+    let i: i64 = listLength(state.locals) - 1;
+    while (i >= 0) {
         if (state.locals[i] == name) return i;
-        i = i + 1;
+        i = i - 1;
     }
     return -1;
 }
 
+// RIR temporary names are numeric (`tN` after removing `%`). Allocate the
+// function's temp range once and use direct indexing, avoiding repeated linear
+// scans in value/type inference. A temp may be assigned on multiple control-flow
+// edges; all such assignments share a single declaration and inferred type.
+function tempNumber(name: string) -> i64 {
+    // valueName() canonicalizes `%t123` to `tt123` for the C++ emitter.
+    if (!cpp17_starts(name, "tt") || length(name) < 3) return -1;
+    let n: i64 = 0;
+    let i: i64 = 2;
+    while (i < length(name)) {
+        let c: i64 = charCodeAt(name, i);
+        if (c < 48 || c > 57) return -1;
+        n = n * 10 + c - 48;
+        i = i + 1;
+    }
+    return n;
+}
+
+function tempSlot(state: Ref<BackendState>, name: string) -> i64 {
+    let n: i64 = tempNumber(name);
+    if (n < state.tempBase) return -1;
+    let slot: i64 = n - state.tempBase;
+    if (slot < 0 || slot >= listLength(state.temps)) return -1;
+    if (state.temps[slot] != name) return -1;
+    return slot;
+}
+
 function addTemp(state: Ref<BackendState>, name: string, type: string) {
-    if (name == "" || has(state, name)) return;
-    push(state.temps, name);
-    push(state.tempTypes, type);
+    let slot: i64 = tempSlot(state, name);
+    if (slot < 0) return;
+    if (state.tempTypes[slot] == "") {
+        state.tempTypes[slot] = type;
+    } else if (state.tempTypes[slot] == "i64" && type != "i64") {
+        state.tempTypes[slot] = type;
+    } else if (state.tempTypes[slot] == "List<i64>" && cpp17_starts(type, "List<")) {
+        state.tempTypes[slot] = type;
+    }
 }
 
 function tempType(state: Ref<BackendState>, name: string) -> string {
-    let i: i64 = 0;
-    while (i < listLength(state.temps)) {
-        if (state.temps[i] == name) return state.tempTypes[i];
-        i = i + 1;
-    }
-    return "i64";
+    let slot: i64 = tempSlot(state, name);
+    if (slot < 0 || state.tempTypes[slot] == "") return "i64";
+    return state.tempTypes[slot];
 }
 
 function setTempType(state: Ref<BackendState>, name: string, type: string) {
-    let i: i64 = 0;
-    while (i < listLength(state.temps)) {
-        if (state.temps[i] == name) {
-            state.tempTypes[i] = type;
-            return;
-        }
-        i = i + 1;
-    }
+    let slot: i64 = tempSlot(state, name);
+    if (slot >= 0) state.tempTypes[slot] = type;
 }
 
 function refineListType(state: Ref<BackendState>, value: string, expected: string) {
@@ -2748,22 +3388,25 @@ function findVarType(f: Ref<FunctionMeta>, state: Ref<BackendState>, name: strin
         if (f.params[i] == name) return f.paramTypes[i];
         i = i + 1;
     }
-    i = 0;
-    while (i < listLength(state.locals)) {
+    i = listLength(state.locals) - 1;
+    while (i >= 0) {
         if (state.locals[i] == name) return state.localTypes[i];
-        i = i + 1;
+        i = i - 1;
     }
     return "i64";
 }
 
 function valueType(module: Ref<BackendModule>, f: Ref<FunctionMeta>, state: Ref<BackendState>, value: string) -> string {
     let x: string = trim(value);
-    if (cpp17_starts(x, "%")) {
-        return tempType(state, valueName(x));
-    }
-    if (x == "true" || x == "false") return "bool";
-    if (cpp17_starts(x, "\"")) return "string";
-    return findVarType(f, state, x);
+    let type: string = "";
+    if (cpp17_starts(x, "%")) type = tempType(state, valueName(x));
+    else if (x == "true" || x == "false") return "bool";
+    else if (cpp17_starts(x, "\"")) return "string";
+    else type = findVarType(f, state, x);
+    // Reading a place yields T, even when its storage/parameter is Ref<T>.
+    // Explicit reference operations infer Ref<T> in their own branches.
+    if (cpp17_starts(type, "Ref<") && length(type) > 5) return slice(type, 4, length(type) - 1);
+    return type;
 }
 
 function functionReturnType(module: Ref<BackendModule>, name: string) -> string {
@@ -2807,6 +3450,10 @@ function globalType(module: Ref<BackendModule>, name: string) -> string {
 }
 
 function inferRhsType(module: Ref<BackendModule>, f: Ref<FunctionMeta>, state: Ref<BackendState>, rhs: string) -> string {
+    // Branch-merge and short-circuit results use `copy %tN`. Resolve the source
+    // temp's inferred type instead of treating the whole expression as a local
+    // variable name (which silently defaulted to i64).
+    if (cpp17_starts(rhs, "copy ")) return valueType(module, f, state, trim(slice(rhs, 5, length(rhs))));
     if (cpp17_starts(rhs, "load ")) {
         let name: string = trim(slice(rhs, 5, length(rhs)));
         let i: i64 = 0;
@@ -2907,6 +3554,7 @@ function inferRhsType(module: Ref<BackendModule>, f: Ref<FunctionMeta>, state: R
 function collectDeclarations(module: Ref<BackendModule>, f: Ref<FunctionMeta>, state: Ref<BackendState>) {
     state.temps = [];
     state.tempTypes = [];
+    state.tempBase = 0;
     state.locals = [];
     state.localTypes = [];
     state.localAutos = [];
@@ -2926,15 +3574,38 @@ function collectDeclarations(module: Ref<BackendModule>, f: Ref<FunctionMeta>, s
             if (split >= 0) {
                 let type: string = trim(slice(local, 0, split));
                 let name: string = trim(slice(local, split + 1, length(local)));
-                if (localIndex(state, name) < 0) {
-                    push(state.localTypes, type);
-                    push(state.locals, name);
-                    push(state.localAutos, inferredLocal);
-                    push(state.localInitValues, "");
-                }
+                push(state.localTypes, type);
+                push(state.locals, name);
+                push(state.localAutos, inferredLocal);
+                push(state.localInitValues, "");
             }
         }
         i = i + 1;
+    }
+
+    // Temp IDs are monotonic within a function, but don't necessarily start at
+    // zero. Find this function's range once, then reserve its direct-index slots.
+    let minTemp: i64 = 2147483647;
+    let maxTemp: i64 = -1;
+    i = 0;
+    while (i < listLength(f.body)) {
+        let line: string = trim(f.body[i]);
+        let split: i64 = cpp17_findText(line, " = ", 0);
+        if (cpp17_starts(line, "%") && split > 2) {
+            let id: i64 = tempNumber(valueName(trim(slice(line, 0, split))));
+            if (id >= 0 && id < minTemp) minTemp = id;
+            if (id > maxTemp) maxTemp = id;
+        }
+        i = i + 1;
+    }
+    if (maxTemp >= minTemp) {
+        state.tempBase = minTemp;
+        let id: i64 = minTemp;
+        while (id <= maxTemp) {
+            push(state.temps, "tt" + int_to_string(id));
+            push(state.tempTypes, "");
+            id = id + 1;
+        }
     }
 
     i = 0;
@@ -3036,7 +3707,7 @@ function emitFunction(module: Ref<BackendModule>, f: Ref<FunctionMeta>, state: R
     // available. Runtime initialization remains at the original store site.
     i = 0;
     while (i < listLength(state.temps)) {
-        if (!cpp17_starts(state.tempTypes[i], "Ref<")) cpp17_emitLine(state, "    " + cppType(state.tempTypes[i]) + " " + state.temps[i] + "{};");
+        if (state.tempTypes[i] != "" && !cpp17_starts(state.tempTypes[i], "Ref<")) cpp17_emitLine(state, "    " + cppType(state.tempTypes[i]) + " " + state.temps[i] + "{};");
         i = i + 1;
     }
     i = 0;
@@ -3271,15 +3942,82 @@ function generate(rir: string) -> string {
     cpp17_emitLine(state, "    return static_cast<int>(" + cppFunctionName("main") + "());");
     cpp17_emitLine(state, "}");
 
-    let out: string = "";
+    let outputChunks: List<string> = [];
     i = 0;
     while (i < listLength(state.lines)) {
-        out = out + state.lines[i] + "\n";
+        push(outputChunks, state.lines[i] + "\n");
         i = i + 1;
     }
-    return out;
+    return joinTextChunks(outputChunks);
 }
 
+
+
+// Validate the structural contract of our generated C++17 translation unit.
+// Full C++ grammar/type validation belongs to the selected native C++ compiler;
+// this pass catches malformed output from our own lowering before it is written.
+function validateCpp17Output(source: string) -> string {
+    if (source == "") return "empty C++ output";
+    if (cpp17_findText(source, "int main(int argc, char** argv) {", 0) < 0) {
+        return "generated C++ is missing the required process entry point";
+    }
+    if (cpp17_findText(source, "using raz_i64 = __INT64_TYPE__;", 0) < 0) {
+        return "generated C++ is missing the target primitive type declaration";
+    }
+
+    let parens: i64 = 0;
+    let braces: i64 = 0;
+    let brackets: i64 = 0;
+    let quote: i64 = 0;
+    let escaped: bool = false;
+    let lineComment: bool = false;
+    let blockComment: bool = false;
+    let i: i64 = 0;
+    while (i < length(source)) {
+        let c: i64 = charCodeAt(source, i);
+        let next: i64 = -1;
+        if (i + 1 < length(source)) next = charCodeAt(source, i + 1);
+
+        if (lineComment) {
+            if (c == 10) lineComment = false;
+        } else if (blockComment) {
+            if (c == 42 && next == 47) {
+                blockComment = false;
+                i = i + 1;
+            }
+        } else if (quote != 0) {
+            if (escaped) escaped = false;
+            else if (c == 92) escaped = true;
+            else if (c == quote) quote = 0;
+        } else if (c == 47 && next == 47) {
+            lineComment = true;
+            i = i + 1;
+        } else if (c == 47 && next == 42) {
+            blockComment = true;
+            i = i + 1;
+        } else if (c == 34 || c == 39) {
+            quote = c;
+        } else if (c == 40) parens = parens + 1;
+        else if (c == 41) {
+            parens = parens - 1;
+            if (parens < 0) return "unexpected ')' in generated C++";
+        } else if (c == 123) braces = braces + 1;
+        else if (c == 125) {
+            braces = braces - 1;
+            if (braces < 0) return "unexpected '}' in generated C++";
+        } else if (c == 91) brackets = brackets + 1;
+        else if (c == 93) {
+            brackets = brackets - 1;
+            if (brackets < 0) return "unexpected ']' in generated C++";
+        }
+        i = i + 1;
+    }
+
+    if (quote != 0) return "unterminated literal in generated C++";
+    if (blockComment) return "unterminated comment in generated C++";
+    if (parens != 0 || braces != 0 || brackets != 0) return "unbalanced delimiters in generated C++";
+    return "";
+}
 
 
 // Gen2 compiler entry point. User module resolution is implemented in Raz in
@@ -3299,15 +4037,19 @@ let gOutputPath: string = "";
 let gOption: string = "";
 let gSource: string = "";
 let gResolvedSource: string = "";
+let gExpandedSource: string = "";
 let gRir: string = "";
 let gCpp: string = "";
 let gDefaultModuleRoot: string = "";
 let gDefinitions: string = "";
+let gTargetOS: string = "unknown";
+let gTargetArch: string = "unknown";
+let gTargetCompiler: string = "unknown";
 
 function printUsage() {
     print("Raz Gen2 compiler preview");
-    print("Usage: razc <input.raz> [--emit-cpp <output.cpp>]");
-    print("Options: --help, --version, -o <output.cpp>, --emit-cpp <output.cpp>, -L <module-root>, --define NAME=VALUE");
+    print("Usage: razc <input.raz> [GNU C++ options] [-o output]");
+    print("Raz options: --help, --version, -o <output>, --emit-cpp <output.cpp>, --module-path DIR, --define NAME=VALUE");
 }
 
 
@@ -3339,6 +4081,22 @@ function validBuildDefinitionValue(value: string) -> bool {
     return false;
 }
 
+
+function reservedTargetDefinition(name: string) -> bool {
+    return name == "RAZ_TARGET_OS" || name == "RAZ_TARGET_ARCH" || name == "RAZ_TARGET_COMPILER";
+}
+
+function validTargetLabel(value: string) -> bool {
+    if (value == "") return false;
+    let i: i64 = 0;
+    while (i < length(value)) {
+        let c: i64 = charCodeAt(value, i);
+        if (!((c >= 65 && c <= 90) || (c >= 97 && c <= 122) || (c >= 48 && c <= 57) || c == 95 || c == 45 || c == 46)) return false;
+        i = i + 1;
+    }
+    return true;
+}
+
 function addBuildDefinition(spec: string) -> bool {
     let name: string = buildDefinitionName(spec);
     let cursor: i64 = 0;
@@ -3353,6 +4111,16 @@ function addBuildDefinition(spec: string) -> bool {
     }
     gDefinitions = gDefinitions + spec + "\n";
     return true;
+}
+
+function sourceUsesIdentifier(source: string, name: string) -> bool {
+    let tokens: List<Token> = lex(source);
+    let i: i64 = 0;
+    while (i + 1 < listLength(tokens)) {
+        if (tokens[i].kind == 1 && tokens[i].text == name) return true;
+        i = i + 1;
+    }
+    return false;
 }
 
 function rewriteBuildDefinitionReferences(source: string, name: string, alias: string) -> string {
@@ -3374,6 +4142,13 @@ function rewriteBuildDefinitionReferences(source: string, name: string, alias: s
 function applyBuildDefinitions(source: string, definitions: string) -> string {
     let declarations: string = "";
     let rewritten: string = source;
+
+    // Target metadata is a read-only compile-time constant, added only when
+    // referenced so programs with no imports remain header-free.
+    if (sourceUsesIdentifier(rewritten, "RAZ_TARGET_OS")) declarations = declarations + "const RAZ_TARGET_OS: string = \"" + gTargetOS + "\";\n";
+    if (sourceUsesIdentifier(rewritten, "RAZ_TARGET_ARCH")) declarations = declarations + "const RAZ_TARGET_ARCH: string = \"" + gTargetArch + "\";\n";
+    if (sourceUsesIdentifier(rewritten, "RAZ_TARGET_COMPILER")) declarations = declarations + "const RAZ_TARGET_COMPILER: string = \"" + gTargetCompiler + "\";\n";
+
     let cursor: i64 = 0;
     while (cursor < length(definitions)) {
         let next: i64 = findText(definitions, "\n", cursor);
@@ -3388,7 +4163,7 @@ function applyBuildDefinitions(source: string, definitions: string) -> string {
                 print("razc: note: -D" + name + " is passed to GNU C++ but is not exposed as a Raz global");
             } else if (!validBuildDefinitionValue(value)) {
                 print("razc: note: -D" + name + " has a non-literal value; it remains a GNU C++ macro only");
-            } else {
+            } else if (sourceUsesIdentifier(rewritten, name)) {
                 let alias: string = "raz_build_definition_" + name;
                 rewritten = rewriteBuildDefinitionReferences(rewritten, name, alias);
                 declarations = declarations + "const " + alias + " = " + value + ";\n";
@@ -3413,7 +4188,7 @@ function runCompiler() -> i64 {
         return 0;
     }
     if (gInputPath == "--version" || gInputPath == "-V") {
-        print("razc Gen2 preview 0.3.0");
+        print("razc Gen2 preview 0.4.0-g2-012");
         return 0;
     }
 
@@ -3442,6 +4217,20 @@ function runCompiler() -> i64 {
                 return 2;
             }
             push(moduleRoots, argAt(i));
+        } else if (gOption == "--target-os" || gOption == "--target-arch" || gOption == "--target-compiler") {
+            i = i + 1;
+            if (i >= argc) {
+                print("razc: missing value after " + gOption);
+                return 2;
+            }
+            let targetValue: string = argAt(i);
+            if (!validTargetLabel(targetValue)) {
+                print("razc: invalid target metadata value for " + gOption);
+                return 2;
+            }
+            if (gOption == "--target-os") gTargetOS = targetValue;
+            else if (gOption == "--target-arch") gTargetArch = targetValue;
+            else gTargetCompiler = targetValue;
         } else if (gOption == "--define") {
             i = i + 1;
             if (i >= argc) {
@@ -3449,6 +4238,10 @@ function runCompiler() -> i64 {
                 return 2;
             }
             let spec: string = argAt(i);
+            if (reservedTargetDefinition(buildDefinitionName(spec))) {
+                print("razc: reserved build definition: " + buildDefinitionName(spec));
+                return 2;
+            }
             if (buildDefinitionName(spec) == "") {
                 print("razc: invalid build definition; expected NAME=VALUE");
                 return 2;
@@ -3459,6 +4252,10 @@ function runCompiler() -> i64 {
             }
         } else if (starts(gOption, "--define=")) {
             let spec: string = slice(gOption, 9, length(gOption));
+            if (reservedTargetDefinition(buildDefinitionName(spec))) {
+                print("razc: reserved build definition: " + buildDefinitionName(spec));
+                return 2;
+            }
             if (buildDefinitionName(spec) == "") {
                 print("razc: invalid build definition; expected NAME=VALUE");
                 return 2;
@@ -3485,16 +4282,23 @@ function runCompiler() -> i64 {
         print("razc: source/module resolution failed");
         return 1;
     }
-    gResolvedSource = applyBuildDefinitions(gResolvedSource, gDefinitions);
-    if (gResolvedSource == "") return 2;
-    gRir = compileSourceAt(gResolvedSource, gInputPath);
+    gExpandedSource = expandRazMacros(gResolvedSource, gInputPath);
+    if (gExpandedSource == "") return 1;
+    gExpandedSource = applyBuildDefinitions(gExpandedSource, gDefinitions);
+    if (gExpandedSource == "") return 2;
+    gRir = compileSourceAt(gExpandedSource, gInputPath);
     if (gRir == "") {
         print("razc: compilation failed");
         return 1;
     }
     gCpp = generate(gRir);
     if (gCpp == "") {
-        print("razc: C++ generation failed");
+        print("razc: C++ lowering failed");
+        return 1;
+    }
+    let cppValidationError: string = validateCpp17Output(gCpp);
+    if (cppValidationError != "") {
+        print("razc: generated C++ failed structural validation: " + cppValidationError);
         return 1;
     }
     if (!writeFile(gOutputPath, gCpp)) {

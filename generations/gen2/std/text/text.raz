@@ -3,11 +3,11 @@
 // at source-analysis time and must be present when the C++ output is compiled.
 use "std/text/text_native.hpp";
 
-function length(value: string) -> i64 {
+function length(value: Ref<string>) -> i64 {
     return std_text_length!(value);
 }
 
-function slice(value: string, begin: i64, end: i64) -> string {
+function slice(value: Ref<string>, begin: i64, end: i64) -> string {
     return std_text_slice!(value, begin, end);
 }
 
