@@ -1,0 +1,5 @@
+// Explicit core module: import this when using the standard C++ representations
+// of Raz's i64/string/List types without another imported library owning those
+// dependencies. Gen2 never injects this module as an implicit prelude.
+use "string";
+use "vector";

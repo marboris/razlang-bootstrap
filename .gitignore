@@ -29,7 +29,7 @@ yarn-error.log*
 *.exe
 *.out
 #core
-core.*
+#core.*
 
 tests/.tmp/
 tests/test-output.txt
